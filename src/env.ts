@@ -22,7 +22,7 @@ export const variables = defineEnvVars({
 	},
 	AUDIO_PROVIDER: {
 		schema: z.enum(['stub', 'audiokit']).default('stub'),
-		description: 'Which AudioProvider implementation the worker uses'
+		description: 'Which AudioProvider implementation the processing worker uses'
 	},
 	AUDIOKIT_WEBHOOK_SECRET: {
 		schema: (value) => value || undefined,

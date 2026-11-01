@@ -5,7 +5,15 @@ Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/a
 
 ## Stack
 
-SvelteKit 3 (Svelte 5 runes) · TypeScript · PostgreSQL 17 on Supabase · Drizzle ORM · Zod · Supabase Auth (magic link) · pg-boss · Railway (web + worker) · Vitest + PGlite.
+SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGlite.
+
+| Concern                         | Where it runs                             |
+| ------------------------------- | ----------------------------------------- |
+| Web UI + REST API               | Netlify (`@sveltejs/adapter-netlify`)     |
+| Database (PostgreSQL 17)        | Supabase project "ERMS" (eu-central-1)    |
+| Auth (magic link)               | Supabase Auth                             |
+| File storage (masters, artwork) | Supabase Storage                          |
+| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function |
 
 ## Layout
 
@@ -18,9 +26,7 @@ src/
     db/                     schema, migrations source, UUIDv7
     audit.ts                withAudit(): change + audit entry in one transaction
     rbac.ts                 roles and scopes
-    queue.ts                pg-boss queues
     audio/                  contract v1 (Zod), AudioProvider, stub, webhook HMAC
-  worker/                   background worker (separate Railway service)
 drizzle/                    SQL migrations (0001 adds RLS + append-only audit log)
 ```
 
@@ -31,8 +37,7 @@ pnpm install
 cp .env.example .env        # fill in Supabase URL and publishable key
 docker compose up -d        # local Postgres 17 + MinIO
 pnpm db:migrate
-pnpm dev                    # web
-pnpm worker                 # background worker
+pnpm dev
 pnpm test                   # unit + database tests (PGlite, no Docker needed)
 ```
 
@@ -41,8 +46,11 @@ pnpm test                   # unit + database tests (PGlite, no Docker needed)
 - Every write goes through `withAudit()`. A write with no audit entry is rejected.
 - `audit_log` is append-only, enforced by a database trigger.
 - Every org-scoped table gets RLS with `app.is_member(org_id)`; see `drizzle/0001_rls.sql`.
-- No secrets in the repo. Railway holds production env vars.
+- No secrets in the repo. Netlify and Supabase hold production env vars and secrets.
+- In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
 
 ## Roadmap
 
-Phase 0 foundation → 1 catalog core → 3 rights → 4 AudioKit integration → 5 metadata intelligence → 6 distribution and royalties → 7 consent-gated AI and agents. (Phase 2, the universe artist graph, lives in AudioKit.)
+Phase 0 foundation → 1 catalog core → 2 rights and contracts → 3 AudioKit integration → 4 metadata intelligence → 5 distribution and royalties → 6 consent-gated AI and agents.
+
+Music intelligence (an artist graph from open music data) is out of scope for now and will be planned separately in AudioKit.

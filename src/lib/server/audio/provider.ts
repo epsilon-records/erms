@@ -2,7 +2,7 @@ import type { Capability, JobAck, JobRequestV1, JobStatus, WebhookEventV1 } from
 
 /**
  * ERMS talks to audio processing only through this interface.
- * AudioKit is the first real implementation (Phase 4); the stub is the second, for tests.
+ * AudioKit is the first real implementation (Phase 3); the stub is the second, for tests.
  */
 export interface AudioProvider {
 	readonly name: string;
