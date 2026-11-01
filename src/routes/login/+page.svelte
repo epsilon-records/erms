@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { form }: PageProps = $props();
+	const badLink = $derived(page.url.searchParams.get('link') === 'invalid');
 </script>
 
 <div class="container" style="max-width: 480px; padding-top: 12vh">
@@ -15,7 +17,12 @@
 			Login link sent to {form.sent}. Check your inbox.
 		</div>
 	{:else}
-		<form method="POST" class="stack">
+		{#if badLink && !form}
+			<div class="alert error" role="alert">
+				That login link has expired or was already used. Request a new one.
+			</div>
+		{/if}
+		<form method="POST" action="/login" class="stack">
 			<label for="email" class="eyebrow">Email</label>
 			<input id="email" name="email" type="email" autocomplete="email" required />
 			<div><button class="btn primary">Send login link</button></div>
