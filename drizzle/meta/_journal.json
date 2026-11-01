@@ -50,6 +50,13 @@
       "when": 1793569738135,
       "tag": "0006_app_role",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793570827175,
+      "tag": "0007_checks_and_indexes",
+      "breakpoints": true
     }
   ]
 }

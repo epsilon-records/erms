@@ -96,6 +96,10 @@ const blank = (s: string | undefined) => {
 	return v === '' ? null : v;
 };
 
+/** Upper bounds for one import. A real label export is far below both. */
+export const MAX_ROWS = 20_000;
+export const MAX_FIELD_CHARS = 2_000;
+
 export function parseSymphonicInventory(csvText: string): ImportPlan {
 	const issues: Issue[] = [];
 	const plan: ImportPlan = {
@@ -114,7 +118,9 @@ export function parseSymphonicInventory(csvText: string): ImportPlan {
 			bom: true,
 			skip_empty_lines: true,
 			trim: true,
-			relax_column_count: false
+			relax_column_count: false,
+			// Stop at the first row past the limit instead of parsing a huge file.
+			to: MAX_ROWS + 1
 		}) as Row[];
 	} catch (e) {
 		issues.push({
@@ -122,6 +128,37 @@ export function parseSymphonicInventory(csvText: string): ImportPlan {
 			line: null,
 			code: 'csv_unreadable',
 			message: `The file could not be read as CSV: ${(e as Error).message}`
+		});
+		return plan;
+	}
+
+	if (rows.length === 0) {
+		issues.push({
+			level: 'error',
+			line: null,
+			code: 'empty_file',
+			message: 'The file has no rows. Export the inventory again from SymphonicMS.'
+		});
+		return plan;
+	}
+	if (rows.length > MAX_ROWS) {
+		issues.push({
+			level: 'error',
+			line: null,
+			code: 'too_many_rows',
+			message: `The file has more than ${MAX_ROWS.toLocaleString('en')} rows. Split it and import each part.`
+		});
+		return plan;
+	}
+	const longField = rows.findIndex((r) =>
+		Object.values(r).some((v) => typeof v === 'string' && v.length > MAX_FIELD_CHARS)
+	);
+	if (longField >= 0) {
+		issues.push({
+			level: 'error',
+			line: longField + 2,
+			code: 'field_too_long',
+			message: `A field is longer than ${MAX_FIELD_CHARS} characters. Check the row for pasted text.`
 		});
 		return plan;
 	}
@@ -285,6 +322,15 @@ export function parseSymphonicInventory(csvText: string): ImportPlan {
 	for (const rel of plan.releases.values()) {
 		rel.tracks.sort((a, b) => a.position - b.position);
 		rel.type = deriveReleaseType(rel, plan.recordings);
+		const unknown = rel.tracks.filter((t) => plan.recordings.get(t.isrc)?.durationMs == null);
+		if (unknown.length > 0 && rel.tracks.length > 1) {
+			issues.push({
+				level: 'warning',
+				line: null,
+				code: 'type_guessed',
+				message: `Release ${rel.upc}: ${unknown.length} of ${rel.tracks.length} track lengths are missing, so "${rel.type}" is a guess from the track count. Check it after import.`
+			});
+		}
 	}
 	plan.labels = [...labelSet].sort();
 	return plan;
@@ -343,10 +389,13 @@ export function deriveReleaseType(
 			(r) => !r.credits.some((c) => c.role === 'main' && releaseKeys.has(partyMatchKey(c.name)))
 		);
 	if (isCompilation) return 'compilation';
+	// Missing lengths are unknown, not zero: only lengths we know can push a release
+	// over 30 minutes. Without them the track count decides, and the importer warns.
 	const knownMs = tracks.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
-	const underThirty = knownMs < 30 * 60 * 1000;
-	if (rel.tracks.length <= 3 && underThirty) return 'single';
-	if (rel.tracks.length <= 6 && underThirty) return 'ep';
+	const overThirty = knownMs >= 30 * 60 * 1000;
+	if (overThirty) return 'album';
+	if (rel.tracks.length <= 3) return 'single';
+	if (rel.tracks.length <= 6) return 'ep';
 	return 'album';
 }
 

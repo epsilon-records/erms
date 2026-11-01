@@ -7,7 +7,13 @@ import {
 	partyMatchKey,
 	splitArtists
 } from './identifiers';
-import { normalizeCsvText, parseSymphonicInventory, summarizePlan } from './symphonic';
+import {
+	MAX_FIELD_CHARS,
+	MAX_ROWS,
+	normalizeCsvText,
+	parseSymphonicInventory,
+	summarizePlan
+} from './symphonic';
 
 /** 21 rows in the SymphonicMS export format, with invented names and identifiers, picked for their edge cases. */
 const SAMPLE = readFileSync(
@@ -80,6 +86,47 @@ describe('parseSymphonicInventory', () => {
 	it('rejects files that are not inventory exports', () => {
 		const bad = parseSymphonicInventory('Name,Email\nNate,nate@example.com\n');
 		expect(bad.issues[0]).toMatchObject({ level: 'error', code: 'missing_columns' });
+	});
+
+	it('warns when missing lengths leave the release type a guess', async () => {
+		const { parse } = await import('csv-parse/sync');
+		const rows = parse(SAMPLE, { columns: true, bom: true }) as Record<string, string>[];
+		const ep = rows.filter((r) => r.UPC === '000123450072');
+		ep[0]['Track Length'] = '';
+		const quote = (v: string) => `"${v.replaceAll('"', '""')}"`;
+		const csv = [Object.keys(ep[0]), ...ep.map((r) => Object.values(r))]
+			.map((cells) => cells.map(quote).join(','))
+			.join('\n');
+		const guessed = parseSymphonicInventory(csv);
+		expect(guessed.releases.get('000123450072')?.type).toBe('ep');
+		expect(guessed.issues.filter((i) => i.code === 'type_guessed')).toMatchObject([
+			{ level: 'warning' }
+		]);
+	});
+
+	it('rejects empty files', () => {
+		const header = SAMPLE.split('\n')[0];
+		for (const text of ['', header + '\n']) {
+			expect(parseSymphonicInventory(text).issues[0]).toMatchObject({
+				level: 'error',
+				code: 'empty_file'
+			});
+		}
+	});
+
+	it('rejects files over the row limit', () => {
+		const [header, row] = SAMPLE.split('\n');
+		const big = [header, ...Array(MAX_ROWS + 1).fill(row)].join('\n');
+		expect(parseSymphonicInventory(big).issues[0]).toMatchObject({ code: 'too_many_rows' });
+	});
+
+	it('rejects absurdly long fields', () => {
+		const [header, row] = SAMPLE.split('\n');
+		const long = row.replace('ZZAA12595068', 'X'.repeat(MAX_FIELD_CHARS + 1));
+		expect(parseSymphonicInventory([header, long].join('\n')).issues[0]).toMatchObject({
+			code: 'field_too_long',
+			line: 2
+		});
 	});
 
 	it('flags bad identifiers and duplicate track numbers', () => {

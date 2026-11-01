@@ -58,7 +58,7 @@ describe('catalog edits', () => {
 		await applyImport(db, parseSymphonicInventory(SAMPLE), {
 			...ctx,
 			fileName: 'f',
-			fileSha256: 'x',
+			fileSha256: 'a'.repeat(64),
 			dryRun: false
 		});
 	});
