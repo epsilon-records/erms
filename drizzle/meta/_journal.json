@@ -36,6 +36,20 @@
       "when": 1793528293868,
       "tag": "0004_catalog_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793569629164,
+      "tag": "0005_same_org_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793569738135,
+      "tag": "0006_app_role",
+      "breakpoints": true
     }
   ]
 }

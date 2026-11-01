@@ -42,6 +42,19 @@
 			</form>
 		{/if}
 		<div class="who">
+			{#if data.memberships && data.memberships.length > 1}
+				<form method="POST" action="/org" class="switch">
+					<label for="org" class="sr-only">Label</label>
+					<select id="org" name="orgId">
+						{#each data.memberships as m (m.orgId)}
+							<option value={m.orgId} selected={m.orgId === data.membership?.orgId}
+								>{m.orgName}</option
+							>
+						{/each}
+					</select>
+					<button class="btn small">Switch</button>
+				</form>
+			{/if}
 			<span class="muted">{data.user.email}</span>
 			<form method="POST" action="/logout"><button class="linkish">Log out</button></form>
 		</div>
@@ -68,6 +81,15 @@
 	.brand,
 	nav a,
 	.who,
+	.switch {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+	.switch select {
+		width: auto;
+		padding: 6px 10px;
+	}
 	.search {
 		display: flex;
 		align-items: center;

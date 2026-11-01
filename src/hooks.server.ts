@@ -1,10 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
+import { scopedTo } from '#lib/server/db/scoped.js';
+import { ORG_COOKIE, pickMembership } from '#lib/server/org.js';
 
 /** Routes reachable without signing in. */
 const PUBLIC_PATHS = ['/login', '/auth/callback'];
@@ -27,15 +29,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 	} = await event.locals.supabase.auth.getUser();
 	event.locals.user = user;
 	event.locals.membership = null;
+	event.locals.memberships = [];
+	event.locals.db = () => error(401, 'Sign in first.');
 
 	if (user) {
-		const [row] = await db()
-			.select({ orgId: memberships.orgId, role: memberships.role, orgName: orgs.name })
-			.from(memberships)
-			.innerJoin(orgs, eq(orgs.id, memberships.orgId))
-			.where(eq(memberships.userId, user.id))
-			.limit(1);
-		event.locals.membership = row ?? null;
+		// Every query for this request runs as erms_app on behalf of this user, under RLS.
+		const scoped = scopedTo(db(), user.id);
+		event.locals.db = scoped;
+		const rows = await scoped((tx) =>
+			tx
+				.select({ orgId: memberships.orgId, role: memberships.role, orgName: orgs.name })
+				.from(memberships)
+				.innerJoin(orgs, eq(orgs.id, memberships.orgId))
+				.where(eq(memberships.userId, user.id))
+				.orderBy(asc(memberships.createdAt), asc(orgs.name))
+		);
+		event.locals.memberships = rows;
+		event.locals.membership = pickMembership(rows, event.cookies.get(ORG_COOKIE));
 	}
 
 	const isPublic = PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p));

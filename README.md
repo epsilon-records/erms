@@ -20,14 +20,14 @@ SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGl
 ```
 src/
   env.ts                    validated env vars ($app/env/public, $app/env/private)
-  hooks.server.ts           Supabase session + org membership on every request
+  hooks.server.ts           Supabase session, active org and RLS-scoped db on every request
   routes/                   ASCII UI: /login, /auth/callback, /logout, /
   lib/server/
     db/                     schema, migrations source, UUIDv7
     audit.ts                withAudit(): change + audit entry in one transaction
     rbac.ts                 roles and scopes
     audio/                  contract v1 (Zod), AudioProvider, stub, webhook HMAC
-drizzle/                    SQL migrations (0001 adds RLS + append-only audit log)
+drizzle/                    SQL migrations (RLS, append-only audit log, same-org keys, app role)
 ```
 
 ## Development
@@ -45,7 +45,10 @@ pnpm test                   # unit + database tests (PGlite, no Docker needed)
 
 - Every write goes through `withAudit()`. A write with no audit entry is rejected.
 - `audit_log` is append-only, enforced by a database trigger.
-- Every org-scoped table gets RLS with `app.is_member(org_id)`; see `drizzle/0001_rls.sql`.
+- Every org-scoped table gets RLS with `app.is_member(org_id)` for reads and role-based write policies; see `drizzle/0001_rls.sql`, `0004` and `0006`.
+- App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `erms_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection.
+- Links between catalog rows carry `org_id` in their foreign keys, so the database refuses links across orgs.
+- `src/lib/server/tenancy.test.ts` proves one org cannot read, write or link into another.
 - No secrets in the repo. Netlify and Supabase hold production env vars and secrets.
 - In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
 
