@@ -4,3 +4,13 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# Static assets don't pass through the SvelteKit server, so they get the same headers here.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
