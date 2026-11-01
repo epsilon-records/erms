@@ -7,13 +7,13 @@ Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/a
 
 SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGlite.
 
-| Concern                         | Where it runs                             |
-| ------------------------------- | ----------------------------------------- |
-| Web UI + REST API               | Netlify (`@sveltejs/adapter-netlify`)     |
-| Database (PostgreSQL 17)        | Supabase project "ERMS" (eu-central-1)    |
-| Auth (magic link)               | Supabase Auth                             |
-| File storage (masters, artwork) | Supabase Storage                          |
-| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function |
+| Concern                         | Where it runs                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| Web UI + REST API               | Netlify (`@sveltejs/adapter-netlify`)                                             |
+| Database (PostgreSQL 17)        | Supabase project "ERMS" (efalpthvvmvpaikuxymd, eu-central-1, org Epsilon Records) |
+| Auth (magic link)               | Supabase Auth                                                                     |
+| File storage (masters, artwork) | Supabase Storage                                                                  |
+| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function                                         |
 
 ## Layout
 

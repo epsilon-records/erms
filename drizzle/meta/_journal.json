@@ -15,6 +15,13 @@
       "when": 1793442518103,
       "tag": "0001_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793524794591,
+      "tag": "0002_pin_search_path",
+      "breakpoints": true
     }
   ]
 }
