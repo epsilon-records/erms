@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
 	check,
 	date,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -10,6 +11,7 @@ import {
 	primaryKey,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 	uuid
 } from 'drizzle-orm/pg-core';
@@ -111,7 +113,11 @@ export const labels = pgTable(
 		name: text('name').notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('labels_org_name_key').on(t.orgId, t.name)]
+	(t) => [
+		uniqueIndex('labels_org_name_key').on(t.orgId, t.name),
+		// Target for same-org foreign keys (see releases).
+		unique('labels_org_id_key').on(t.orgId, t.id)
+	]
 );
 
 /** Artists, writers, producers: anyone who can hold a credit. */
@@ -128,7 +134,10 @@ export const parties = pgTable(
 		matchKey: text('match_key').notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('parties_org_match_key').on(t.orgId, t.matchKey)]
+	(t) => [
+		uniqueIndex('parties_org_match_key').on(t.orgId, t.matchKey),
+		unique('parties_org_id_key').on(t.orgId, t.id)
+	]
 );
 
 export const recordings = pgTable(
@@ -147,7 +156,10 @@ export const recordings = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [uniqueIndex('recordings_org_isrc_key').on(t.orgId, t.isrc)]
+	(t) => [
+		uniqueIndex('recordings_org_isrc_key').on(t.orgId, t.isrc),
+		unique('recordings_org_id_key').on(t.orgId, t.id)
+	]
 );
 
 export const releases = pgTable(
@@ -157,9 +169,7 @@ export const releases = pgTable(
 		orgId: uuid('org_id')
 			.notNull()
 			.references(() => orgs.id),
-		labelId: uuid('label_id')
-			.notNull()
-			.references(() => labels.id),
+		labelId: uuid('label_id').notNull(),
 		upc: text('upc').notNull(),
 		catalogNumber: text('catalog_number'),
 		title: text('title').notNull(),
@@ -173,25 +183,41 @@ export const releases = pgTable(
 	},
 	(t) => [
 		uniqueIndex('releases_org_upc_key').on(t.orgId, t.upc),
-		index('releases_org_date_idx').on(t.orgId, t.releaseDate)
+		index('releases_org_date_idx').on(t.orgId, t.releaseDate),
+		unique('releases_org_id_key').on(t.orgId, t.id),
+		// Every link carries org_id so the database refuses links across orgs.
+		foreignKey({
+			name: 'releases_label_same_org_fk',
+			columns: [t.orgId, t.labelId],
+			foreignColumns: [labels.orgId, labels.id]
+		})
 	]
 );
 
 export const releaseTracks = pgTable(
 	'release_tracks',
 	{
-		releaseId: uuid('release_id')
+		orgId: uuid('org_id')
 			.notNull()
-			.references(() => releases.id, { onDelete: 'cascade' }),
-		recordingId: uuid('recording_id')
-			.notNull()
-			.references(() => recordings.id),
+			.references(() => orgs.id),
+		releaseId: uuid('release_id').notNull(),
+		recordingId: uuid('recording_id').notNull(),
 		disc: integer('disc').notNull().default(1),
 		position: integer('position').notNull()
 	},
 	(t) => [
 		primaryKey({ columns: [t.releaseId, t.disc, t.position] }),
-		index('release_tracks_recording_idx').on(t.recordingId)
+		index('release_tracks_recording_idx').on(t.recordingId),
+		foreignKey({
+			name: 'release_tracks_release_same_org_fk',
+			columns: [t.orgId, t.releaseId],
+			foreignColumns: [releases.orgId, releases.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'release_tracks_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		})
 	]
 );
 
@@ -206,11 +232,9 @@ export const credits = pgTable(
 		orgId: uuid('org_id')
 			.notNull()
 			.references(() => orgs.id),
-		recordingId: uuid('recording_id').references(() => recordings.id, { onDelete: 'cascade' }),
-		releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'cascade' }),
-		partyId: uuid('party_id')
-			.notNull()
-			.references(() => parties.id),
+		recordingId: uuid('recording_id'),
+		releaseId: uuid('release_id'),
+		partyId: uuid('party_id').notNull(),
 		role: creditRoleEnum('role').notNull(),
 		position: integer('position').notNull().default(0),
 		source: text('source').notNull(),
@@ -221,7 +245,22 @@ export const credits = pgTable(
 		uniqueIndex('credits_recording_party_role_key').on(t.recordingId, t.partyId, t.role),
 		uniqueIndex('credits_release_party_role_key').on(t.releaseId, t.partyId, t.role),
 		index('credits_party_idx').on(t.partyId),
-		check('credits_one_target', sql`(${t.recordingId} IS NULL) <> (${t.releaseId} IS NULL)`)
+		check('credits_one_target', sql`(${t.recordingId} IS NULL) <> (${t.releaseId} IS NULL)`),
+		foreignKey({
+			name: 'credits_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'credits_release_same_org_fk',
+			columns: [t.orgId, t.releaseId],
+			foreignColumns: [releases.orgId, releases.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'credits_party_same_org_fk',
+			columns: [t.orgId, t.partyId],
+			foreignColumns: [parties.orgId, parties.id]
+		})
 	]
 );
 

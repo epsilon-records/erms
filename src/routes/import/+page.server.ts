@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fail } from '@sveltejs/kit';
 import { recentImports } from '#lib/server/catalog.js';
-import { db } from '#lib/server/db/client.js';
 import { requireScope } from '#lib/server/guard.js';
 import { applyImport } from '#lib/server/import/apply.js';
 import {
@@ -15,7 +14,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const m = requireScope(locals, 'catalog:write');
-	return { runs: await recentImports(db(), m.orgId) };
+	return { runs: await locals.db((tx) => recentImports(tx, m.orgId)) };
 };
 
 async function readCsv(form: FormData) {
@@ -55,13 +54,15 @@ async function run(request: Request, locals: App.Locals, dryRun: boolean) {
 	};
 	if (summary.errors > 0) return fail(422, { ...base, stage: 'blocked' as const });
 
-	const result = await applyImport(db(), plan, {
-		orgId: m.orgId,
-		actor: { id: locals.user!.id, kind: 'user' },
-		fileName: csv.name,
-		fileSha256: sha256,
-		dryRun
-	});
+	const result = await locals.db((tx) =>
+		applyImport(tx, plan, {
+			orgId: m.orgId,
+			actor: { id: locals.user!.id, kind: 'user' },
+			fileName: csv.name,
+			fileSha256: sha256,
+			dryRun
+		})
+	);
 	return {
 		...base,
 		stage: dryRun ? ('previewed' as const) : ('imported' as const),

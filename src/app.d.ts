@@ -1,5 +1,6 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import type { Role } from '#lib/server/db/schema.js';
+import type { Scoped } from '#lib/server/db/scoped.js';
+import type { Membership } from '#lib/server/org.js';
 
 declare global {
 	namespace App {
@@ -7,12 +8,17 @@ declare global {
 			supabase: SupabaseClient;
 			/** Verified with Supabase Auth on every request; null when signed out. */
 			user: User | null;
-			/** The user's org membership; null if the user has none yet. */
-			membership: { orgId: string; orgName: string; role: Role } | null;
+			/** The org this request acts in; null if the user belongs to none yet. */
+			membership: Membership | null;
+			/** Every org the user belongs to, oldest first. */
+			memberships: Membership[];
+			/** Run queries in one transaction as this user, under RLS. */
+			db: Scoped;
 		}
 		interface PageData {
 			user?: { id: string; email?: string } | null;
 			membership?: App.Locals['membership'];
+			memberships?: App.Locals['memberships'];
 		}
 	}
 }

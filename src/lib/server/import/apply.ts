@@ -237,6 +237,7 @@ export async function applyImport(
 			for (const r of plan.releases.values()) {
 				const id = relId.get(r.upc)!;
 				const desired = r.tracks.map((t) => ({
+					orgId,
 					releaseId: id,
 					recordingId: recId.get(t.isrc)!,
 					disc: 1,
