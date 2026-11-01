@@ -49,6 +49,8 @@ pnpm test                   # unit + database tests (PGlite, no Docker needed)
 - App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `erms_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection.
 - Links between catalog rows carry `org_id` in their foreign keys, so the database refuses links across orgs.
 - `src/lib/server/tenancy.test.ts` proves one org cannot read, write or link into another.
+- Security headers: SvelteKit sets a nonce-based CSP (`vite.config.ts`); `hooks.server.ts` and `netlify.toml` add HSTS, frame, referrer and permissions headers. Unexpected errors are logged server-side as JSON with a short reference; the browser sees only the reference.
+- CI also runs `pnpm audit` and a gitleaks scan of the full history; CodeQL and Dependabot run separately.
 - No secrets in the repo. Netlify and Supabase hold production env vars and secrets.
 - In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
 
