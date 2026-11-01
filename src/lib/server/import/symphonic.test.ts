@@ -7,7 +7,7 @@ import {
 	partyMatchKey,
 	splitArtists
 } from './identifiers';
-import { parseSymphonicInventory, summarizePlan } from './symphonic';
+import { normalizeCsvText, parseSymphonicInventory, summarizePlan } from './symphonic';
 
 /** 21 real rows from the 2026-11-01 SymphonicMS export, picked for their edge cases. */
 const SAMPLE = readFileSync(
@@ -93,5 +93,14 @@ describe('parseSymphonicInventory', () => {
 		const codes = parseSymphonicInventory(broken).issues.map((i) => i.code);
 		expect(codes).toContain('bad_isrc');
 		expect(codes).toContain('duplicate_track_number');
+	});
+});
+
+describe('normalizeCsvText', () => {
+	it('gives the same text for LF, CRLF and BOM variants of one file', () => {
+		const lf = SAMPLE.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+		const crlf = '\uFEFF' + lf.replace(/\n/g, '\r\n');
+		expect(normalizeCsvText(crlf)).toBe(normalizeCsvText(lf));
+		expect(normalizeCsvText(crlf).startsWith('\uFEFF')).toBe(false);
 	});
 });
