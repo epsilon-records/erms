@@ -29,7 +29,7 @@ function request(jobId = 'erms-job-001'): JobRequestV1 {
 }
 
 /**
- * Contract tests every AudioProvider must pass. Phase 4 runs the same suite
+ * Contract tests every AudioProvider must pass. Phase 3 runs the same suite
  * against the AudioKit adapter.
  */
 describe('AudioProvider contract (stub)', () => {

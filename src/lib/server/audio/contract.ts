@@ -16,7 +16,7 @@ export const OperationType = z.enum([
 	'master',
 	'clean',
 	'transcribe',
-	// Gated behind explicit consent (Phase 7); listed so the contract is stable.
+	// Gated behind explicit consent (Phase 6); listed so the contract is stable.
 	'voice_synthesis',
 	'generate'
 ]);
