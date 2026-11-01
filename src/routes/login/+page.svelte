@@ -4,25 +4,24 @@
 	let { form }: PageProps = $props();
 </script>
 
-{#if form && 'sent' in form}
-	<pre>
-&gt; Login link sent to {form.sent}
-&gt; Check your inbox.</pre>
-{:else}
-	<form method="POST">
-		<pre>&gt; LOGIN</pre>
-		<label>
-			email: <input name="email" type="email" autocomplete="email" required />
-		</label>
-		<button>[ send link ]</button>
-		{#if form && 'error' in form}
-			<pre class="err">! {form.error}</pre>
-		{/if}
-	</form>
-{/if}
+<div class="container" style="max-width: 480px; padding-top: 12vh">
+	<section class="stack">
+		<div class="eyebrow"><span>Epsilon Records</span></div>
+		<h1 class="display">Log in</h1>
+	</section>
 
-<style>
-	.err {
-		color: #ff6b6b;
-	}
-</style>
+	{#if form && 'sent' in form}
+		<div class="alert ok" role="status">
+			Login link sent to {form.sent}. Check your inbox.
+		</div>
+	{:else}
+		<form method="POST" class="stack">
+			<label for="email" class="eyebrow">Email</label>
+			<input id="email" name="email" type="email" autocomplete="email" required />
+			<div><button class="btn primary">Send login link</button></div>
+			{#if form && 'error' in form}
+				<div class="alert error" role="alert">{form.error}</div>
+			{/if}
+		</form>
+	{/if}
+</div>

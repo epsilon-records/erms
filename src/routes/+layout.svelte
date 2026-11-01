@@ -1,8 +1,20 @@
 <script lang="ts">
+	import '../app.css';
+	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
+
+	const canImport = $derived(
+		data.membership?.role === 'owner' || data.membership?.role === 'catalog_manager'
+	);
+	const nav = $derived([
+		{ href: '/releases', label: 'Releases' },
+		{ href: '/artists', label: 'Artists' },
+		...(canImport ? [{ href: '/import', label: 'Import' }] : [])
+	]);
+	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 </script>
 
 <svelte:head>
@@ -10,78 +22,91 @@
 	<title>ERMS</title>
 </svelte:head>
 
-<div class="term">
-	<header>
-		<pre class="banner">+--------------------------------------------------+
-|  E R M S   ::   Epsilon Records Management System |
-+--------------------------------------------------+</pre>
-		{#if data.user}
-			<nav>
-				<a href="/">[ home ]</a>
-				{#if data.membership}
-					<a href="/releases">[ releases ]</a>
-					<a href="/artists">[ artists ]</a>
-					{#if data.membership.role === 'owner' || data.membership.role === 'catalog_manager'}
-						<a href="/import">[ import ]</a>
-					{/if}
-				{/if}
-				<span class="who">{data.user.email}</span>
-				<form method="POST" action="/logout"><button>[ logout ]</button></form>
+{#if data.user}
+	<header class="topbar">
+		<a href="/" class="brand plain">ERMS<span class="slash">/</span></a>
+		{#if data.membership}
+			<nav aria-label="Main">
+				{#each nav as item (item.href)}
+					<a href={item.href} class="plain" aria-current={isCurrent(item.href) ? 'page' : undefined}
+						>{item.label}</a
+					>
+				{/each}
 			</nav>
 		{/if}
+		<div class="grow"></div>
+		{#if data.membership}
+			<form method="GET" action="/releases" class="search">
+				<label for="q" class="sr-only">Search releases</label>
+				<input id="q" name="q" type="search" placeholder="Title, artist, cat#, UPC" />
+			</form>
+		{/if}
+		<div class="who">
+			<span class="muted">{data.user.email}</span>
+			<form method="POST" action="/logout"><button class="linkish">Log out</button></form>
+		</div>
 	</header>
-	<main>{@render children()}</main>
-</div>
+{/if}
+
+<main id="content">{@render children()}</main>
 
 <style>
-	:global(html, body) {
-		margin: 0;
-		background: #0b0b0b;
-		color: #d8d8d8;
-		font-family: 'IBM Plex Mono', 'Courier New', monospace;
-		font-size: 15px;
+	.topbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: stretch;
+		gap: 0 32px;
+		padding: 0 48px;
+		border-bottom: 1px solid var(--line);
 	}
-	:global(a),
-	:global(button) {
-		color: #7cff7c;
-		background: none;
-		border: none;
-		font: inherit;
-		cursor: pointer;
-		padding: 0;
-		text-decoration: none;
+	@media (max-width: 640px) {
+		.topbar {
+			padding: 0 20px;
+			gap: 0 20px;
+		}
 	}
-	:global(a:hover),
-	:global(button:hover) {
-		text-decoration: underline;
+	.brand,
+	nav a,
+	.who,
+	.search {
+		display: flex;
+		align-items: center;
+		min-height: 64px;
 	}
-	:global(input) {
-		background: #0b0b0b;
-		color: #d8d8d8;
-		border: 1px solid #555;
-		font: inherit;
-		padding: 4px 8px;
+	.brand {
+		font-family: var(--mono);
+		font-weight: 500;
+		color: var(--text-strong);
 	}
-	.term {
-		max-width: 120ch;
-		margin: 2rem auto;
-		padding: 0 1rem;
-	}
-	.banner {
-		color: #7cff7c;
-		margin: 0 0 1rem;
+	.slash {
+		color: var(--accent);
 	}
 	nav {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 2ch;
-		margin-bottom: 1.5rem;
+		gap: 0 28px;
 	}
-	nav form {
-		display: inline;
+	nav a {
+		color: var(--muted);
 	}
-	nav .who {
-		margin-left: auto;
-		color: #8a8a8a;
+	nav a:hover {
+		color: var(--text-strong);
+	}
+	nav a[aria-current='page'] {
+		color: var(--text-strong);
+		font-weight: 600;
+		box-shadow: inset 0 -3px 0 var(--accent);
+	}
+	.grow {
+		flex-grow: 1;
+	}
+	.search input {
+		width: 240px;
+		max-width: 60vw;
+		min-height: 40px;
+	}
+	.who {
+		gap: 16px;
+		font-size: 13px;
 	}
 </style>

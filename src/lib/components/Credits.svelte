@@ -25,75 +25,75 @@
 	} = $props();
 </script>
 
-<table>
-	<tbody>
-		{#each credits as c (c.id)}
+<div class="table-wrap">
+	<table class="data">
+		<thead>
 			<tr>
-				<td class="dim">{c.role}</td>
-				<td><a href="/artists/{c.partyId}">{c.name}</a></td>
-				<td>
-					{#if !c.approvedAt}
-						<span class="warn">pending</span>
-						{#if canApprove}
-							<form method="POST" action="?/approveCredit">
-								<input type="hidden" name="creditId" value={c.id} />
-								<button>[ approve ]</button>
-							</form>
-						{/if}
-					{/if}
-				</td>
-				<td>
-					{#if canEdit}
-						<form method="POST" action="?/removeCredit">
-							<input type="hidden" name="creditId" value={c.id} />
-							<button class="danger">[ remove ]</button>
-						</form>
-					{/if}
-				</td>
+				<th>Role</th>
+				<th>Artist</th>
+				<th>Status</th>
+				{#if canEdit}<th class="num"><span class="sr-only">Actions</span></th>{/if}
 			</tr>
-		{/each}
-	</tbody>
-</table>
+		</thead>
+		<tbody>
+			{#each credits as c (c.id)}
+				<tr>
+					<td class="mono muted">{c.role}</td>
+					<td><a href="/artists/{c.partyId}" class="plain" style="font-weight: 600">{c.name}</a></td
+					>
+					<td>
+						{#if c.approvedAt}
+							<span class="muted">Approved</span>
+						{:else}
+							<span class="pending">Pending</span>
+						{/if}
+					</td>
+					{#if canEdit}
+						<td class="num">
+							<div class="inline-form" style="justify-content: flex-end">
+								{#if !c.approvedAt && canApprove}
+									<form method="POST" action="?/approveCredit">
+										<input type="hidden" name="creditId" value={c.id} />
+										<button class="btn small">Approve</button>
+									</form>
+								{/if}
+								<form method="POST" action="?/removeCredit">
+									<input type="hidden" name="creditId" value={c.id} />
+									<button class="btn small danger" aria-label="Remove {c.role} credit for {c.name}"
+										>Remove</button
+									>
+								</form>
+							</div>
+						</td>
+					{/if}
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+</div>
 
 {#if canEdit && roles.length}
-	<form method="POST" action="?/addCredit" class="add">
-		<input name="name" placeholder="artist name" value={values.name ?? ''} required />
-		<select name="role">
-			{#each roles as r}<option value={r} selected={values.role === r}>{r}</option>{/each}
-		</select>
-		<button>[ add credit ]</button>
+	<form method="POST" action="?/addCredit" class="inline-form">
+		<label for="credit-name" class="sr-only">Artist name</label>
+		<input
+			id="credit-name"
+			name="name"
+			placeholder="Artist name"
+			value={values.name ?? ''}
+			required
+		/>
+		{#if roles.length > 1}
+			<label for="credit-role" class="sr-only">Role</label>
+			<select id="credit-role" name="role">
+				{#each roles as r (r)}<option value={r} selected={values.role === r}>{r}</option>{/each}
+			</select>
+		{:else}
+			<input type="hidden" name="role" value={roles[0]} />
+		{/if}
+		<button class="btn">Add credit</button>
 	</form>
-	<pre class="dim">New credits start as pending until approved.</pre>
+	<p class="muted" style="margin: 0; font-size: 13px">New credits stay pending until approved.</p>
 {/if}
 {#if errors.name || errors.role || errors.form}
-	<pre class="err">! {errors.name ?? errors.role ?? errors.form}</pre>
+	<div class="alert error" role="alert">{errors.name ?? errors.role ?? errors.form}</div>
 {/if}
-
-<style>
-	table {
-		border-collapse: collapse;
-	}
-	td {
-		padding: 2px 2ch 2px 0;
-	}
-	form {
-		display: inline;
-	}
-	.add {
-		display: flex;
-		gap: 1ch;
-		margin-top: 0.5rem;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-	.warn {
-		color: #ffd166;
-	}
-	.err {
-		color: #ff6b6b;
-	}
-	:global(button.danger) {
-		color: #ff6b6b;
-	}
-</style>

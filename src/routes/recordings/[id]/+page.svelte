@@ -31,100 +31,101 @@
 		'mixer',
 		'mastering'
 	];
+	const mains = $derived(data.credits.filter((c) => c.role === 'main'));
 </script>
 
-<pre>&gt; RECORDING :: {rec.isrc}</pre>
+<div class="container">
+	<section class="stack">
+		<div class="eyebrow">
+			<span class="tag">Recording</span>
+			<span>{rec.isrc}</span>
+			{#if rec.durationMs}<span>{fmt(rec.durationMs)}</span>{/if}
+			{#if rec.subgenre || rec.genre}<span>{rec.subgenre ?? rec.genre}</span>{/if}
+		</div>
+		<h1 class="display">
+			{rec.title}
+			{#if rec.versionTitle}
+				<span class="muted" style="display: block; font-size: 0.4em; font-weight: 500">
+					{rec.versionTitle}
+				</span>
+			{/if}
+		</h1>
+		{#if mains.length}
+			<div class="byline">
+				by {#each mains as c, i (c.id)}{#if i},
+					{/if}<a href="/artists/{c.partyId}">{c.name}</a>{/each}
+			</div>
+		{/if}
+	</section>
 
-{#if data.can.edit}
-	<form method="POST" action="?/save" class="grid">
-		<input type="hidden" name="updatedAt" value={rec.updatedAt.toISOString()} />
-		<label for="title">title</label>
-		<input id="title" name="title" value={v('title', rec.title)} required />
-		<label for="versionTitle">version</label>
-		<input
-			id="versionTitle"
-			name="versionTitle"
-			value={v('versionTitle', rec.versionTitle)}
-			placeholder="e.g. Extended Mix"
-		/>
-		<label for="isrc">isrc</label>
-		<input id="isrc" name="isrc" value={v('isrc', rec.isrc)} required />
-		<label for="duration">length</label>
-		<input
-			id="duration"
-			name="duration"
-			value={v('duration', fmt(rec.durationMs))}
-			placeholder="mm:ss"
-		/>
-		<label for="genre">genre</label>
-		<input id="genre" name="genre" value={v('genre', rec.genre)} />
-		<label for="subgenre">subgenre</label>
-		<input id="subgenre" name="subgenre" value={v('subgenre', rec.subgenre)} />
-		<span></span>
-		<button>[ save ]</button>
-	</form>
-	{#if failed('save')}
-		<pre class="err">{Object.entries(errors)
-				.map(([k, m]) => `! ${k === 'form' ? '' : k + ': '}${m}`)
-				.join('\n')}</pre>
-	{:else if saved}
-		<pre class="ok">&gt; Saved.</pre>
-	{/if}
-{:else}
-	<pre>
-TITLE ...... {rec.title}{rec.versionTitle ? ` (${rec.versionTitle})` : ''}
-ISRC ....... {rec.isrc}
-LENGTH ..... {fmt(rec.durationMs) || '--:--'}
-GENRE ...... {[rec.genre, rec.subgenre].filter(Boolean).join(' / ')}</pre>
-{/if}
+	<div class="split">
+		<section class="side" aria-labelledby="on-releases">
+			<h2 id="on-releases" class="h2">On releases</h2>
+			<dl class="facts">
+				{#each data.releases as r (r.id)}
+					<dt class="mono">{r.releaseDate ?? '—'} · #{r.position}</dt>
+					<dd><a href="/releases/{r.id}" class="plain" style="font-weight: 600">{r.title}</a></dd>
+				{/each}
+			</dl>
+		</section>
 
-<pre>CREDITS</pre>
-<Credits
-	credits={data.credits}
-	canEdit={data.can.edit}
-	canApprove={data.can.approve}
-	roles={ROLES}
-	errors={failed('addCredit') || failed('removeCredit') || failed('approveCredit') ? errors : {}}
-	values={failed('addCredit') ? values : {}}
-/>
+		<div class="main">
+			{#if data.can.edit}
+				<form method="POST" action="?/save" class="stack" aria-labelledby="details-h">
+					<h2 id="details-h" class="h2">Details</h2>
+					<input type="hidden" name="updatedAt" value={rec.updatedAt.toISOString()} />
+					<div class="form-grid">
+						<label for="title">Title</label>
+						<input id="title" name="title" value={v('title', rec.title)} required />
+						<label for="versionTitle">Version</label>
+						<input
+							id="versionTitle"
+							name="versionTitle"
+							value={v('versionTitle', rec.versionTitle)}
+							placeholder="e.g. Extended Mix"
+						/>
+						<label for="isrc">ISRC</label>
+						<input id="isrc" name="isrc" class="mono" value={v('isrc', rec.isrc)} required />
+						<label for="duration">Length</label>
+						<input
+							id="duration"
+							name="duration"
+							class="mono"
+							value={v('duration', fmt(rec.durationMs))}
+							placeholder="mm:ss"
+						/>
+						<label for="genre">Genre</label>
+						<input id="genre" name="genre" value={v('genre', rec.genre)} />
+						<label for="subgenre">Subgenre</label>
+						<input id="subgenre" name="subgenre" value={v('subgenre', rec.subgenre)} />
+						<span></span>
+						<div><button class="btn primary">Save</button></div>
+					</div>
+					{#if failed('save')}
+						<div class="alert error" role="alert">
+							{Object.entries(errors)
+								.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
+								.join('\n')}
+						</div>
+					{:else if saved}
+						<div class="alert ok" role="status">Saved.</div>
+					{/if}
+				</form>
+			{/if}
 
-<pre>ON RELEASES</pre>
-<table>
-	<tbody>
-		{#each data.releases as r (r.id)}
-			<tr>
-				<td>{r.releaseDate ?? '----------'}</td>
-				<td><a href="/releases/{r.id}">{r.title}</a></td>
-				<td class="dim">track {r.position}</td>
-				<td class="dim">{r.catalogNumber ?? ''}</td>
-			</tr>
-		{/each}
-	</tbody>
-</table>
-
-<style>
-	.grid {
-		display: grid;
-		grid-template-columns: 10ch minmax(0, 48ch);
-		gap: 4px 1ch;
-		align-items: center;
-	}
-	.grid label {
-		color: #8a8a8a;
-	}
-	table {
-		border-collapse: collapse;
-	}
-	td {
-		padding: 2px 2ch 2px 0;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-	.err {
-		color: #ff6b6b;
-	}
-	.ok {
-		color: #7cff7c;
-	}
-</style>
+			<section class="stack" aria-labelledby="credits-h">
+				<h2 id="credits-h" class="h2">Credits</h2>
+				<Credits
+					credits={data.credits}
+					canEdit={data.can.edit}
+					canApprove={data.can.approve}
+					roles={ROLES}
+					errors={failed('addCredit') || failed('removeCredit') || failed('approveCredit')
+						? errors
+						: {}}
+					values={failed('addCredit') ? values : {}}
+				/>
+			</section>
+		</div>
+	</div>
+</div>
