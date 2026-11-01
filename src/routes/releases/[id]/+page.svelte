@@ -5,75 +5,105 @@
 	const r = $derived(data.release);
 
 	function fmt(ms: number | null) {
-		if (ms == null) return '--:--';
+		if (ms == null) return '—';
 		const s = Math.round(ms / 1000);
-		return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+		return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 	}
 	const total = $derived(r.tracks.reduce((sum, t) => sum + (t.recording.durationMs ?? 0), 0));
+	const longest = $derived(Math.max(1, ...r.tracks.map((t) => t.recording.durationMs ?? 0)));
+	const pending = $derived(
+		r.tracks.reduce((n, t) => n + t.credits.filter((c) => !c.approvedAt).length, 0) +
+			r.artists.filter((a) => !a.approvedAt).length
+	);
+	const date = $derived(r.releaseDate ? r.releaseDate.split('-').reverse().join('.') : null);
 </script>
 
-<pre><a href="/releases">&lt; releases</a>{#if data.can.edit}
-		<a href="/releases/{r.id}/edit">[ edit ]</a>{/if}</pre>
-<pre>
-+-- {r.title}{r.versionTitle ? ` (${r.versionTitle})` : ''}
-|
-| ARTIST ..... {r.artists.map((a) => a.name).join(', ')}
-| LABEL ...... {r.label}
-| TYPE ....... {r.type}
-| DATE ....... {r.releaseDate ?? 'unknown'}
-| CAT# ....... {r.catalogNumber ?? ''}
-| UPC ........ {r.upc}
-| GENRE ...... {[r.genre, r.subgenre].filter(Boolean).join(' / ')}
-| TRACKS ..... {r.tracks.length} · {fmt(total)}
-+--</pre>
+<div class="container">
+	<section class="stack">
+		<div class="eyebrow">
+			<a href="/releases" class="plain muted">← Releases</a>
+			<span class="tag">{r.type}</span>
+			{#if r.catalogNumber}<span>{r.catalogNumber}</span>{/if}
+			{#if date}<span>{date}</span>{/if}
+			<span>{r.label}</span>
+			{#if r.subgenre || r.genre}<span>{r.subgenre ?? r.genre}</span>{/if}
+		</div>
+		<div class="spread">
+			<h1 class="display">
+				{r.title}{#if r.versionTitle}<span class="muted" style="font-size: 0.4em; font-weight: 500">
+						{r.versionTitle}</span
+					>{/if}
+			</h1>
+			{#if data.can.edit}
+				<div class="btn-group">
+					<a href="/releases/{r.id}/edit" class="btn primary">Edit</a>
+				</div>
+			{/if}
+		</div>
+		<div class="byline">
+			by {#each r.artists as a, i (a.id)}{#if i},
+				{/if}<a href="/artists/{a.id}">{a.name}</a>{/each}
+		</div>
+	</section>
 
-<table>
-	<thead>
-		<tr><th>#</th><th>title</th><th>credits</th><th>isrc</th><th>time</th></tr>
-	</thead>
-	<tbody>
-		{#each r.tracks as t (t.position)}
-			<tr>
-				<td class="num">{t.position}</td>
-				<td>
-					<a href="/recordings/{t.recording.id}">{t.recording.title}</a
-					>{#if t.recording.versionTitle}<span class="dim"> ({t.recording.versionTitle})</span>{/if}
-				</td>
-				<td>
-					{#each t.credits as c, i}{#if i}<br />{/if}<span class="dim">{c.role}</span>
-						<a href="/artists/{c.partyId}">{c.name}</a>{#if !c.approvedAt}
-							<span class="warn">pending</span>{/if}{/each}
-				</td>
-				<td class="mono">{t.recording.isrc}</td>
-				<td class="num">{fmt(t.recording.durationMs)}</td>
-			</tr>
-		{/each}
-	</tbody>
-</table>
+	<div class="split">
+		<aside class="side" aria-label="Release details">
+			<div class="art" role="img" aria-label="No artwork yet">No artwork yet</div>
+			<dl class="facts">
+				<dt>UPC</dt>
+				<dd class="mono">{r.upc}</dd>
+				<dt>Label</dt>
+				<dd>{r.label}</dd>
+				<dt>Genre</dt>
+				<dd>{[r.genre, r.subgenre].filter(Boolean).join(' / ') || '—'}</dd>
+				<dt>Tracks</dt>
+				<dd class="mono">{r.tracks.length} · {fmt(total)}</dd>
+				<dt>Credits</dt>
+				<dd>
+					{#if pending}<span class="pending">{pending} pending</span>{:else}All approved{/if}
+				</dd>
+			</dl>
+		</aside>
 
-<style>
-	table {
-		border-collapse: collapse;
-		width: 100%;
-	}
-	th {
-		text-align: left;
-		color: #8a8a8a;
-		font-weight: normal;
-		border-bottom: 1px dashed #555;
-	}
-	td,
-	th {
-		padding: 2px 1.5ch 2px 0;
-		vertical-align: top;
-	}
-	.num {
-		text-align: right;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-	.warn {
-		color: #ffd166;
-	}
-</style>
+		<section class="main" aria-label="Tracklist">
+			<div class="table-wrap">
+				<table class="data roomy" style="min-width: 680px">
+					<thead>
+						<tr>
+							<th style="width: 48px">No.</th>
+							<th>Title</th>
+							<th style="width: 140px">Length</th>
+							<th>ISRC</th>
+							<th class="num">Time</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each r.tracks as t (t.position)}
+							<tr>
+								<td class="mono muted">{String(t.position).padStart(2, '0')}</td>
+								<td>
+									<a href="/recordings/{t.recording.id}" class="track-title">{t.recording.title}</a>
+									<div class="muted" style="margin-top: 4px; font-size: 14px">
+										{#if t.recording.versionTitle}{`${t.recording.versionTitle} — `}{/if}{#each t.credits as c, i (c.id)}{#if i},
+											{/if}{#if c.role !== 'main'}<span>{c.role}</span>
+											{/if}<a href="/artists/{c.partyId}" class="plain soft">{c.name}</a
+											>{#if !c.approvedAt}
+												<span class="pending">pending</span>{/if}{/each}
+									</div>
+								</td>
+								<td>
+									<span class="bar" aria-hidden="true"
+										><span style:width="{((t.recording.durationMs ?? 0) / longest) * 100}%"
+										></span></span
+									>
+								</td>
+								<td class="mono soft">{t.recording.isrc}</td>
+								<td class="mono num">{fmt(t.recording.durationMs)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	</div>
+</div>

@@ -26,78 +26,82 @@
 	);
 </script>
 
-<pre><a href="/releases/{r.id}">&lt; {r.title}</a></pre>
-<pre>&gt; EDIT RELEASE</pre>
+<div class="container">
+	<section class="stack">
+		<div class="eyebrow">
+			<a href="/releases/{r.id}" class="plain muted">← {r.title}</a>
+			<span class="tag outline">Editing</span>
+		</div>
+		<h1 class="title">Edit release</h1>
+	</section>
 
-<form method="POST" action="?/save" class="grid">
-	<input type="hidden" name="updatedAt" value={r.updatedAt.toISOString()} />
-	<label for="title">title</label>
-	<input id="title" name="title" value={v('title', r.title)} required />
-	<label for="versionTitle">version</label>
-	<input id="versionTitle" name="versionTitle" value={v('versionTitle', r.versionTitle)} />
-	<label for="type">type</label>
-	<select id="type" name="type">
-		{#each TYPES as t}<option value={t} selected={v('type', r.type) === t}>{t}</option>{/each}
-	</select>
-	<label for="releaseDate">date</label>
-	<input
-		id="releaseDate"
-		name="releaseDate"
-		value={v('releaseDate', r.releaseDate)}
-		placeholder="YYYY-MM-DD"
-	/>
-	<label for="labelId">label</label>
-	<select id="labelId" name="labelId">
-		{#each data.labels as l (l.id)}
-			<option value={l.id} selected={v('labelId', r.labelId) === l.id}>{l.name}</option>
-		{/each}
-	</select>
-	<label for="catalogNumber">cat#</label>
-	<input id="catalogNumber" name="catalogNumber" value={v('catalogNumber', r.catalogNumber)} />
-	<label for="upc">upc</label>
-	<input id="upc" name="upc" value={v('upc', r.upc)} required />
-	<label for="genre">genre</label>
-	<input id="genre" name="genre" value={v('genre', r.genre)} />
-	<label for="subgenre">subgenre</label>
-	<input id="subgenre" name="subgenre" value={v('subgenre', r.subgenre)} />
-	<span></span>
-	<span>
-		<button>[ save ]</button>
-		<a href="/releases/{r.id}">[ cancel ]</a>
-	</span>
-</form>
-{#if failed('save')}
-	<pre class="err">{Object.entries(errors)
-			.map(([k, m]) => `! ${k === 'form' ? '' : k + ': '}${m}`)
-			.join('\n')}</pre>
-{/if}
+	<form method="POST" action="?/save" class="stack">
+		<input type="hidden" name="updatedAt" value={r.updatedAt.toISOString()} />
+		<div class="form-grid">
+			<label for="title">Title</label>
+			<input id="title" name="title" value={v('title', r.title)} required />
+			<label for="versionTitle">Version</label>
+			<input id="versionTitle" name="versionTitle" value={v('versionTitle', r.versionTitle)} />
+			<label for="type">Type</label>
+			<select id="type" name="type">
+				{#each TYPES as t (t)}<option value={t} selected={v('type', r.type) === t}>{t}</option
+					>{/each}
+			</select>
+			<label for="releaseDate">Release date</label>
+			<input
+				id="releaseDate"
+				name="releaseDate"
+				value={v('releaseDate', r.releaseDate)}
+				placeholder="YYYY-MM-DD"
+			/>
+			<label for="labelId">Label</label>
+			<select id="labelId" name="labelId">
+				{#each data.labels as l (l.id)}
+					<option value={l.id} selected={v('labelId', r.labelId) === l.id}>{l.name}</option>
+				{/each}
+			</select>
+			<label for="catalogNumber">Catalog #</label>
+			<input
+				id="catalogNumber"
+				name="catalogNumber"
+				class="mono"
+				value={v('catalogNumber', r.catalogNumber)}
+			/>
+			<label for="upc">UPC</label>
+			<input id="upc" name="upc" class="mono" value={v('upc', r.upc)} required />
+			<label for="genre">Genre</label>
+			<input id="genre" name="genre" value={v('genre', r.genre)} />
+			<label for="subgenre">Subgenre</label>
+			<input id="subgenre" name="subgenre" value={v('subgenre', r.subgenre)} />
+			<span></span>
+			<div class="btn-group">
+				<button class="btn primary">Save</button>
+				<a href="/releases/{r.id}" class="btn">Cancel</a>
+			</div>
+		</div>
+		{#if failed('save')}
+			<div class="alert error" role="alert">
+				{Object.entries(errors)
+					.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
+					.join('\n')}
+			</div>
+		{/if}
+	</form>
 
-<pre>RELEASE ARTISTS</pre>
-<Credits
-	credits={artistCredits}
-	canEdit={true}
-	canApprove={data.can.approve}
-	roles={['main']}
-	errors={failed('addCredit') || failed('removeCredit') || failed('approveCredit') ? errors : {}}
-	values={failed('addCredit') ? values : {}}
-/>
-
-<pre class="dim">Track titles, ISRCs and track credits are edited on each recording's page.</pre>
-
-<style>
-	.grid {
-		display: grid;
-		grid-template-columns: 10ch minmax(0, 48ch);
-		gap: 4px 1ch;
-		align-items: center;
-	}
-	.grid label {
-		color: #8a8a8a;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-	.err {
-		color: #ff6b6b;
-	}
-</style>
+	<section class="stack" aria-labelledby="artists-h">
+		<h2 id="artists-h" class="h2">Release artists</h2>
+		<Credits
+			credits={artistCredits}
+			canEdit={true}
+			canApprove={data.can.approve}
+			roles={['main']}
+			errors={failed('addCredit') || failed('removeCredit') || failed('approveCredit')
+				? errors
+				: {}}
+			values={failed('addCredit') ? values : {}}
+		/>
+		<p class="muted" style="margin: 0; font-size: 13px">
+			Track titles, ISRCs and track credits are edited on each recording's page.
+		</p>
+	</section>
+</div>

@@ -4,105 +4,141 @@
 	let { data, form }: PageProps = $props();
 
 	const kinds = ['labels', 'parties', 'recordings', 'releases', 'tracks', 'credits'] as const;
-	const pad = (s: string | number, n: number) => String(s).padEnd(n, ' ');
-	const lpad = (s: string | number, n: number) => String(s).padStart(n, ' ');
-
-	// Built as strings: a <pre> keeps template indentation, which would skew the columns.
-	const countsTable = $derived.by(() => {
-		if (!form || !('counts' in form) || !form.counts) return '';
-		const c = form.counts;
-		const head = `${pad('', 12)}${lpad('create', 8)}${lpad('update', 8)}${lpad('same', 8)}`;
-		const lines = kinds.map(
-			(k) =>
-				`${pad(k, 12)}${lpad(c[k].created, 8)}${lpad(c[k].updated, 8)}${lpad(c[k].unchanged, 8)}`
-		);
-		return [head, ...lines].join('\n');
-	});
-	const issuesText = $derived.by(() => {
-		if (!form || !('issues' in form) || !form.issues?.length) return '';
-		const lines = form.issues.map(
-			(i) =>
-				`${i.level === 'error' ? '!' : '~'} ${i.line != null ? `line ${pad(i.line, 4)}` : '         '} ${i.message}`
-		);
-		if (form.moreIssues) lines.push(`… and ${form.moreIssues} more`);
-		return lines.join('\n');
-	});
-	const runsText = $derived(
-		data.runs
-			.map((r) => `${r.createdAt.toISOString().slice(0, 16).replace('T', ' ')}  ${r.fileName}`)
-			.join('\n')
-	);
+	const kindLabel: Record<(typeof kinds)[number], string> = {
+		labels: 'Labels',
+		parties: 'Artists',
+		recordings: 'Recordings',
+		releases: 'Releases',
+		tracks: 'Tracks',
+		credits: 'Credits'
+	};
+	const stage = $derived(form && 'stage' in form ? form.stage : null);
+	const when = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ');
 </script>
 
-<pre>&gt; IMPORT :: SymphonicMS inventory export</pre>
+<div class="container">
+	<section class="stack">
+		<div class="eyebrow"><span>SymphonicMS inventory export</span></div>
+		<h1 class="title">Import</h1>
+	</section>
 
-{#if !form || !('stage' in form) || form.stage === 'blocked'}
-	<form method="POST" action="?/preview" enctype="multipart/form-data">
-		<label>file: <input type="file" name="file" accept=".csv,text/csv" required /></label>
-		<button>[ dry run ]</button>
-	</form>
-	<pre class="dim">A dry run changes nothing. It shows what the import would create or update.</pre>
-{/if}
-
-{#if form && 'error' in form && form.error}
-	<pre class="err">! {form.error}</pre>
-{/if}
-
-{#if form && 'summary' in form && form.summary}
-	<pre>
-FILE ........ {form.fileName}
-SHA-256 ..... {form.sha256?.slice(0, 16)}…
-ROWS ........ {form.summary.rows}
-RELEASES .... {form.summary.releases}
-RECORDINGS .. {form.summary.recordings}
-ARTISTS ..... {form.summary.parties}
-LABELS ...... {form.summary.labels}
-ERRORS ...... {form.summary.errors}
-WARNINGS .... {form.summary.warnings}</pre>
-
-	{#if countsTable}
-		<pre>{countsTable}</pre>
-	{/if}
-
-	{#if form.stage === 'previewed'}
-		<form method="POST" action="?/apply">
-			<input type="hidden" name="csv" value={form.csv} />
-			<input type="hidden" name="fileName" value={form.fileName} />
-			<input type="hidden" name="sha256" value={form.sha256} />
-			<button>[ import now ]</button>
-			<a href="/import">[ cancel ]</a>
+	{#if !stage || stage === 'blocked'}
+		<form method="POST" action="?/preview" enctype="multipart/form-data" class="stack">
+			<div class="inline-form" style="max-width: 640px">
+				<label for="file" class="sr-only">CSV file</label>
+				<input id="file" type="file" name="file" accept=".csv,text/csv" required />
+				<button class="btn primary">Dry run</button>
+			</div>
+			<p class="muted" style="margin: 0">
+				A dry run changes nothing. It shows what the import would create or update.
+			</p>
 		</form>
-	{:else if form.stage === 'imported'}
-		<pre class="ok">&gt; Imported. <a href="/releases">[ view releases ]</a></pre>
-	{:else if form.stage === 'blocked'}
-		<pre
-			class="err">! Fix the errors below in SymphonicMS or the file, then run the dry run again.</pre>
 	{/if}
 
-	{#if issuesText}
-		<pre>{issuesText}</pre>
+	{#if form && 'error' in form && form.error}
+		<div class="alert error" role="alert">{form.error}</div>
 	{/if}
-{/if}
 
-{#if runsText}
-	<pre class="dim">RECENT IMPORTS
-{runsText}</pre>
-{/if}
+	{#if form && 'summary' in form && form.summary}
+		{@const s = form.summary}
+		<section class="stack" aria-labelledby="summary-h">
+			<div class="spread">
+				<h2 id="summary-h" class="h2">{form.fileName}</h2>
+				<span class="mono muted" title={form.sha256}>sha256 {form.sha256?.slice(0, 16)}…</span>
+			</div>
+			<div class="stats">
+				<div><span class="value">{s.rows}</span><span class="label">Rows</span></div>
+				<div><span class="value">{s.releases}</span><span class="label">Releases</span></div>
+				<div><span class="value">{s.recordings}</span><span class="label">Recordings</span></div>
+				<div><span class="value">{s.parties}</span><span class="label">Artists</span></div>
+				<div><span class="value">{s.labels}</span><span class="label">Labels</span></div>
+				<div>
+					<span class="value" style:color={s.errors ? 'var(--danger)' : undefined}>{s.errors}</span>
+					<span class="label">Errors</span>
+				</div>
+				<div>
+					<span class="value" style:color={s.warnings ? 'var(--warn)' : undefined}
+						>{s.warnings}</span
+					>
+					<span class="label">Warnings</span>
+				</div>
+			</div>
+		</section>
 
-<style>
-	.err {
-		color: #ff6b6b;
-	}
-	.ok {
-		color: #7cff7c;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-	form {
-		display: flex;
-		gap: 2ch;
-		align-items: center;
-		flex-wrap: wrap;
-	}
-</style>
+		{#if 'counts' in form && form.counts}
+			{@const c = form.counts}
+			<section class="stack" aria-labelledby="changes-h">
+				<h2 id="changes-h" class="h2">
+					{stage === 'imported' ? 'Changes made' : 'Changes to make'}
+				</h2>
+				<div class="table-wrap">
+					<table class="data" style="min-width: 420px">
+						<thead>
+							<tr
+								><th></th><th class="num">Create</th><th class="num">Update</th><th class="num"
+									>Same</th
+								></tr
+							>
+						</thead>
+						<tbody>
+							{#each kinds as k (k)}
+								<tr>
+									<td>{kindLabel[k]}</td>
+									<td class="num mono">{c[k].created}</td>
+									<td class="num mono">{c[k].updated}</td>
+									<td class="num mono muted">{c[k].unchanged}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
+
+		{#if stage === 'previewed'}
+			<form method="POST" action="?/apply" class="btn-group">
+				<input type="hidden" name="csv" value={form.csv} />
+				<input type="hidden" name="fileName" value={form.fileName} />
+				<input type="hidden" name="sha256" value={form.sha256} />
+				<button class="btn primary">Import now</button>
+				<a href="/import" class="btn">Cancel</a>
+			</form>
+		{:else if stage === 'imported'}
+			<div class="alert ok" role="status">
+				Imported. <a href="/releases">View releases</a>
+			</div>
+		{:else if stage === 'blocked'}
+			<div class="alert error" role="alert">
+				Fix the errors below in SymphonicMS or the file, then run the dry run again.
+			</div>
+		{/if}
+
+		{#if form.issues?.length}
+			<section class="stack" aria-labelledby="issues-h">
+				<h2 id="issues-h" class="h2">Issues</h2>
+				<ul class="issues">
+					{#each form.issues as i, n (n)}
+						<li class="lvl-{i.level}">
+							<span class="mono">{i.level === 'error' ? 'Error' : 'Warning'}</span>
+							<span class="mono muted">{i.line != null ? `line ${i.line}` : ''}</span>
+							<span>{i.message}</span>
+						</li>
+					{/each}
+					{#if form.moreIssues}<li class="muted">… and {form.moreIssues} more</li>{/if}
+				</ul>
+			</section>
+		{/if}
+	{/if}
+
+	{#if data.runs.length}
+		<section class="stack" aria-labelledby="runs-h">
+			<h2 id="runs-h" class="h2">Recent imports</h2>
+			<dl class="facts">
+				{#each data.runs as r (r.id)}
+					<dt class="mono">{when(r.createdAt)}</dt>
+					<dd>{r.fileName}</dd>
+				{/each}
+			</dl>
+		</section>
+	{/if}
+</div>

@@ -215,3 +215,16 @@ export async function listLabels(db: Database, orgId: string) {
 		.where(eq(labels.orgId, orgId))
 		.orderBy(asc(labels.name));
 }
+
+export async function catalogStats(db: Database, orgId: string) {
+	const [row] = await db
+		.select({
+			releases: sql<number>`(select count(*)::int from ${releases} where ${releases.orgId} = ${orgId})`,
+			recordings: sql<number>`(select count(*)::int from ${recordings} where ${recordings.orgId} = ${orgId})`,
+			artists: sql<number>`(select count(*)::int from ${parties} where ${parties.orgId} = ${orgId})`,
+			pendingCredits: sql<number>`(select count(*)::int from ${credits} where ${credits.orgId} = ${orgId} and ${credits.approvedAt} is null)`,
+			missingDurations: sql<number>`(select count(*)::int from ${recordings} where ${recordings.orgId} = ${orgId} and ${recordings.durationMs} is null)`
+		})
+		.from(sql`(select 1) as one`);
+	return row;
+}

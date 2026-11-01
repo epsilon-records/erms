@@ -2,7 +2,11 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	// The header search lands here with ?q=; the filter then narrows as you type.
 	let q = $state('');
+	$effect.pre(() => {
+		q = data.q;
+	});
 
 	const filtered = $derived(
 		data.releases.filter((r) => {
@@ -14,64 +18,57 @@
 	);
 </script>
 
-<pre>&gt; RELEASES ({filtered.length}/{data.releases.length})</pre>
-<label>filter: <input bind:value={q} placeholder="title, artist, cat#, UPC" /></label>
+<div class="container">
+	<section class="spread">
+		<div class="stack">
+			<div class="eyebrow"><span>{filtered.length} of {data.releases.length}</span></div>
+			<h1 class="title">Releases</h1>
+		</div>
+		<div style="width: 320px; max-width: 100%">
+			<label for="filter" class="sr-only">Filter releases</label>
+			<input id="filter" bind:value={q} placeholder="Filter by title, artist, cat#, UPC" />
+		</div>
+	</section>
 
-{#if data.releases.length === 0}
-	<pre class="dim">No releases yet. <a href="/import">[ import a SymphonicMS export ]</a></pre>
-{:else}
-	<table>
-		<thead>
-			<tr
-				><th>date</th><th>cat#</th><th>title</th><th>artist</th><th>type</th><th>trk</th><th
-					>label</th
-				></tr
-			>
-		</thead>
-		<tbody>
-			{#each filtered as r (r.id)}
-				<tr>
-					<td>{r.releaseDate ?? '----------'}</td>
-					<td>{r.catalogNumber ?? ''}</td>
-					<td>
-						<a href="/releases/{r.id}">{r.title}</a>{#if r.versionTitle}<span class="dim">
-								({r.versionTitle})</span
-							>{/if}
-					</td>
-					<td>
-						{#each r.artists as a, i}{#if i},
-							{/if}<a href="/artists/{a.id}">{a.name}</a>{/each}
-					</td>
-					<td>{r.type}</td>
-					<td class="num">{r.trackCount}</td>
-					<td class="dim">{r.label}</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
-{/if}
-
-<style>
-	table {
-		border-collapse: collapse;
-		width: 100%;
-		margin-top: 1rem;
-	}
-	th {
-		text-align: left;
-		color: #8a8a8a;
-		font-weight: normal;
-		border-bottom: 1px dashed #555;
-	}
-	td,
-	th {
-		padding: 2px 1.5ch 2px 0;
-		vertical-align: top;
-	}
-	.num {
-		text-align: right;
-	}
-	.dim {
-		color: #8a8a8a;
-	}
-</style>
+	{#if data.releases.length === 0}
+		<p class="soft">No releases yet. <a href="/import">Import a SymphonicMS export</a>.</p>
+	{:else}
+		<div class="table-wrap">
+			<table class="data" style="min-width: 820px">
+				<thead>
+					<tr>
+						<th>Date</th>
+						<th>Title</th>
+						<th>Artist</th>
+						<th>Type</th>
+						<th class="num">Tracks</th>
+						<th>Cat#</th>
+						<th>Label</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each filtered as r (r.id)}
+						<tr>
+							<td class="mono muted">{r.releaseDate ?? '—'}</td>
+							<td>
+								<a
+									href="/releases/{r.id}"
+									class="plain"
+									style="font-weight: 600; color: var(--text-strong)">{r.title}</a
+								>{#if r.versionTitle}<span class="muted"> · {r.versionTitle}</span>{/if}
+							</td>
+							<td>
+								{#each r.artists as a, i (a.id)}{#if i},
+									{/if}<a href="/artists/{a.id}" class="plain soft">{a.name}</a>{/each}
+							</td>
+							<td><span class="tag outline">{r.type}</span></td>
+							<td class="num mono">{r.trackCount}</td>
+							<td class="mono muted">{r.catalogNumber ?? ''}</td>
+							<td class="muted">{r.label}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+</div>

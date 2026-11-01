@@ -8,45 +8,44 @@
 	);
 </script>
 
-<pre>&gt; ARTISTS ({filtered.length}/{data.artists.length})</pre>
-<label>filter: <input bind:value={q} placeholder="name" /></label>
+<div class="container">
+	<section class="spread">
+		<div class="stack">
+			<div class="eyebrow"><span>{filtered.length} of {data.artists.length}</span></div>
+			<h1 class="title">Artists</h1>
+		</div>
+		<div style="width: 320px; max-width: 100%">
+			<label for="filter" class="sr-only">Filter artists</label>
+			<input id="filter" bind:value={q} placeholder="Filter by name" />
+		</div>
+	</section>
 
-<table>
-	<thead>
-		<tr
-			><th>name</th><th class="num">releases</th><th class="num">recordings</th><th class="num"
-				>remixes</th
-			></tr
-		>
-	</thead>
-	<tbody>
-		{#each filtered as a (a.id)}
-			<tr>
-				<td><a href="/artists/{a.id}">{a.name}</a></td>
-				<td class="num">{a.releases}</td>
-				<td class="num">{a.recordings}</td>
-				<td class="num">{a.remixes}</td>
-			</tr>
-		{/each}
-	</tbody>
-</table>
-
-<style>
-	table {
-		border-collapse: collapse;
-		margin-top: 1rem;
-	}
-	th {
-		text-align: left;
-		color: #8a8a8a;
-		font-weight: normal;
-		border-bottom: 1px dashed #555;
-	}
-	td,
-	th {
-		padding: 2px 3ch 2px 0;
-	}
-	.num {
-		text-align: right;
-	}
-</style>
+	<div class="table-wrap">
+		<table class="data" style="min-width: 520px">
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th class="num">Releases</th>
+					<th class="num">Recordings</th>
+					<th class="num">Remixes</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each filtered as a (a.id)}
+					<tr>
+						<td
+							><a
+								href="/artists/{a.id}"
+								class="plain"
+								style="font-weight: 600; color: var(--text-strong)">{a.name}</a
+							></td
+						>
+						<td class="num mono">{a.releases}</td>
+						<td class="num mono">{a.recordings}</td>
+						<td class="num mono">{a.remixes}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
+</div>
