@@ -22,6 +22,12 @@ export const actions: Actions = {
 				shouldCreateUser: false
 			}
 		});
+		if (error?.status === 429) {
+			// Supabase's built-in mailer allows only a few emails per hour per project.
+			return fail(429, {
+				error: 'Too many login emails were sent recently. Wait a while, then try again.'
+			});
+		}
 		if (error) {
 			return fail(400, { error: 'Could not send a login link. Check the address and try again.' });
 		}
