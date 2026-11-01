@@ -389,7 +389,7 @@ export async function renameParty(
 				.where(and(eq(parties.orgId, ctx.orgId), eq(parties.matchKey, matchKey)));
 			if (clash) {
 				throw new EditError({
-					displayName: `Another artist is already called "${displayName}". Merging artists comes later.`
+					displayName: `Another artist is already called "${displayName}".`
 				});
 			}
 		}
