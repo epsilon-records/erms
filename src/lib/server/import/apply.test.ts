@@ -26,7 +26,7 @@ describe('applyImport', () => {
 		orgId,
 		actor,
 		fileName: 'sample.csv',
-		fileSha256: 'x'.repeat(64),
+		fileSha256: 'a'.repeat(64),
 		dryRun
 	});
 

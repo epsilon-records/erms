@@ -35,7 +35,7 @@ drizzle/                    SQL migrations (RLS, append-only audit log, same-org
 ```bash
 pnpm install
 cp .env.example .env        # fill in Supabase URL and publishable key
-docker compose up -d        # local Postgres 17 + MinIO
+docker compose up -d        # local Postgres 17
 pnpm db:migrate
 pnpm dev
 pnpm test                   # unit + database tests (PGlite, no Docker needed)

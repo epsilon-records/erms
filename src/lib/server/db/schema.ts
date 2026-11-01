@@ -158,7 +158,10 @@ export const recordings = pgTable(
 	},
 	(t) => [
 		uniqueIndex('recordings_org_isrc_key').on(t.orgId, t.isrc),
-		unique('recordings_org_id_key').on(t.orgId, t.id)
+		unique('recordings_org_id_key').on(t.orgId, t.id),
+		// Same rules as identifiers.ts; the app validates first, the database is the backstop.
+		check('recordings_isrc_format', sql`${t.isrc} ~ '^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$'`),
+		check('recordings_duration_positive', sql`${t.durationMs} IS NULL OR ${t.durationMs} > 0`)
 	]
 );
 
@@ -185,6 +188,7 @@ export const releases = pgTable(
 		uniqueIndex('releases_org_upc_key').on(t.orgId, t.upc),
 		index('releases_org_date_idx').on(t.orgId, t.releaseDate),
 		unique('releases_org_id_key').on(t.orgId, t.id),
+		check('releases_upc_format', sql`${t.upc} ~ '^[0-9]{12,13}$'`),
 		// Every link carries org_id so the database refuses links across orgs.
 		foreignKey({
 			name: 'releases_label_same_org_fk',
@@ -208,6 +212,7 @@ export const releaseTracks = pgTable(
 	(t) => [
 		primaryKey({ columns: [t.releaseId, t.disc, t.position] }),
 		index('release_tracks_recording_idx').on(t.recordingId),
+		check('release_tracks_position_positive', sql`${t.position} > 0 AND ${t.disc} > 0`),
 		foreignKey({
 			name: 'release_tracks_release_same_org_fk',
 			columns: [t.orgId, t.releaseId],
@@ -245,6 +250,9 @@ export const credits = pgTable(
 		uniqueIndex('credits_recording_party_role_key').on(t.recordingId, t.partyId, t.role),
 		uniqueIndex('credits_release_party_role_key').on(t.releaseId, t.partyId, t.role),
 		index('credits_party_idx').on(t.partyId),
+		index('credits_org_recording_idx').on(t.orgId, t.recordingId),
+		index('credits_org_release_idx').on(t.orgId, t.releaseId),
+		check('credits_position_nonnegative', sql`${t.position} >= 0`),
 		check('credits_one_target', sql`(${t.recordingId} IS NULL) <> (${t.releaseId} IS NULL)`),
 		foreignKey({
 			name: 'credits_recording_same_org_fk',
@@ -264,18 +272,25 @@ export const credits = pgTable(
 	]
 );
 
-export const importRuns = pgTable('import_runs', {
-	id: uuid('id').primaryKey().$defaultFn(uuidv7),
-	orgId: uuid('org_id')
-		.notNull()
-		.references(() => orgs.id),
-	source: text('source').notNull(),
-	fileName: text('file_name').notNull(),
-	fileSha256: text('file_sha256').notNull(),
-	actorId: text('actor_id').notNull(),
-	summary: jsonb('summary').notNull(),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+export const importRuns = pgTable(
+	'import_runs',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		source: text('source').notNull(),
+		fileName: text('file_name').notNull(),
+		fileSha256: text('file_sha256').notNull(),
+		actorId: text('actor_id').notNull(),
+		summary: jsonb('summary').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('import_runs_org_created_idx').on(t.orgId, t.createdAt),
+		check('import_runs_sha256_format', sql`${t.fileSha256} ~ '^[0-9a-f]{64}$'`)
+	]
+);
 
 export type Label = typeof labels.$inferSelect;
 export type Party = typeof parties.$inferSelect;

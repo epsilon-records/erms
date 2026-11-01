@@ -239,6 +239,17 @@ describe('tenant isolation', () => {
 		});
 	});
 
+	it('the database rejects malformed values even when the app is bypassed', async () => {
+		const [recA] = await db.select().from(recordings).where(eq(recordings.orgId, orgA)).limit(1);
+		const bad = [
+			db.update(recordings).set({ isrc: 'not-an-isrc' }).where(eq(recordings.id, recA.id)),
+			db.update(recordings).set({ durationMs: 0 }).where(eq(recordings.id, recA.id)),
+			db.update(releases).set({ upc: '123' }).where(eq(releases.id, relA.id)),
+			db.update(releaseTracks).set({ position: 0 }).where(eq(releaseTracks.releaseId, relA.id))
+		];
+		for (const q of bad) expect(await pgError(q)).toMatch(/check constraint/);
+	});
+
 	it('role and user settings end with the transaction', async () => {
 		type Row = { u: string; sub: string | null };
 		const who = sql`select current_user as u, nullif(current_setting('request.jwt.claim.sub', true), '') as sub`;

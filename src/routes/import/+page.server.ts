@@ -27,6 +27,8 @@ async function readCsv(form: FormData) {
 	const text = form.get('csv');
 	const name = form.get('fileName');
 	if (typeof text === 'string' && text && typeof name === 'string') {
+		// The confirm step posts the previewed text back; it gets the same limit as an upload.
+		if (Buffer.byteLength(text) > MAX_BYTES) return { error: 'File is larger than 5 MB.' } as const;
 		return { name, text: normalizeCsvText(text) } as const;
 	}
 	return { error: 'Choose a SymphonicMS inventory export (.csv).' } as const;
