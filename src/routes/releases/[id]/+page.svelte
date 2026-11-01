@@ -12,7 +12,8 @@
 	const total = $derived(r.tracks.reduce((sum, t) => sum + (t.recording.durationMs ?? 0), 0));
 </script>
 
-<pre><a href="/releases">&lt; releases</a></pre>
+<pre><a href="/releases">&lt; releases</a>{#if data.can.edit}
+		<a href="/releases/{r.id}/edit">[ edit ]</a>{/if}</pre>
 <pre>
 +-- {r.title}{r.versionTitle ? ` (${r.versionTitle})` : ''}
 |
@@ -35,13 +36,13 @@
 			<tr>
 				<td class="num">{t.position}</td>
 				<td>
-					{t.recording.title}{#if t.recording.versionTitle}<span class="dim">
-							({t.recording.versionTitle})</span
-						>{/if}
+					<a href="/recordings/{t.recording.id}">{t.recording.title}</a
+					>{#if t.recording.versionTitle}<span class="dim"> ({t.recording.versionTitle})</span>{/if}
 				</td>
 				<td>
 					{#each t.credits as c, i}{#if i}<br />{/if}<span class="dim">{c.role}</span>
-						<a href="/artists/{c.partyId}">{c.name}</a>{/each}
+						<a href="/artists/{c.partyId}">{c.name}</a>{#if !c.approvedAt}
+							<span class="warn">pending</span>{/if}{/each}
 				</td>
 				<td class="mono">{t.recording.isrc}</td>
 				<td class="num">{fmt(t.recording.durationMs)}</td>
@@ -71,5 +72,8 @@
 	}
 	.dim {
 		color: #8a8a8a;
+	}
+	.warn {
+		color: #ffd166;
 	}
 </style>

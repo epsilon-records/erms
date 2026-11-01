@@ -37,17 +37,26 @@ export async function listReleases(db: Database, orgId: string) {
 }
 
 async function releaseArtists(db: Database, releaseIds: string[]) {
-	const map = new Map<string, { id: string; name: string }[]>();
+	const map = new Map<
+		string,
+		{ id: string; name: string; creditId: string; approvedAt: Date | null }[]
+	>();
 	if (!releaseIds.length) return map;
 	const rows = await db
-		.select({ releaseId: credits.releaseId, id: parties.id, name: parties.displayName })
+		.select({
+			releaseId: credits.releaseId,
+			id: parties.id,
+			name: parties.displayName,
+			creditId: credits.id,
+			approvedAt: credits.approvedAt
+		})
 		.from(credits)
 		.innerJoin(parties, eq(parties.id, credits.partyId))
 		.where(and(inArray(credits.releaseId, releaseIds), eq(credits.role, 'main')))
 		.orderBy(asc(credits.position));
 	for (const r of rows) {
 		const list = map.get(r.releaseId!) ?? [];
-		list.push({ id: r.id, name: r.name });
+		list.push({ id: r.id, name: r.name, creditId: r.creditId, approvedAt: r.approvedAt });
 		map.set(r.releaseId!, list);
 	}
 	return map;
@@ -76,6 +85,8 @@ export async function getRelease(db: Database, orgId: string, id: string) {
 	const trackCredits = recordingIds.length
 		? await db
 				.select({
+					id: credits.id,
+					approvedAt: credits.approvedAt,
 					recordingId: credits.recordingId,
 					role: credits.role,
 					position: credits.position,
@@ -160,4 +171,47 @@ export async function recentImports(db: Database, orgId: string) {
 		.where(eq(importRuns.orgId, orgId))
 		.orderBy(desc(importRuns.createdAt))
 		.limit(10);
+}
+
+export async function getRecording(db: Database, orgId: string, id: string) {
+	const [recording] = await db
+		.select()
+		.from(recordings)
+		.where(and(eq(recordings.orgId, orgId), eq(recordings.id, id)));
+	if (!recording) return null;
+	const onReleases = await db
+		.select({
+			id: releases.id,
+			title: releases.title,
+			releaseDate: releases.releaseDate,
+			catalogNumber: releases.catalogNumber,
+			position: releaseTracks.position
+		})
+		.from(releaseTracks)
+		.innerJoin(releases, eq(releases.id, releaseTracks.releaseId))
+		.where(eq(releaseTracks.recordingId, id))
+		.orderBy(desc(releases.releaseDate));
+	const recordingCredits = await db
+		.select({
+			id: credits.id,
+			role: credits.role,
+			position: credits.position,
+			source: credits.source,
+			approvedAt: credits.approvedAt,
+			partyId: parties.id,
+			name: parties.displayName
+		})
+		.from(credits)
+		.innerJoin(parties, eq(parties.id, credits.partyId))
+		.where(eq(credits.recordingId, id))
+		.orderBy(asc(credits.role), asc(credits.position));
+	return { recording, releases: onReleases, credits: recordingCredits };
+}
+
+export async function listLabels(db: Database, orgId: string) {
+	return db
+		.select({ id: labels.id, name: labels.name })
+		.from(labels)
+		.where(eq(labels.orgId, orgId))
+		.orderBy(asc(labels.name));
 }

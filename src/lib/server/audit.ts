@@ -24,12 +24,35 @@ type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type AuditFn = (record: AuditRecord | AuditRecord[]) => Promise<void>;
 
 /**
+ * Throw from inside withAudit when a write turns out to change nothing (e.g. a form
+ * saved as-is). The transaction rolls back and withAudit returns `value`.
+ */
+export class NoChange<T> extends Error {
+	constructor(readonly value: T) {
+		super('no change');
+	}
+}
+
+/**
  * Run a write and its audit entries in one transaction.
  * If the callback throws, the change and its audit entries roll back together.
  * If a write records no audit entry, the transaction is rejected: every change
  * that goes through this helper must leave a trace.
  */
 export async function withAudit<T>(
+	db: Database,
+	ctx: { orgId: string; actor: Actor },
+	fn: (tx: Tx, audit: AuditFn) => Promise<T>
+): Promise<T> {
+	try {
+		return await runAudited(db, ctx, fn);
+	} catch (e) {
+		if (e instanceof NoChange) return e.value as T;
+		throw e;
+	}
+}
+
+function runAudited<T>(
 	db: Database,
 	ctx: { orgId: string; actor: Actor },
 	fn: (tx: Tx, audit: AuditFn) => Promise<T>
