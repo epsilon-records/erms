@@ -1,8 +1,11 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 	const a = $derived(data.artist);
+	const renameError = $derived(
+		form && 'errors' in form && form.errors ? Object.values(form.errors)[0] : null
+	);
 
 	function fmt(ms: number | null) {
 		if (ms == null) return '--:--';
@@ -12,6 +15,14 @@
 </script>
 
 <pre><a href="/artists">&lt; artists</a></pre>
+{#if data.can.edit}
+	<form method="POST" action="?/rename" class="rename">
+		<input name="displayName" value={a.party.displayName} required />
+		<button>[ rename ]</button>
+	</form>
+	{#if renameError}<pre class="err">! {renameError}</pre>{/if}
+{/if}
+
 <pre>
 +-- {a.party.displayName}
 | RELEASES ... {a.releases.length}
@@ -42,7 +53,11 @@
 				<tr>
 					<td class="dim">{c.role}</td>
 					<td>
-						{c.title}{#if c.versionTitle}<span class="dim"> ({c.versionTitle})</span>{/if}
+						<a href="/recordings/{c.recordingId}">{c.title}</a>{#if c.versionTitle}<span
+								class="dim"
+							>
+								({c.versionTitle})</span
+							>{/if}
 					</td>
 					<td class="mono">{c.isrc}</td>
 					<td class="num">{fmt(c.durationMs)}</td>
@@ -65,5 +80,12 @@
 	}
 	.dim {
 		color: #8a8a8a;
+	}
+	.err {
+		color: #ff6b6b;
+	}
+	.rename {
+		display: flex;
+		gap: 1ch;
 	}
 </style>
