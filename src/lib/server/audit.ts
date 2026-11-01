@@ -20,7 +20,8 @@ export type AuditRecord = {
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-export type AuditFn = (record: AuditRecord) => Promise<void>;
+/** Record one entry, or many in a single insert (bulk operations such as imports). */
+export type AuditFn = (record: AuditRecord | AuditRecord[]) => Promise<void>;
 
 /**
  * Run a write and its audit entries in one transaction.
@@ -35,18 +36,23 @@ export async function withAudit<T>(
 ): Promise<T> {
 	return db.transaction(async (tx) => {
 		let recorded = 0;
-		const audit: AuditFn = async (r) => {
-			await tx.insert(auditLog).values({
-				orgId: ctx.orgId,
-				actorId: ctx.actor.id,
-				actorKind: ctx.actor.kind,
-				entity: r.entity,
-				entityId: r.entityId,
-				action: r.action,
-				before: r.before ?? null,
-				after: r.after ?? null
-			});
-			recorded++;
+		const audit: AuditFn = async (input) => {
+			const records = Array.isArray(input) ? input : [input];
+			for (let i = 0; i < records.length; i += 500) {
+				await tx.insert(auditLog).values(
+					records.slice(i, i + 500).map((r) => ({
+						orgId: ctx.orgId,
+						actorId: ctx.actor.id,
+						actorKind: ctx.actor.kind,
+						entity: r.entity,
+						entityId: r.entityId,
+						action: r.action,
+						before: r.before ?? null,
+						after: r.after ?? null
+					}))
+				);
+			}
+			recorded += records.length;
 		};
 		const result = await fn(tx, audit);
 		if (recorded === 0) {

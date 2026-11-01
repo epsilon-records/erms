@@ -17,7 +17,15 @@
 +--------------------------------------------------+</pre>
 		{#if data.user}
 			<nav>
-				<span>[ {data.user.email} ]</span>
+				<a href="/">[ home ]</a>
+				{#if data.membership}
+					<a href="/releases">[ releases ]</a>
+					<a href="/artists">[ artists ]</a>
+					{#if data.membership.role === 'owner' || data.membership.role === 'catalog_manager'}
+						<a href="/import">[ import ]</a>
+					{/if}
+				{/if}
+				<span class="who">{data.user.email}</span>
 				<form method="POST" action="/logout"><button>[ logout ]</button></form>
 			</nav>
 		{/if}
@@ -55,7 +63,7 @@
 		padding: 4px 8px;
 	}
 	.term {
-		max-width: 80ch;
+		max-width: 120ch;
 		margin: 2rem auto;
 		padding: 0 1rem;
 	}
@@ -65,10 +73,15 @@
 	}
 	nav {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 2ch;
 		margin-bottom: 1.5rem;
 	}
 	nav form {
 		display: inline;
+	}
+	nav .who {
+		margin-left: auto;
+		color: #8a8a8a;
 	}
 </style>
