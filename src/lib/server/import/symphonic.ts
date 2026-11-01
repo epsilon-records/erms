@@ -82,6 +82,15 @@ export type ImportPlan = {
 	rowCount: number;
 };
 
+/**
+ * Canonical form of an uploaded file: no byte-order mark, LF line endings.
+ * Browsers rewrite line endings to CRLF when a form posts text back, so the dry run
+ * and the confirm step must hash and parse the same normalized text.
+ */
+export function normalizeCsvText(text: string): string {
+	return text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+}
+
 const blank = (s: string | undefined) => {
 	const v = (s ?? '').trim();
 	return v === '' ? null : v;

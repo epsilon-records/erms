@@ -4,7 +4,11 @@ import { recentImports } from '#lib/server/catalog.js';
 import { db } from '#lib/server/db/client.js';
 import { requireScope } from '#lib/server/guard.js';
 import { applyImport } from '#lib/server/import/apply.js';
-import { parseSymphonicInventory, summarizePlan } from '#lib/server/import/symphonic.js';
+import {
+	normalizeCsvText,
+	parseSymphonicInventory,
+	summarizePlan
+} from '#lib/server/import/symphonic.js';
 import type { Actions, PageServerLoad } from './$types';
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -19,11 +23,13 @@ async function readCsv(form: FormData) {
 	const file = form.get('file');
 	if (file instanceof File && file.size > 0) {
 		if (file.size > MAX_BYTES) return { error: 'File is larger than 5 MB.' } as const;
-		return { name: file.name, text: await file.text() } as const;
+		return { name: file.name, text: normalizeCsvText(await file.text()) } as const;
 	}
 	const text = form.get('csv');
 	const name = form.get('fileName');
-	if (typeof text === 'string' && text && typeof name === 'string') return { name, text } as const;
+	if (typeof text === 'string' && text && typeof name === 'string') {
+		return { name, text: normalizeCsvText(text) } as const;
+	}
 	return { error: 'Choose a SymphonicMS inventory export (.csv).' } as const;
 }
 
