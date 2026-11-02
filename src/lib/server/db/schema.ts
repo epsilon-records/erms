@@ -1,11 +1,13 @@
 import { sql } from 'drizzle-orm';
 import {
+	boolean,
 	check,
 	date,
 	foreignKey,
 	index,
 	integer,
 	jsonb,
+	numeric,
 	pgEnum,
 	pgTable,
 	primaryKey,
@@ -298,3 +300,310 @@ export type Recording = typeof recordings.$inferSelect;
 export type Release = typeof releases.$inferSelect;
 export type Credit = typeof credits.$inferSelect;
 export type CreditRole = (typeof creditRoleEnum.enumValues)[number];
+
+/* ------------------------------------------------------------------------- */
+/* Phase 2: rights and contracts                                              */
+/* ------------------------------------------------------------------------- */
+
+export const rightTypeEnum = pgEnum('right_type', ['master', 'publishing']);
+export const writerRoleEnum = pgEnum('writer_role', [
+	'composer',
+	'lyricist',
+	'composer_lyricist',
+	'arranger'
+]);
+export const agreementKindEnum = pgEnum('agreement_kind', [
+	'recording',
+	'license',
+	'publishing',
+	'remix',
+	'distribution',
+	'other'
+]);
+export const agreementStatusEnum = pgEnum('agreement_status', [
+	'draft',
+	'active',
+	'expired',
+	'terminated'
+]);
+/** What a consent covers, and what authorize() is asked about. */
+export const processingPurposeEnum = pgEnum('processing_purpose', [
+	'analysis',
+	'transcode',
+	'stem_separation',
+	'mastering',
+	'voice',
+	'generation'
+]);
+
+/** A territory: 'WW' for worldwide or an ISO 3166-1 alpha-2 code. */
+const territoryCheck = (col: unknown) => sql`${col} ~ '^(WW|[A-Z]{2})$'`;
+/** Percentages are stored with four decimals, e.g. 33.3333. */
+const percent = (name: string) => numeric(name, { precision: 7, scale: 4 });
+
+/** A musical work. Recordings embody it; writers wrote it; publishers own it. */
+export const compositions = pgTable(
+	'compositions',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		title: text('title').notNull(),
+		/** Stored without separators: T1234567890. */
+		iswc: text('iswc'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		uniqueIndex('compositions_org_iswc_key').on(t.orgId, t.iswc),
+		unique('compositions_org_id_key').on(t.orgId, t.id),
+		check('compositions_iswc_format', sql`${t.iswc} IS NULL OR ${t.iswc} ~ '^T[0-9]{10}$'`)
+	]
+);
+
+export const recordingCompositions = pgTable(
+	'recording_compositions',
+	{
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		recordingId: uuid('recording_id').notNull(),
+		compositionId: uuid('composition_id').notNull()
+	},
+	(t) => [
+		primaryKey({ columns: [t.recordingId, t.compositionId] }),
+		index('recording_compositions_composition_idx').on(t.compositionId),
+		foreignKey({
+			name: 'recording_compositions_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'recording_compositions_composition_same_org_fk',
+			columns: [t.orgId, t.compositionId],
+			foreignColumns: [compositions.orgId, compositions.id]
+		}).onDelete('cascade')
+	]
+);
+
+/** Writer splits on a composition. Per composition they total 100 or are absent. */
+export const compositionWriters = pgTable(
+	'composition_writers',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		compositionId: uuid('composition_id').notNull(),
+		partyId: uuid('party_id').notNull(),
+		role: writerRoleEnum('role').notNull(),
+		share: percent('share').notNull()
+	},
+	(t) => [
+		uniqueIndex('composition_writers_party_role_key').on(t.compositionId, t.partyId, t.role),
+		check('composition_writers_share_range', sql`${t.share} > 0 AND ${t.share} <= 100`),
+		foreignKey({
+			name: 'composition_writers_composition_same_org_fk',
+			columns: [t.orgId, t.compositionId],
+			foreignColumns: [compositions.orgId, compositions.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'composition_writers_party_same_org_fk',
+			columns: [t.orgId, t.partyId],
+			foreignColumns: [parties.orgId, parties.id]
+		})
+	]
+);
+
+/** A contract with a counterparty, signed on behalf of one of the org's labels. */
+export const agreements = pgTable(
+	'agreements',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		labelId: uuid('label_id').notNull(),
+		counterpartyId: uuid('counterparty_id').notNull(),
+		kind: agreementKindEnum('kind').notNull(),
+		title: text('title').notNull(),
+		status: agreementStatusEnum('status').notNull().default('draft'),
+		signedOn: date('signed_on'),
+		startsOn: date('starts_on'),
+		endsOn: date('ends_on'),
+		territory: text('territory').notNull().default('WW'),
+		/** Signed copy in Supabase Storage, with its checksum taken on upload. */
+		documentPath: text('document_path'),
+		documentSha256: text('document_sha256'),
+		notes: text('notes'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('agreements_org_counterparty_idx').on(t.orgId, t.counterpartyId),
+		unique('agreements_org_id_key').on(t.orgId, t.id),
+		check('agreements_territory_format', territoryCheck(t.territory)),
+		check(
+			'agreements_term_order',
+			sql`${t.endsOn} IS NULL OR ${t.startsOn} IS NULL OR ${t.endsOn} >= ${t.startsOn}`
+		),
+		check(
+			'agreements_document_pair',
+			sql`(${t.documentPath} IS NULL) = (${t.documentSha256} IS NULL) AND (${t.documentSha256} IS NULL OR ${t.documentSha256} ~ '^[0-9a-f]{64}$')`
+		),
+		foreignKey({
+			name: 'agreements_label_same_org_fk',
+			columns: [t.orgId, t.labelId],
+			foreignColumns: [labels.orgId, labels.id]
+		}),
+		foreignKey({
+			name: 'agreements_counterparty_same_org_fk',
+			columns: [t.orgId, t.counterpartyId],
+			foreignColumns: [parties.orgId, parties.id]
+		})
+	]
+);
+
+/**
+ * Ownership. Master shares hang on a recording, publishing shares on a composition.
+ * The holder is one of the org's labels or a party (artist, publisher, another label).
+ * Per target, right and territory the shares total exactly 100, checked at commit.
+ */
+export const rightsShares = pgTable(
+	'rights_shares',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		right: rightTypeEnum('right').notNull(),
+		recordingId: uuid('recording_id'),
+		compositionId: uuid('composition_id'),
+		holderLabelId: uuid('holder_label_id'),
+		holderPartyId: uuid('holder_party_id'),
+		territory: text('territory').notNull().default('WW'),
+		share: percent('share').notNull(),
+		agreementId: uuid('agreement_id'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('rights_shares_org_recording_idx').on(t.orgId, t.recordingId),
+		index('rights_shares_org_composition_idx').on(t.orgId, t.compositionId),
+		// One row per target, right, territory and holder: an expression index in 0010.
+		check(
+			'rights_shares_target_matches_right',
+			sql`(${t.right} = 'master' AND ${t.recordingId} IS NOT NULL AND ${t.compositionId} IS NULL) OR (${t.right} = 'publishing' AND ${t.compositionId} IS NOT NULL AND ${t.recordingId} IS NULL)`
+		),
+		check(
+			'rights_shares_one_holder',
+			sql`(${t.holderLabelId} IS NULL) <> (${t.holderPartyId} IS NULL)`
+		),
+		check('rights_shares_share_range', sql`${t.share} > 0 AND ${t.share} <= 100`),
+		check('rights_shares_territory_format', territoryCheck(t.territory)),
+		foreignKey({
+			name: 'rights_shares_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'rights_shares_composition_same_org_fk',
+			columns: [t.orgId, t.compositionId],
+			foreignColumns: [compositions.orgId, compositions.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'rights_shares_label_same_org_fk',
+			columns: [t.orgId, t.holderLabelId],
+			foreignColumns: [labels.orgId, labels.id]
+		}),
+		foreignKey({
+			name: 'rights_shares_party_same_org_fk',
+			columns: [t.orgId, t.holderPartyId],
+			foreignColumns: [parties.orgId, parties.id]
+		}),
+		foreignKey({
+			name: 'rights_shares_agreement_same_org_fk',
+			columns: [t.orgId, t.agreementId],
+			foreignColumns: [agreements.orgId, agreements.id]
+		})
+	]
+);
+
+/**
+ * Permission from a party (usually an artist) for a processing purpose: for one
+ * recording, or for every recording that credits them when recording_id is null.
+ */
+export const consents = pgTable(
+	'consents',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		partyId: uuid('party_id').notNull(),
+		purpose: processingPurposeEnum('purpose').notNull(),
+		recordingId: uuid('recording_id'),
+		agreementId: uuid('agreement_id'),
+		grantedOn: date('granted_on').notNull(),
+		expiresOn: date('expires_on'),
+		revokedAt: timestamp('revoked_at', { withTimezone: true }),
+		notes: text('notes'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('consents_org_party_idx').on(t.orgId, t.partyId),
+		check('consents_term_order', sql`${t.expiresOn} IS NULL OR ${t.expiresOn} >= ${t.grantedOn}`),
+		foreignKey({
+			name: 'consents_party_same_org_fk',
+			columns: [t.orgId, t.partyId],
+			foreignColumns: [parties.orgId, parties.id]
+		}),
+		foreignKey({
+			name: 'consents_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}).onDelete('cascade'),
+		foreignKey({
+			name: 'consents_agreement_same_org_fk',
+			columns: [t.orgId, t.agreementId],
+			foreignColumns: [agreements.orgId, agreements.id]
+		})
+	]
+);
+
+/** Every authorize() verdict, kept as evidence. AudioKit jobs reference one by id. */
+export const authorizationDecisions = pgTable(
+	'authorization_decisions',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		recordingId: uuid('recording_id').notNull(),
+		purpose: processingPurposeEnum('purpose').notNull(),
+		allowed: boolean('allowed').notNull(),
+		/** Stable codes, e.g. master_incomplete, consent_missing. */
+		reasons: jsonb('reasons').notNull(),
+		/** The facts the verdict was based on: shares, consents used. */
+		basis: jsonb('basis').notNull(),
+		actorId: text('actor_id').notNull(),
+		actorKind: actorKindEnum('actor_kind').notNull(),
+		decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('authorization_decisions_org_recording_idx').on(t.orgId, t.recordingId, t.decidedAt),
+		foreignKey({
+			name: 'authorization_decisions_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}).onDelete('cascade')
+	]
+);
+
+export type Composition = typeof compositions.$inferSelect;
+export type CompositionWriter = typeof compositionWriters.$inferSelect;
+export type Agreement = typeof agreements.$inferSelect;
+export type RightsShare = typeof rightsShares.$inferSelect;
+export type Consent = typeof consents.$inferSelect;
+export type AuthorizationDecision = typeof authorizationDecisions.$inferSelect;
+export type ProcessingPurpose = (typeof processingPurposeEnum.enumValues)[number];

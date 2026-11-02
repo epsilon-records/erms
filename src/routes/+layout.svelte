@@ -22,9 +22,13 @@
 	const canImport = $derived(
 		data.membership?.role === 'owner' || data.membership?.role === 'catalog_manager'
 	);
+	const canRights = $derived(
+		data.membership?.role === 'owner' || data.membership?.role === 'rights_admin'
+	);
 	const nav = $derived([
 		{ href: '/releases', label: 'Releases' },
 		{ href: '/artists', label: 'Artists' },
+		...(canRights ? [{ href: '/rights', label: 'Rights' }] : []),
 		...(canImport ? [{ href: '/import', label: 'Import' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Credits from '#lib/components/Credits.svelte';
+	import Ownership from '#lib/components/Ownership.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -111,6 +112,20 @@
 						<div class="alert ok" role="status">Saved.</div>
 					{/if}
 				</form>
+			{/if}
+
+			{#if data.ownership}
+				<section class="stack" aria-labelledby="master-h">
+					<h2 id="master-h" class="h2">Master ownership</h2>
+					<Ownership
+						groups={data.ownership}
+						options={data.holders}
+						action="setMaster"
+						errors={failed('setMaster') ? errors : {}}
+						values={failed('setMaster') ? values : {}}
+						saved={!!(form && 'action' in form && form.action === 'setMaster' && form.ok)}
+					/>
+				</section>
 			{/if}
 
 			<section class="stack" aria-labelledby="credits-h">
