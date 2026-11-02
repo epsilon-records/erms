@@ -57,6 +57,13 @@
       "when": 1793570827175,
       "tag": "0007_checks_and_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793605487929,
+      "tag": "0008_search",
+      "breakpoints": true
     }
   ]
 }
