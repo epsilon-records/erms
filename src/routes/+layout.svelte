@@ -1,10 +1,20 @@
 <script lang="ts">
 	import '../app.css';
+	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
+
+	// The login callback lands on /?signed-in (see auth/callback); tidy the address bar.
+	$effect(() => {
+		if (page.url.searchParams.has('signed-in')) {
+			const clean = new URL(page.url.href);
+			clean.searchParams.delete('signed-in');
+			replaceState(clean.pathname + clean.search + clean.hash, page.state);
+		}
+	});
 
 	const canImport = $derived(
 		data.membership?.role === 'owner' || data.membership?.role === 'catalog_manager'
