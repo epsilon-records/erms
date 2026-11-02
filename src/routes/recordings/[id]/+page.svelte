@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Credits from '#lib/components/Credits.svelte';
+	import Ownership from '#lib/components/Ownership.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -111,6 +112,78 @@
 						<div class="alert ok" role="status">Saved.</div>
 					{/if}
 				</form>
+			{/if}
+
+			<section class="stack" aria-labelledby="works-h">
+				<h2 id="works-h" class="h2">Composition</h2>
+				{#if data.compositions.length}
+					<ul class="stack" style="gap: 6px; list-style: none; padding: 0; margin: 0">
+						{#each data.compositions as c (c.id)}
+							<li>
+								<a href="/compositions/{c.id}" class="plain" style="font-weight: 600">{c.title}</a>
+								{#if c.iswc}<span class="mono muted"> · {c.iswc}</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="soft">Not linked to a composition yet.</p>
+				{/if}
+				{#if data.compositionChoices}
+					<div class="row" style="flex-wrap: wrap; gap: 24px; align-items: flex-end">
+						<form method="POST" action="?/newComposition" class="inline-form">
+							<label for="comp-title" class="sr-only">New composition title</label>
+							<input
+								id="comp-title"
+								name="title"
+								value={failed('newComposition') ? values.title : rec.title}
+								required
+							/>
+							<label for="comp-iswc" class="sr-only">ISWC</label>
+							<input
+								id="comp-iswc"
+								name="iswc"
+								class="mono"
+								placeholder="ISWC (optional)"
+								value={failed('newComposition') ? values.iswc : ''}
+								style="width: 170px"
+							/>
+							<button class="btn small">New composition</button>
+						</form>
+						{#if data.compositionChoices.length}
+							<form method="POST" action="?/linkComposition" class="inline-form">
+								<label for="comp-link" class="sr-only">Existing composition</label>
+								<select id="comp-link" name="compositionId" required>
+									<option value="">Link existing…</option>
+									{#each data.compositionChoices.filter((c) => !data.compositions.some((x) => x.id === c.id)) as c (c.id)}
+										<option value={c.id}>{c.title}{c.iswc ? ` (${c.iswc})` : ''}</option>
+									{/each}
+								</select>
+								<button class="btn small">Link</button>
+							</form>
+						{/if}
+					</div>
+					{#if failed('newComposition') || failed('linkComposition')}
+						<div class="alert error" role="alert">
+							{Object.entries(errors)
+								.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
+								.join('\n')}
+						</div>
+					{/if}
+				{/if}
+			</section>
+
+			{#if data.ownership}
+				<section class="stack" aria-labelledby="master-h">
+					<h2 id="master-h" class="h2">Master ownership</h2>
+					<Ownership
+						groups={data.ownership}
+						options={data.holders}
+						action="setMaster"
+						errors={failed('setMaster') ? errors : {}}
+						values={failed('setMaster') ? values : {}}
+						saved={!!(form && 'action' in form && form.action === 'setMaster' && form.ok)}
+					/>
+				</section>
 			{/if}
 
 			<section class="stack" aria-labelledby="credits-h">
