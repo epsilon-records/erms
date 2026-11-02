@@ -13,6 +13,7 @@
 		groups,
 		options = null,
 		action,
+		emptyText = 'No master ownership recorded. AudioKit processing stays blocked until worldwide ownership totals 100%.',
 		errors = {},
 		values = {},
 		saved = false
@@ -20,6 +21,7 @@
 		groups: Group[];
 		options?: { labels: Option[]; parties: Option[] } | null;
 		action: string;
+		emptyText?: string;
 		errors?: Record<string, string>;
 		values?: Record<string, string>;
 		saved?: boolean;
@@ -41,10 +43,7 @@
 </script>
 
 {#if groups.length === 0}
-	<p class="soft">
-		No master ownership recorded. AudioKit processing stays blocked until worldwide ownership totals
-		100%.
-	</p>
+	<p class="soft">{emptyText}</p>
 {:else}
 	<div class="table-wrap">
 		<table class="data" style="min-width: 420px">

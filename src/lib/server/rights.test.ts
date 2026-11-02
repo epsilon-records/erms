@@ -23,8 +23,14 @@ import {
 	createComposition,
 	grantConsent,
 	isValidIswc,
+	getComposition,
+	listCompositions,
 	masterCoverage,
 	normalizeIswc,
+	ownershipFor,
+	setRecordingLink,
+	updateComposition,
+	writersFromForm,
 	parseShare,
 	revokeConsent,
 	setOwnership,
@@ -439,6 +445,92 @@ describe('rights and contracts', () => {
 			).rejects.toBeInstanceOf(EditError);
 			// Viewers can't see agreements at all.
 			expect(await as(viewer, (tx) => tx.query.agreements.findMany())).toEqual([]);
+		});
+	});
+
+	describe('composition screens', () => {
+		it('edits a composition with stale-write protection and ISWC checks', async () => {
+			const comp = await as(rightsAdmin, (tx) =>
+				createComposition(tx, ctx(rightsAdmin), { title: 'Buzz Clap' })
+			);
+			const stamp = comp.updatedAt.toISOString();
+			await as(rightsAdmin, (tx) =>
+				updateComposition(
+					tx,
+					ctx(rightsAdmin),
+					comp.id,
+					{ title: 'BUZZ CLAP', iswc: 'T-034.524.680-1' },
+					stamp
+				)
+			).then(
+				() => {
+					throw new Error('expected the ISWC clash to be refused');
+				},
+				(e) => expect(e).toBeInstanceOf(EditError)
+			);
+			await as(rightsAdmin, (tx) =>
+				updateComposition(tx, ctx(rightsAdmin), comp.id, { title: 'BUZZ CLAP', iswc: '' }, stamp)
+			);
+			// The old timestamp is now stale.
+			await expect(
+				as(rightsAdmin, (tx) =>
+					updateComposition(tx, ctx(rightsAdmin), comp.id, { title: 'Again', iswc: '' }, stamp)
+				)
+			).rejects.toBeInstanceOf(EditError);
+		});
+
+		it('links and unlinks recordings', async () => {
+			const comp = await as(rightsAdmin, (tx) =>
+				createComposition(tx, ctx(rightsAdmin), { title: 'Linkable' })
+			);
+			await as(rightsAdmin, (tx) => setRecordingLink(tx, ctx(rightsAdmin), comp.id, neonSun, true));
+			let got = await as(viewer, (tx) => getComposition(tx, orgId, comp.id));
+			expect(got?.recordings.map((r) => r.id)).toEqual([neonSun]);
+			// Linking twice changes nothing.
+			const again = await as(rightsAdmin, (tx) =>
+				setRecordingLink(tx, ctx(rightsAdmin), comp.id, neonSun, true)
+			);
+			expect(again.changed).toBe(false);
+			await as(rightsAdmin, (tx) =>
+				setRecordingLink(tx, ctx(rightsAdmin), comp.id, neonSun, false)
+			);
+			got = await as(viewer, (tx) => getComposition(tx, orgId, comp.id));
+			expect(got?.recordings).toEqual([]);
+		});
+
+		it('lists compositions with writers, and reads publishing by territory', async () => {
+			const list = await as(viewer, (tx) => listCompositions(tx, orgId));
+			const neon = list.find((c) => c.title === 'Neon Sun');
+			expect(neon).toMatchObject({
+				iswc: 'T0345246801',
+				recordings: 1,
+				writers: 'Vozz Rich, Emy Smith'
+			});
+
+			const work = list.find((c) => c.title === 'Work')!;
+			const pub = await as(rightsAdmin, (tx) => ownershipFor(tx, orgId, 'publishing', work.id));
+			expect(pub).toMatchObject([
+				{ territory: 'NL', holders: [{ name: 'Vozz Rich', share: '100' }] }
+			]);
+			// Viewers see the composition but not who publishes it.
+			expect(await as(viewer, (tx) => ownershipFor(tx, orgId, 'publishing', work.id))).toEqual([]);
+		});
+
+		it('reads writer rows from the form', () => {
+			expect(
+				writersFromForm({
+					writer_0: 'a',
+					role_0: 'composer',
+					share_0: '50',
+					writer_1: '',
+					share_1: '',
+					writer_2: 'b',
+					share_2: '50'
+				})
+			).toEqual([
+				{ partyId: 'a', role: 'composer', share: '50' },
+				{ partyId: 'b', role: 'composer_lyricist', share: '50' }
+			]);
 		});
 	});
 });

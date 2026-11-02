@@ -603,8 +603,14 @@ export async function holderOptions(db: Database, orgId: string) {
 	return { labels: ls, parties: ps };
 }
 
-/** Master shares on one recording, grouped by territory, worldwide first. */
-export async function recordingOwnership(db: Database, orgId: string, recordingId: string) {
+/** Shares for one target and right, grouped by territory, worldwide first. */
+export async function ownershipFor(
+	db: Database,
+	orgId: string,
+	right: 'master' | 'publishing',
+	targetId: string
+) {
+	const targetCol = right === 'master' ? rightsShares.recordingId : rightsShares.compositionId;
 	const rows = await db
 		.select({
 			territory: rightsShares.territory,
@@ -618,11 +624,7 @@ export async function recordingOwnership(db: Database, orgId: string, recordingI
 		.leftJoin(labels, eq(labels.id, rightsShares.holderLabelId))
 		.leftJoin(parties, eq(parties.id, rightsShares.holderPartyId))
 		.where(
-			and(
-				eq(rightsShares.orgId, orgId),
-				eq(rightsShares.recordingId, recordingId),
-				eq(rightsShares.right, 'master')
-			)
+			and(eq(rightsShares.orgId, orgId), eq(targetCol, targetId), eq(rightsShares.right, right))
 		)
 		.orderBy(asc(rightsShares.territory), asc(rightsShares.createdAt));
 	const groups = new Map<
@@ -643,6 +645,9 @@ export async function recordingOwnership(db: Database, orgId: string, recordingI
 		.sort(([a], [b]) => (a === 'WW' ? -1 : b === 'WW' ? 1 : a.localeCompare(b)))
 		.map(([territory, holders]) => ({ territory, holders }));
 }
+
+export const recordingOwnership = (db: Database, orgId: string, recordingId: string) =>
+	ownershipFor(db, orgId, 'master', recordingId);
 
 /** Per label: recordings on its releases still without worldwide master ownership. */
 export async function openMastersByLabel(db: Database, orgId: string) {
@@ -725,4 +730,209 @@ export function holdersFromForm(fields: Record<string, string>) {
 		);
 	}
 	return holders;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Compositions: read side and edits                                          */
+/* ------------------------------------------------------------------------- */
+
+export async function listCompositions(db: Database, orgId: string) {
+	const rows = await db
+		.select({
+			id: compositions.id,
+			title: compositions.title,
+			iswc: compositions.iswc,
+			// Fully qualified: Drizzle omits the table name in single-table selects, which
+			// would make "id" ambiguous inside these subqueries.
+			recordings: sql<number>`(select count(*)::int from recording_compositions rc
+				where rc.composition_id = "compositions"."id")`,
+			writers: sql<
+				string | null
+			>`(select string_agg(p.display_name, ', ' order by w.share desc, p.display_name)
+				from composition_writers w join parties p on p.id = w.party_id
+				where w.composition_id = "compositions"."id")`
+		})
+		.from(compositions)
+		.where(eq(compositions.orgId, orgId))
+		.orderBy(asc(sql`lower(${compositions.title})`));
+	return rows;
+}
+
+export async function getComposition(db: Database, orgId: string, id: string) {
+	const [composition] = await db
+		.select()
+		.from(compositions)
+		.where(and(eq(compositions.orgId, orgId), eq(compositions.id, id)));
+	if (!composition) return null;
+	const [recs, writers] = await Promise.all([
+		db
+			.select({
+				id: recordings.id,
+				title: recordings.title,
+				versionTitle: recordings.versionTitle,
+				isrc: recordings.isrc
+			})
+			.from(recordingCompositions)
+			.innerJoin(recordings, eq(recordings.id, recordingCompositions.recordingId))
+			.where(eq(recordingCompositions.compositionId, id))
+			.orderBy(asc(recordings.title), asc(recordings.versionTitle)),
+		db
+			.select({
+				partyId: parties.id,
+				name: parties.displayName,
+				role: compositionWriters.role,
+				share: compositionWriters.share
+			})
+			.from(compositionWriters)
+			.innerJoin(parties, eq(parties.id, compositionWriters.partyId))
+			.where(eq(compositionWriters.compositionId, id))
+			.orderBy(sql`${compositionWriters.share} desc`, asc(parties.displayName))
+	]);
+	return {
+		composition,
+		recordings: recs,
+		writers: writers.map((w) => ({ ...w, share: String(Number(w.share)) }))
+	};
+}
+
+export async function compositionsForRecording(db: Database, orgId: string, recordingId: string) {
+	return db
+		.select({ id: compositions.id, title: compositions.title, iswc: compositions.iswc })
+		.from(recordingCompositions)
+		.innerJoin(compositions, eq(compositions.id, recordingCompositions.compositionId))
+		.where(
+			and(
+				eq(recordingCompositions.orgId, orgId),
+				eq(recordingCompositions.recordingId, recordingId)
+			)
+		)
+		.orderBy(asc(compositions.title));
+}
+
+/** Recordings to pick from when linking. Small catalogs: the whole list. */
+export async function recordingOptions(db: Database, orgId: string) {
+	return db
+		.select({
+			id: recordings.id,
+			title: recordings.title,
+			versionTitle: recordings.versionTitle,
+			isrc: recordings.isrc
+		})
+		.from(recordings)
+		.where(eq(recordings.orgId, orgId))
+		.orderBy(asc(sql`lower(${recordings.title})`), asc(recordings.versionTitle));
+}
+
+export const CompositionEdit = z.object({
+	title: z.string().trim().min(1, 'Title is required'),
+	iswc: z
+		.string()
+		.default('')
+		.transform(normalizeIswc)
+		.refine((v) => v == null || isValidIswc(v), { message: 'ISWC must look like T-123.456.789-0' })
+});
+
+export async function updateComposition(
+	db: Database,
+	ctx: EditCtx,
+	id: string,
+	input: unknown,
+	expectedUpdatedAt: string | null
+) {
+	const parsed = CompositionEdit.safeParse(input);
+	if (!parsed.success) throw new EditError(fieldsFrom(parsed.error));
+	const next = parsed.data;
+	return withAudit(db, ctx, async (tx, audit) => {
+		const [cur] = await tx
+			.select()
+			.from(compositions)
+			.where(and(eq(compositions.orgId, ctx.orgId), eq(compositions.id, id)))
+			.for('update');
+		if (!cur) throw new EditError({ form: 'Composition not found' });
+		if (!expectedUpdatedAt || cur.updatedAt.toISOString() !== expectedUpdatedAt) {
+			throw new EditError({
+				form: 'Someone changed this composition after you opened it. Reload the page and try again.'
+			});
+		}
+		if (next.title === cur.title && next.iswc === cur.iswc) {
+			throw new NoChange({ changed: false as const });
+		}
+		if (next.iswc && next.iswc !== cur.iswc) {
+			const [clash] = await tx
+				.select({ title: compositions.title })
+				.from(compositions)
+				.where(and(eq(compositions.orgId, ctx.orgId), eq(compositions.iswc, next.iswc)));
+			if (clash) throw new EditError({ iswc: `ISWC already used by "${clash.title}"` });
+		}
+		await tx
+			.update(compositions)
+			.set({ ...next, updatedAt: new Date() })
+			.where(eq(compositions.id, id));
+		await audit({
+			entity: 'composition',
+			entityId: id,
+			action: 'edit',
+			before: { title: cur.title, iswc: cur.iswc },
+			after: next
+		});
+		return { changed: true as const };
+	});
+}
+
+/** Link or unlink a recording and a composition. */
+export async function setRecordingLink(
+	db: Database,
+	ctx: EditCtx,
+	compositionId: string,
+	recordingId: string,
+	linked: boolean
+) {
+	const ids = z.object({ compositionId: z.uuid(), recordingId: z.uuid() }).safeParse({
+		compositionId,
+		recordingId
+	});
+	if (!ids.success) throw new EditError({ recordingId: 'Choose a recording' });
+	return withAudit(db, ctx, async (tx, audit) => {
+		const [comp] = await tx
+			.select({ id: compositions.id })
+			.from(compositions)
+			.where(and(eq(compositions.orgId, ctx.orgId), eq(compositions.id, compositionId)));
+		const [rec] = await tx
+			.select({ id: recordings.id })
+			.from(recordings)
+			.where(and(eq(recordings.orgId, ctx.orgId), eq(recordings.id, recordingId)));
+		if (!comp || !rec) throw new EditError({ recordingId: 'Unknown recording or composition' });
+		const where = and(
+			eq(recordingCompositions.compositionId, compositionId),
+			eq(recordingCompositions.recordingId, recordingId)
+		);
+		const [exists] = await tx.select().from(recordingCompositions).where(where);
+		if (!!exists === linked) throw new NoChange({ changed: false as const });
+		if (linked) {
+			await tx
+				.insert(recordingCompositions)
+				.values({ orgId: ctx.orgId, compositionId, recordingId });
+		} else {
+			await tx.delete(recordingCompositions).where(where);
+		}
+		await audit({
+			entity: 'composition',
+			entityId: compositionId,
+			action: linked ? 'link_recording' : 'unlink_recording',
+			after: { recordingId }
+		});
+		return { changed: true as const };
+	});
+}
+
+/** Turn the writers editor's rows (writer_N, role_N, share_N) into setWriters input. */
+export function writersFromForm(fields: Record<string, string>) {
+	const writers: Record<string, string>[] = [];
+	for (let i = 0; i < 20; i++) {
+		const partyId = fields[`writer_${i}`]?.trim() ?? '';
+		const share = fields[`share_${i}`]?.trim() ?? '';
+		if (!partyId && !share) continue;
+		writers.push({ partyId, role: fields[`role_${i}`] || 'composer_lyricist', share });
+	}
+	return writers;
 }

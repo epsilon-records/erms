@@ -9,10 +9,14 @@ import {
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
 import {
+	compositionsForRecording,
+	createComposition,
 	holderOptions,
 	holdersFromForm,
+	listCompositions,
 	recordingOwnership,
-	setOwnership
+	setOwnership,
+	setRecordingLink
 } from '#lib/server/rights.js';
 import { hasScope } from '#lib/server/rbac.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -32,6 +36,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			? await locals.db((tx) => recordingOwnership(tx, m.orgId, params.id))
 			: null,
 		holders: rights.write ? await locals.db((tx) => holderOptions(tx, m.orgId)) : null,
+		compositions: await locals.db((tx) => compositionsForRecording(tx, m.orgId, params.id)),
+		compositionChoices: rights.write
+			? await locals.db((tx) => listCompositions(tx, m.orgId))
+			: null,
 		can: {
 			edit: hasScope(m.role, 'catalog:write'),
 			approve: hasScope(m.role, 'metadata:approve'),
@@ -49,6 +57,22 @@ const ctxFor = (
 };
 
 export const actions: Actions = {
+	newComposition: async ({ request, locals, params }) => {
+		const ctx = ctxFor(locals, 'rights:write');
+		const f = await formFields(request);
+		return editAction('newComposition', f, () =>
+			locals.db((tx) =>
+				createComposition(tx, ctx, { title: f.title, iswc: f.iswc, recordingIds: [params.id] })
+			)
+		);
+	},
+	linkComposition: async ({ request, locals, params }) => {
+		const ctx = ctxFor(locals, 'rights:write');
+		const f = await formFields(request);
+		return editAction('linkComposition', f, () =>
+			locals.db((tx) => setRecordingLink(tx, ctx, f.compositionId, params.id, true))
+		);
+	},
 	setMaster: async ({ request, locals, params }) => {
 		const ctx = ctxFor(locals, 'rights:write');
 		const f = await formFields(request);
