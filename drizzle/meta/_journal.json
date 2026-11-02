@@ -64,6 +64,20 @@
       "when": 1793605487929,
       "tag": "0008_search",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793606527210,
+      "tag": "0009_rights",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793606528538,
+      "tag": "0010_rights_rules",
+      "breakpoints": true
     }
   ]
 }

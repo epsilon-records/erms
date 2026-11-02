@@ -8,6 +8,16 @@ import {
 } from '#lib/server/catalog-edit.js';
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
+import {
+	compositionsForRecording,
+	createComposition,
+	holderOptions,
+	holdersFromForm,
+	listCompositions,
+	recordingOwnership,
+	setOwnership,
+	setRecordingLink
+} from '#lib/server/rights.js';
 import { hasScope } from '#lib/server/rbac.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,18 +26,67 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	if (!/^[0-9a-f-]{36}$/.test(params.id)) error(404, 'Recording not found');
 	const data = await locals.db((tx) => getRecording(tx, m.orgId, params.id));
 	if (!data) error(404, 'Recording not found');
+	const rights = {
+		read: hasScope(m.role, 'rights:read'),
+		write: hasScope(m.role, 'rights:write')
+	};
 	return {
 		...data,
-		can: { edit: hasScope(m.role, 'catalog:write'), approve: hasScope(m.role, 'metadata:approve') }
+		ownership: rights.read
+			? await locals.db((tx) => recordingOwnership(tx, m.orgId, params.id))
+			: null,
+		holders: rights.write ? await locals.db((tx) => holderOptions(tx, m.orgId)) : null,
+		compositions: await locals.db((tx) => compositionsForRecording(tx, m.orgId, params.id)),
+		compositionChoices: rights.write
+			? await locals.db((tx) => listCompositions(tx, m.orgId))
+			: null,
+		can: {
+			edit: hasScope(m.role, 'catalog:write'),
+			approve: hasScope(m.role, 'metadata:approve'),
+			rights: rights.write
+		}
 	};
 };
 
-const ctxFor = (locals: App.Locals, scope: 'catalog:write' | 'metadata:approve') => {
+const ctxFor = (
+	locals: App.Locals,
+	scope: 'catalog:write' | 'metadata:approve' | 'rights:write'
+) => {
 	const m = requireScope(locals, scope);
 	return { orgId: m.orgId, actor: { id: locals.user!.id, kind: 'user' as const } };
 };
 
 export const actions: Actions = {
+	newComposition: async ({ request, locals, params }) => {
+		const ctx = ctxFor(locals, 'rights:write');
+		const f = await formFields(request);
+		return editAction('newComposition', f, () =>
+			locals.db((tx) =>
+				createComposition(tx, ctx, { title: f.title, iswc: f.iswc, recordingIds: [params.id] })
+			)
+		);
+	},
+	linkComposition: async ({ request, locals, params }) => {
+		const ctx = ctxFor(locals, 'rights:write');
+		const f = await formFields(request);
+		return editAction('linkComposition', f, () =>
+			locals.db((tx) => setRecordingLink(tx, ctx, f.compositionId, params.id, true))
+		);
+	},
+	setMaster: async ({ request, locals, params }) => {
+		const ctx = ctxFor(locals, 'rights:write');
+		const f = await formFields(request);
+		return editAction('setMaster', f, () =>
+			locals.db((tx) =>
+				setOwnership(tx, ctx, {
+					right: 'master',
+					targetId: params.id,
+					territory: f.territory || 'WW',
+					holders: holdersFromForm(f)
+				})
+			)
+		);
+	},
 	save: async ({ request, locals, params }) => {
 		const ctx = ctxFor(locals, 'catalog:write');
 		const f = await formFields(request);
