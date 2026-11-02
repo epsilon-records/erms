@@ -49,9 +49,15 @@
 		{/if}
 		<div class="grow"></div>
 		{#if data.membership}
-			<form method="GET" action="/releases" class="search">
-				<label for="q" class="sr-only">Search releases</label>
-				<input id="q" name="q" type="search" placeholder="Title, artist, cat#, UPC" />
+			<form method="GET" action="/search" class="search" role="search">
+				<label for="q" class="sr-only">Search the catalog</label>
+				<input
+					id="q"
+					name="q"
+					type="search"
+					placeholder="Title, artist, ISRC, UPC, cat#"
+					value={page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : ''}
+				/>
 			</form>
 		{/if}
 		<div class="who">
