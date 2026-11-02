@@ -21,7 +21,7 @@ SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGl
 src/
   env.ts                    validated env vars ($app/env/public, $app/env/private)
   hooks.server.ts           Supabase session, active org and RLS-scoped db on every request
-  routes/                   ASCII UI: /login, /auth/callback, /logout, /
+  routes/                   UI ("Dark grid": src/app.css): /login, /auth/callback, /logout, /
   lib/server/
     db/                     schema, migrations source, UUIDv7
     audit.ts                withAudit(): change + audit entry in one transaction
