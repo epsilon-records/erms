@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
@@ -8,11 +9,13 @@
 	let { children, data }: LayoutProps = $props();
 
 	// The login callback lands on /?signed-in (see auth/callback); tidy the address bar.
-	$effect(() => {
-		if (page.url.searchParams.has('signed-in')) {
-			const clean = new URL(page.url.href);
-			clean.searchParams.delete('signed-in');
-			replaceState(clean.pathname + clean.search + clean.hash, page.state);
+	// onMount, not $effect: replaceState updates page.state, and an effect that read it
+	// would rerun and replace the URL again in a loop.
+	onMount(() => {
+		const url = new URL(location.href);
+		if (url.searchParams.has('signed-in')) {
+			url.searchParams.delete('signed-in');
+			replaceState(url.pathname + url.search + url.hash, {});
 		}
 	});
 
