@@ -1,7 +1,7 @@
 # ERMS — Epsilon Records Management System
 
 The label's system of record: catalog, rights, releases, distribution and royalties.
-Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/audiokit) through a versioned `AudioProvider` contract.
+Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/audiokit) through an `AudioProvider` interface that speaks AudioKit's OpenAPI contract. `contract.drift.test.ts` checks it against that contract: set `AUDIOKIT_OPENAPI` to a path or URL of AudioKit's `openapi.yaml` before `pnpm test` (CI fetches it).
 
 ## Stack
 
@@ -26,7 +26,7 @@ src/
     db/                     schema, migrations source, UUIDv7
     audit.ts                withAudit(): change + audit entry in one transaction
     rbac.ts                 roles and scopes
-    audio/                  contract v1 (Zod), AudioProvider, stub, webhook HMAC
+    audio/                  AudioKit contract (Zod), AudioProvider, stub, webhook HMAC
 drizzle/                    SQL migrations (RLS, append-only audit log, same-org keys, app role)
 ```
 
