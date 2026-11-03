@@ -24,6 +24,25 @@ jobs:
       - run: pnpm audit --prod --audit-level high
       - run: pnpm lint
       - run: pnpm check
+      # The audio contract is checked against AudioKit's openapi.yaml (contract.drift.test.ts).
+      # Source: the AUDIOKIT_OPENAPI_URL variable (https://<audiokit host>/v1/openapi.yaml) once
+      # AudioKit is hosted, else the audiokit repo with the read-only AUDIOKIT_READ_TOKEN secret.
+      - name: Fetch AudioKit's contract
+        env:
+          AUDIOKIT_OPENAPI_URL: ${{ vars.AUDIOKIT_OPENAPI_URL }}
+          AUDIOKIT_READ_TOKEN: ${{ secrets.AUDIOKIT_READ_TOKEN }}
+        run: |
+          out="$RUNNER_TEMP/audiokit-openapi.yaml"
+          if [ -n "$AUDIOKIT_OPENAPI_URL" ]; then
+            curl -fsSL "$AUDIOKIT_OPENAPI_URL" -o "$out"
+          elif [ -n "$AUDIOKIT_READ_TOKEN" ]; then
+            curl -fsSL -H "Authorization: Bearer $AUDIOKIT_READ_TOKEN" -H "Accept: application/vnd.github.raw" \
+              https://api.github.com/repos/epsilon-records/audiokit/contents/openapi.yaml -o "$out"
+          else
+            echo "::warning::No AUDIOKIT_OPENAPI_URL or AUDIOKIT_READ_TOKEN; the contract drift test will fail"
+            exit 0
+          fi
+          echo "AUDIOKIT_OPENAPI=$out" >> "$GITHUB_ENV"
       - run: pnpm test
       - run: pnpm db:check
       - run: pnpm build
