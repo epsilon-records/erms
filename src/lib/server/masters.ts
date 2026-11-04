@@ -1,0 +1,335 @@
+import { and, desc, eq } from 'drizzle-orm';
+import { z } from 'zod';
+import {
+	isWavHeader,
+	MAX_MASTER_BYTES,
+	MULTIPART_THRESHOLD,
+	PART_SIZE,
+	partCount,
+	WAV_CONTENT_TYPES,
+	WAV_HEADER_BYTES,
+	wavProblem
+} from '../masters';
+import { type Actor, type Database, withAudit } from './audit';
+import { type Master, masters, type Role, recordings } from './db/schema';
+import { uuidv7 } from './db/uuidv7';
+import { hasScope } from './rbac';
+import type { MasterStorage, Part } from './storage/r2';
+
+/**
+ * Master uploads (EPSILON-29, decision 0011). The browser sends the file straight to R2
+ * with URLs signed here; this module decides who may upload, where the object goes,
+ * and what ERMS records about it once R2 has it.
+ *
+ * Org isolation: object keys are built here from the caller's org and never taken from
+ * the request, and the masters_key_in_org check ties each key to its row's org. RLS
+ * then limits rows (and so keys we will sign for) to orgs the user belongs to.
+ */
+
+export type MasterCtx = { orgId: string; role: Role; actor: Actor };
+
+/** A refused request, with the HTTP status the route should answer with. */
+export class MasterError extends Error {
+	constructor(
+		readonly status: 400 | 403 | 404 | 409 | 422,
+		message: string
+	) {
+		super(message);
+	}
+}
+
+/** Presigned URLs are short-lived: long enough to start a part, not to be reused later. */
+export const URL_TTL_SECONDS = 15 * 60;
+/** Most part URLs one request may ask for. */
+export const MAX_PARTS_PER_REQUEST = 16;
+
+export function canUploadMasters(role: Role) {
+	return hasScope(role, 'catalog:write');
+}
+
+function assertCanUpload(ctx: MasterCtx) {
+	if (!canUploadMasters(ctx.role)) {
+		throw new MasterError(403, `Your role (${ctx.role}) cannot upload masters.`);
+	}
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The only place object keys are made. */
+export function masterKey(orgId: string, recordingId: string, masterId: string) {
+	for (const id of [orgId, recordingId, masterId]) {
+		if (!UUID.test(id)) throw new MasterError(400, 'Invalid id');
+	}
+	return `orgs/${orgId}/recordings/${recordingId}/masters/${masterId}.wav`;
+}
+
+/** True if `key` is inside `orgId`'s part of the bucket. */
+export function keyInOrg(key: string, orgId: string) {
+	return UUID.test(orgId) && key.startsWith(`orgs/${orgId}/`) && !key.includes('..');
+}
+
+export const StartUpload = z.object({
+	fileName: z.string().trim().min(1).max(255),
+	size: z.number().int().positive().max(MAX_MASTER_BYTES),
+	contentType: z
+		.union([z.literal(''), z.enum(WAV_CONTENT_TYPES)])
+		.optional()
+		.default('')
+});
+
+export type StartResult =
+	| { masterId: string; mode: 'single'; url: string }
+	| { masterId: string; mode: 'multipart'; partSize: number; partCount: number };
+
+function parseStart(input: unknown) {
+	const parsed = StartUpload.safeParse(input);
+	if (!parsed.success) {
+		const typeIssue = parsed.error.issues.some((i) => i.path[0] === 'contentType');
+		throw new MasterError(
+			typeIssue ? 422 : 400,
+			typeIssue ? 'Masters must be WAV files.' : 'Invalid upload request.'
+		);
+	}
+	const problem = wavProblem({
+		name: parsed.data.fileName,
+		size: parsed.data.size,
+		type: parsed.data.contentType
+	});
+	if (problem) throw new MasterError(422, problem);
+	return parsed.data;
+}
+
+/** Record a pending master and sign the URL(s) the browser uploads it with. */
+export async function startMasterUpload(
+	db: Database,
+	storage: MasterStorage,
+	ctx: MasterCtx,
+	recordingId: string,
+	input: unknown
+): Promise<StartResult> {
+	assertCanUpload(ctx);
+	const req = parseStart(input);
+	if (!UUID.test(recordingId)) throw new MasterError(404, 'Recording not found');
+
+	return withAudit(db, ctx, async (tx, audit) => {
+		const [rec] = await tx
+			.select({ id: recordings.id })
+			.from(recordings)
+			.where(and(eq(recordings.orgId, ctx.orgId), eq(recordings.id, recordingId)));
+		if (!rec) throw new MasterError(404, 'Recording not found');
+
+		const id = uuidv7();
+		const objectKey = masterKey(ctx.orgId, recordingId, id);
+		const multipart = req.size > MULTIPART_THRESHOLD;
+		const uploadId = multipart ? await storage.createMultipart(objectKey) : null;
+		const [row] = await tx
+			.insert(masters)
+			.values({
+				id,
+				orgId: ctx.orgId,
+				recordingId,
+				objectKey,
+				format: 'wav',
+				sizeBytes: req.size,
+				fileName: req.fileName,
+				status: 'pending',
+				uploadId,
+				uploadedBy: ctx.actor.id
+			})
+			.returning();
+		await audit({ entity: 'master', entityId: id, action: 'upload_start', after: row });
+
+		if (uploadId) {
+			return {
+				masterId: id,
+				mode: 'multipart',
+				partSize: PART_SIZE,
+				partCount: partCount(req.size)
+			};
+		}
+		return {
+			masterId: id,
+			mode: 'single',
+			url: await storage.presignPut(objectKey, URL_TTL_SECONDS)
+		};
+	});
+}
+
+/** A pending master in the caller's org. RLS limits it to orgs the user belongs to too. */
+async function pendingMaster(db: Database, ctx: MasterCtx, masterId: string, lock = false) {
+	if (!UUID.test(masterId)) throw new MasterError(404, 'Upload not found');
+	const q = db
+		.select()
+		.from(masters)
+		.where(and(eq(masters.orgId, ctx.orgId), eq(masters.id, masterId)));
+	const [row] = lock ? await q.for('update') : await q;
+	if (!row) throw new MasterError(404, 'Upload not found');
+	if (row.status !== 'pending') throw new MasterError(409, `This upload is already ${row.status}.`);
+	// Defence in depth: the database check already ties the key to the org.
+	if (!keyInOrg(row.objectKey, ctx.orgId)) throw new MasterError(403, 'Upload not in this org');
+	return row;
+}
+
+/** Sign PUT URLs for some parts of a multipart upload. */
+export async function signMasterParts(
+	db: Database,
+	storage: MasterStorage,
+	ctx: MasterCtx,
+	masterId: string,
+	input: unknown
+) {
+	assertCanUpload(ctx);
+	const parsed = z
+		.object({
+			partNumbers: z.array(z.number().int().positive()).min(1).max(MAX_PARTS_PER_REQUEST)
+		})
+		.safeParse(input);
+	if (!parsed.success) throw new MasterError(400, 'Invalid part numbers.');
+	const row = await pendingMaster(db, ctx, masterId);
+	if (!row.uploadId) throw new MasterError(409, 'This upload is not multipart.');
+	const total = partCount(row.sizeBytes);
+	if (parsed.data.partNumbers.some((n) => n > total)) {
+		throw new MasterError(400, `This upload has ${total} parts.`);
+	}
+	return {
+		parts: await Promise.all(
+			parsed.data.partNumbers.map(async (partNumber) => ({
+				partNumber,
+				url: await storage.presignPart(row.objectKey, row.uploadId!, partNumber, URL_TTL_SECONDS)
+			}))
+		)
+	};
+}
+
+const Complete = z.object({
+	sha256: z.string().regex(/^[0-9a-f]{64}$/, 'sha256 must be 64 hex characters'),
+	parts: z
+		.array(
+			z.object({
+				partNumber: z.number().int().positive(),
+				etag: z.string().regex(/^"?[A-Za-z0-9-]{1,128}"?$/)
+			})
+		)
+		.optional()
+});
+
+export type CompleteResult =
+	{ status: 'ready'; master: Master } | { status: 'rejected'; reason: string };
+
+/**
+ * Finish an upload: complete the multipart upload, then check what R2 actually holds
+ * (size matches what was declared, the bytes start with a WAV header) before recording
+ * the master. An object that fails is deleted and the row marked rejected.
+ */
+export async function completeMasterUpload(
+	db: Database,
+	storage: MasterStorage,
+	ctx: MasterCtx,
+	masterId: string,
+	input: unknown
+): Promise<CompleteResult> {
+	assertCanUpload(ctx);
+	const parsed = Complete.safeParse(input);
+	if (!parsed.success) throw new MasterError(400, 'Invalid completion request.');
+	const { sha256, parts } = parsed.data;
+
+	return withAudit(db, ctx, async (tx, audit) => {
+		const row = await pendingMaster(tx, ctx, masterId, true);
+
+		if (row.uploadId) {
+			const total = partCount(row.sizeBytes);
+			const sorted: Part[] = [...(parts ?? [])].sort((a, b) => a.partNumber - b.partNumber);
+			if (sorted.length !== total || sorted.some((p, i) => p.partNumber !== i + 1)) {
+				throw new MasterError(400, `Send all ${total} parts, numbered 1 to ${total}.`);
+			}
+			await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
+		}
+
+		const head = await storage.head(row.objectKey);
+		if (!head) throw new MasterError(409, 'The file has not arrived in storage yet.');
+
+		let reason: string | null = null;
+		if (head.size !== row.sizeBytes) {
+			reason = `Stored file is ${head.size} bytes, expected ${row.sizeBytes}.`;
+		} else if (!isWavHeader(await storage.readStart(row.objectKey, WAV_HEADER_BYTES))) {
+			reason = 'The uploaded file is not a WAV file.';
+		}
+
+		if (reason) {
+			await storage.remove(row.objectKey);
+			await tx
+				.update(masters)
+				.set({ status: 'rejected', uploadId: null })
+				.where(eq(masters.id, row.id));
+			await audit({
+				entity: 'master',
+				entityId: row.id,
+				action: 'upload_reject',
+				before: { status: 'pending' },
+				after: { status: 'rejected', reason }
+			});
+			return { status: 'rejected' as const, reason };
+		}
+
+		const completedAt = new Date();
+		const [updated] = await tx
+			.update(masters)
+			.set({ status: 'ready', sha256, completedAt, uploadId: null })
+			.where(eq(masters.id, row.id))
+			.returning();
+		await audit({
+			entity: 'master',
+			entityId: row.id,
+			action: 'upload_complete',
+			before: { status: 'pending' },
+			after: { status: 'ready', sha256, sizeBytes: head.size, completedAt }
+		});
+		return { status: 'ready' as const, master: updated };
+	});
+}
+
+/** Cancel a pending upload and drop whatever R2 already has of it. */
+export async function abortMasterUpload(
+	db: Database,
+	storage: MasterStorage,
+	ctx: MasterCtx,
+	masterId: string
+) {
+	assertCanUpload(ctx);
+	return withAudit(db, ctx, async (tx, audit) => {
+		const row = await pendingMaster(tx, ctx, masterId, true);
+		if (row.uploadId) await storage.abortMultipart(row.objectKey, row.uploadId);
+		else await storage.remove(row.objectKey);
+		await tx
+			.update(masters)
+			.set({ status: 'aborted', uploadId: null })
+			.where(eq(masters.id, row.id));
+		await audit({
+			entity: 'master',
+			entityId: row.id,
+			action: 'upload_abort',
+			before: { status: 'pending' },
+			after: { status: 'aborted' }
+		});
+		return { status: 'aborted' as const };
+	});
+}
+
+/** Masters for a recording, newest first. */
+export function listMasters(db: Database, orgId: string, recordingId: string) {
+	return db
+		.select({
+			id: masters.id,
+			fileName: masters.fileName,
+			format: masters.format,
+			sizeBytes: masters.sizeBytes,
+			sha256: masters.sha256,
+			status: masters.status,
+			objectKey: masters.objectKey,
+			createdAt: masters.createdAt,
+			completedAt: masters.completedAt
+		})
+		.from(masters)
+		.where(and(eq(masters.orgId, orgId), eq(masters.recordingId, recordingId)))
+		.orderBy(desc(masters.createdAt));
+}

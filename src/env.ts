@@ -27,5 +27,22 @@ export const variables = defineEnvVars({
 	AUDIOKIT_WEBHOOK_SECRET: {
 		schema: (value) => value || undefined,
 		description: 'HMAC secret for AudioKit webhooks (required once AUDIO_PROVIDER=audiokit)'
+	},
+	// Master uploads (Cloudflare R2, decision 0011). Uploads stay off until all four are set.
+	R2_ACCOUNT_ID: {
+		schema: (value) => value || undefined,
+		description: 'Cloudflare account id; the R2 endpoint is https://<id>.r2.cloudflarestorage.com'
+	},
+	R2_ACCESS_KEY_ID: {
+		schema: (value) => value || undefined,
+		description: 'R2 API token access key id, scoped to the masters bucket'
+	},
+	R2_SECRET_ACCESS_KEY: {
+		schema: (value) => value || undefined,
+		description: 'R2 API token secret access key (server only)'
+	},
+	R2_MASTERS_BUCKET: {
+		schema: (value) => value || undefined,
+		description: 'Name of the private R2 bucket that holds masters'
 	}
 });
