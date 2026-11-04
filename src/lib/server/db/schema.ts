@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+	bigint,
 	boolean,
 	check,
 	date,
@@ -607,3 +608,71 @@ export type RightsShare = typeof rightsShares.$inferSelect;
 export type Consent = typeof consents.$inferSelect;
 export type AuthorizationDecision = typeof authorizationDecisions.$inferSelect;
 export type ProcessingPurpose = (typeof processingPurposeEnum.enumValues)[number];
+
+/* ------------------------------------------------------------------------- */
+/* Phase 3: master files (Cloudflare R2, ERMS decision 0011)                  */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * pending: URLs signed, upload not confirmed. ready: object checked and recorded.
+ * rejected: the uploaded object failed a check and was deleted. aborted: cancelled.
+ */
+export const masterStatusEnum = pgEnum('master_status', [
+	'pending',
+	'ready',
+	'rejected',
+	'aborted'
+]);
+
+/**
+ * A master file for a recording. The bytes live in R2 under an org-scoped key;
+ * this row is ERMS's record of it. Supabase RLS doesn't reach R2, so ERMS only signs
+ * URLs for keys under the signed-in user's org, and the key check below is the backstop.
+ */
+export const masters = pgTable(
+	'masters',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		recordingId: uuid('recording_id').notNull(),
+		/** orgs/{org_id}/recordings/{recording_id}/masters/{id}.wav */
+		objectKey: text('object_key').notNull(),
+		format: text('format').notNull().default('wav'),
+		/** Declared before upload, confirmed against R2 before the master is ready. */
+		sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+		/** Hex SHA-256 of the file, computed in the browser while uploading. */
+		sha256: text('sha256'),
+		fileName: text('file_name').notNull(),
+		status: masterStatusEnum('status').notNull().default('pending'),
+		/** R2 multipart upload id while a multipart upload is in progress. */
+		uploadId: text('upload_id'),
+		uploadedBy: text('uploaded_by').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		completedAt: timestamp('completed_at', { withTimezone: true })
+	},
+	(t) => [
+		uniqueIndex('masters_object_key_key').on(t.objectKey),
+		index('masters_org_recording_idx').on(t.orgId, t.recordingId, t.createdAt),
+		check(
+			'masters_key_in_org',
+			sql`${t.objectKey} = 'orgs/' || ${t.orgId}::text || '/recordings/' || ${t.recordingId}::text || '/masters/' || ${t.id}::text || '.wav'`
+		),
+		check('masters_format_wav', sql`${t.format} = 'wav'`),
+		check('masters_size_positive', sql`${t.sizeBytes} > 0`),
+		check('masters_sha256_format', sql`${t.sha256} IS NULL OR ${t.sha256} ~ '^[0-9a-f]{64}$'`),
+		check(
+			'masters_ready_complete',
+			sql`${t.status} <> 'ready' OR (${t.sha256} IS NOT NULL AND ${t.completedAt} IS NOT NULL)`
+		),
+		foreignKey({
+			name: 'masters_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		})
+	]
+);
+
+export type Master = typeof masters.$inferSelect;
+export type MasterStatus = (typeof masterStatusEnum.enumValues)[number];

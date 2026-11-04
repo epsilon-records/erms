@@ -13,7 +13,8 @@ export default defineConfig({
 			// Netlify hosts the web UI; everything else runs on Supabase.
 			adapter: adapter(),
 			// SvelteKit adds a per-request nonce to its own scripts. The browser only talks
-			// to this origin (Supabase is called from the server) plus Google Fonts.
+			// to this origin (Supabase is called from the server), Google Fonts, and R2 for
+			// master uploads (presigned PUTs straight to the bucket, EPSILON-29).
 			csp: {
 				mode: 'auto',
 				directives: {
@@ -24,7 +25,8 @@ export default defineConfig({
 					'style-src': ['self', 'unsafe-inline', 'https://fonts.googleapis.com'],
 					'font-src': ['self', 'https://fonts.gstatic.com'],
 					'img-src': ['self', 'data:'],
-					'connect-src': ['self'],
+					// R2's S3 endpoint is https://<account id>.r2.cloudflarestorage.com.
+					'connect-src': ['self', 'https://*.r2.cloudflarestorage.com'],
 					'form-action': ['self'],
 					'frame-ancestors': ['none'],
 					'base-uri': ['self'],

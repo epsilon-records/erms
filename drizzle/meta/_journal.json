@@ -78,6 +78,13 @@
       "when": 1793606528538,
       "tag": "0010_rights_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793807931471,
+      "tag": "0011_masters",
+      "breakpoints": true
     }
   ]
 }
