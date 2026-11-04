@@ -39,8 +39,10 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@noble/hashes": "^2.4.0",
 		"@supabase/ssr": "^0.12.7",
 		"@supabase/supabase-js": "^2.118.0",
+		"aws4fetch": "^1.0.20",
 		"csv-parse": "^7.0.3",
 		"drizzle-orm": "^0.45.4",
 		"postgres": "^4.0.0",
