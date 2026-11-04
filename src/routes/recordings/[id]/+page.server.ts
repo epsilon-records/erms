@@ -8,6 +8,7 @@ import {
 } from '#lib/server/catalog-edit.js';
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
+import { canUploadMasters, listMasters } from '#lib/server/masters.js';
 import {
 	compositionsForRecording,
 	createComposition,
@@ -19,6 +20,7 @@ import {
 	setRecordingLink
 } from '#lib/server/rights.js';
 import { hasScope } from '#lib/server/rbac.js';
+import { masterStorage } from '#lib/server/storage/env.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -40,7 +42,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		compositionChoices: rights.write
 			? await locals.db((tx) => listCompositions(tx, m.orgId))
 			: null,
+		masters: await locals.db((tx) => listMasters(tx, m.orgId, params.id)),
+		uploadsEnabled: masterStorage() !== null,
 		can: {
+			uploadMaster: canUploadMasters(m.role),
 			edit: hasScope(m.role, 'catalog:write'),
 			approve: hasScope(m.role, 'metadata:approve'),
 			rights: rights.write

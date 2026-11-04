@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Credits from '#lib/components/Credits.svelte';
+	import Masters from '#lib/components/Masters.svelte';
 	import Ownership from '#lib/components/Ownership.svelte';
 	import type { PageProps } from './$types';
 
@@ -170,6 +171,16 @@
 						</div>
 					{/if}
 				{/if}
+			</section>
+
+			<section class="stack" aria-labelledby="master-file-h">
+				<h2 id="master-file-h" class="h2">Master file</h2>
+				<Masters
+					recordingId={rec.id}
+					masters={data.masters}
+					canUpload={data.can.uploadMaster}
+					enabled={data.uploadsEnabled}
+				/>
 			</section>
 
 			{#if data.ownership}

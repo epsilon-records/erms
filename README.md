@@ -7,13 +7,14 @@ Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/a
 
 SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGlite.
 
-| Concern                         | Where it runs                                                                     |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| Web UI + REST API               | Netlify (`@sveltejs/adapter-netlify`)                                             |
-| Database (PostgreSQL 17)        | Supabase project "ERMS" (efalpthvvmvpaikuxymd, eu-central-1, org Epsilon Records) |
-| Auth (magic link)               | Supabase Auth                                                                     |
-| File storage (masters, artwork) | Supabase Storage                                                                  |
-| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function                                         |
+| Concern                         | Where it runs                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| Web UI + REST API               | Netlify (`@sveltejs/adapter-netlify`)                                              |
+| Database (PostgreSQL 17)        | Supabase project "ERMS" (efalpthvvmvpaikuxymd, eu-central-1, org Epsilon Records)  |
+| Auth (magic link)               | Supabase Auth                                                                      |
+| Master files (WAV)              | Cloudflare R2, private bucket; browser uploads with presigned URLs (decision 0011) |
+| File storage (artwork)          | Supabase Storage                                                                   |
+| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function                                          |
 
 ## Layout
 
@@ -27,6 +28,8 @@ src/
     audit.ts                withAudit(): change + audit entry in one transaction
     rbac.ts                 roles and scopes
     audio/                  AudioKit contract (Zod), AudioProvider, stub, webhook HMAC
+    masters.ts              master uploads: who may upload, org-scoped keys, WAV checks
+    storage/                R2 client (S3 API via aws4fetch): presigning and control calls
 drizzle/                    SQL migrations (RLS, append-only audit log, same-org keys, app role)
 ```
 
@@ -53,6 +56,19 @@ pnpm test                   # unit + database tests (PGlite, no Docker needed)
 - CI also runs `pnpm audit` and a gitleaks scan of the full history; CodeQL and Dependabot run separately.
 - No secrets in the repo. Netlify and Supabase hold production env vars and secrets.
 - In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
+
+## Master uploads (Cloudflare R2)
+
+A recording page uploads a WAV master straight from the browser to R2. ERMS never handles the file body:
+
+1. `POST /recordings/:id/masters` (owner or catalog manager) checks the file is a WAV (name, type, size up to 4 GiB), records a pending master, and returns a presigned PUT URL. Files over 100 MiB start a multipart upload instead, in 64 MiB parts.
+2. `POST …/masters/:masterId/parts` signs part URLs, up to 16 at a time. URLs last 15 minutes.
+3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete`. ERMS completes the multipart upload, HEADs the object to confirm its size, reads its first 12 bytes to confirm a WAV header, and records the key, SHA-256, size and format. A file that fails is deleted and marked rejected.
+4. `POST …/masters/:masterId/abort` cancels a pending upload.
+
+Org isolation: object keys are `orgs/{org_id}/recordings/{recording_id}/masters/{master_id}.wav`, built on the server from the signed-in user's active org and never taken from the request. The `masters_key_in_org` check ties each key to its row, RLS limits rows to the user's orgs, and `erms_app` can only update an upload's progress, not its key, org or size.
+
+Configuration: set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_MASTERS_BUCKET` in Netlify (and Supabase secrets for later Edge Functions). Uploads stay off until all four are set. The bucket must be private, with a CORS rule allowing `PUT` from the ERMS origins, the `Content-Type` request header, and exposing `ETag`. The CSP allows `connect-src https://*.r2.cloudflarestorage.com` for the uploads.
 
 ## Roadmap
 
