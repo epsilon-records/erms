@@ -153,7 +153,8 @@ export async function submitQueuedJob(
 	db: Database,
 	storage: MasterStorage,
 	audiokit: AudioProvider,
-	jobId: string
+	jobId: string,
+	webhookUrl: string
 ): Promise<void> {
 	const [job] = await db
 		.select({
@@ -204,7 +205,8 @@ export async function submitQueuedJob(
 			filename: job.masterFileName
 		},
 		params: job.params as Record<string, unknown> | null | undefined,
-		outputs: Object.keys(outputsMap).length > 0 ? outputsMap : undefined
+		outputs: Object.keys(outputsMap).length > 0 ? outputsMap : undefined,
+		webhook: { url: webhookUrl }
 	});
 
 	// Store provider_job_id and mark as submitted
