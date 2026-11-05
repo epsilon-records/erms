@@ -240,3 +240,66 @@ export function listJobs(db: Database, orgId: string, recordingId: string) {
 		.where(and(eq(audiokitJobs.orgId, orgId), eq(audiokitJobs.recordingId, recordingId)))
 		.orderBy(desc(audiokitJobs.requestedAt));
 }
+
+/**
+ * Reconciliation: poll AudioKit for jobs that have been submitted but haven't finished.
+ * Called periodically to catch missed webhooks. Polls jobs that have been submitted for more
+ * than 5 minutes without a webhook.
+ */
+export async function reconcileJobs(
+	db: Database,
+	audiokit: AudioProvider
+): Promise<{ checked: number; updated: number }> {
+	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago
+	const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+	const jobs = await db
+		.select({
+			id: audiokitJobs.id,
+			providerJobId: audiokitJobs.providerJobId,
+			status: audiokitJobs.status
+		})
+		.from(audiokitJobs)
+		.where(eq(audiokitJobs.status, 'submitted'))
+		.for('update');
+
+	let checked = 0;
+	let updated = 0;
+
+	for (const job of jobs) {
+		if (!job.providerJobId) continue;
+
+		checked++;
+
+		try {
+			// Poll AudioKit for the current job status
+			const audiokitJob = await audiokit.status(job.providerJobId);
+
+			// If the job is finished, update our database
+			if (
+				audiokitJob.status === 'succeeded' ||
+				audiokitJob.status === 'failed' ||
+				audiokitJob.status === 'canceled'
+			) {
+				const now = new Date();
+				await db
+					.update(audiokitJobs)
+					.set({
+						status: audiokitJob.status,
+						result: audiokitJob.result ?? null,
+						error: audiokitJob.error ?? null,
+						provenance: audiokitJob.provenance ?? null,
+						finishedAt: now
+					})
+					.where(eq(audiokitJobs.id, job.id));
+
+				updated++;
+			}
+		} catch (err) {
+			// Log but don't fail the reconciliation for a single job
+			console.error(`Failed to reconcile job ${job.id}:`, err);
+		}
+	}
+
+	return { checked, updated };
+}

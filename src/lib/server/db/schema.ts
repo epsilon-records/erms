@@ -718,6 +718,8 @@ export const audiokitJobs = pgTable(
 		result: jsonb('result'),
 		/** The error from AudioKit (for failed jobs). */
 		error: jsonb('error'),
+		/** Provenance from AudioKit (input hash, version, operation, params). */
+		provenance: jsonb('provenance'),
 		/** Authorization decision id that allowed this job. */
 		authorizationId: uuid('authorization_id'),
 		/** Who requested the job. */
@@ -770,3 +772,26 @@ export const audiokitJobs = pgTable(
 
 export type AudiokitJob = typeof audiokitJobs.$inferSelect;
 export type AudiokitJobStatus = (typeof audiokitJobStatusEnum.enumValues)[number];
+
+/**
+ * Tracks webhook event_ids to drop duplicates. AudioKit may resend the same webhook if it
+ * doesn't receive a 2xx response, so ERMS tracks seen event_ids and ignores repeats.
+ */
+export const webhookEvents = pgTable(
+	'webhook_events',
+	{
+		/** The event_id from AudioKit's webhook (UUID). */
+		eventId: uuid('event_id').primaryKey(),
+		/** The event type (job.succeeded, job.failed, job.canceled). */
+		eventType: text('event_type').notNull(),
+		/** The ERMS job_id this event relates to. */
+		jobId: uuid('job_id')
+			.notNull()
+			.references(() => audiokitJobs.id),
+		/** When ERMS first received this event. */
+		receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [index('webhook_events_job_idx').on(t.jobId), index('webhook_events_received_idx').on(t.receivedAt)]
+);
+
+export type WebhookEvent = typeof webhookEvents.$inferSelect;
