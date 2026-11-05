@@ -593,6 +593,7 @@ export const authorizationDecisions = pgTable(
 	},
 	(t) => [
 		index('authorization_decisions_org_recording_idx').on(t.orgId, t.recordingId, t.decidedAt),
+		unique('authorization_decisions_org_id_id_key').on(t.orgId, t.id),
 		foreignKey({
 			name: 'authorization_decisions_recording_same_org_fk',
 			columns: [t.orgId, t.recordingId],

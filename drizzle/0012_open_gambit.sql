@@ -23,6 +23,7 @@ CREATE TABLE "audiokit_jobs" (
 	CONSTRAINT "audiokit_jobs_error_on_failure" CHECK ("audiokit_jobs"."status" <> 'failed' OR "audiokit_jobs"."error" IS NOT NULL)
 );
 --> statement-breakpoint
+ALTER TABLE "authorization_decisions" ADD CONSTRAINT "authorization_decisions_org_id_id_key" UNIQUE("org_id","id");--> statement-breakpoint
 ALTER TABLE "audiokit_jobs" ADD CONSTRAINT "audiokit_jobs_org_id_orgs_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."orgs"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audiokit_jobs" ADD CONSTRAINT "audiokit_jobs_recording_same_org_fk" FOREIGN KEY ("org_id","recording_id") REFERENCES "public"."recordings"("org_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audiokit_jobs" ADD CONSTRAINT "audiokit_jobs_master_fk" FOREIGN KEY ("master_id") REFERENCES "public"."masters"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
