@@ -15,7 +15,8 @@ describe('webhook endpoint duplicate handling', () => {
 		const SECRET = 'whsec_test';
 		const T = 1793440800;
 		const BODY = '{"event_id":"evt-1"}';
-		const EXPECTED = 't=1793440800,v1=27d3e5b970e7b39136241354c673e7849a3bceccff29da0b09c76a1d9b73b822';
+		const EXPECTED =
+			't=1793440800,v1=27d3e5b970e7b39136241354c673e7849a3bceccff29da0b09c76a1d9b73b822';
 
 		expect(sign(SECRET, BODY, T)).toBe(EXPECTED);
 	});
