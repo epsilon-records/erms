@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { createAudioKitClient } from '#lib/server/audio/client.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { reconcileJobs } from '#lib/server/audiokit-jobs.js';
+import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
 import type { RequestHandler } from './$types';
 
@@ -10,7 +11,11 @@ import type { RequestHandler } from './$types';
  * received webhooks. Can be called periodically (e.g., via cron) to catch missed webhooks.
  */
 
-export const POST: RequestHandler = async () => {
+export const POST: RequestHandler = async ({ request }) => {
+	if (!isAuthorizedWorkerRequest(request)) {
+		throw error(401, 'Unauthorized');
+	}
+
 	const audiokit = createAudioKitClient(
 		AUDIOKIT_BASE_URL,
 		AUDIOKIT_API_KEY,

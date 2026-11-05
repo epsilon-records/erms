@@ -2,8 +2,17 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 
-/** Files allowed to touch the owner connection; everything else must use locals.db. */
-const ALLOWED = new Set(['src/hooks.server.ts', 'src/lib/server/db/client.ts']);
+/**
+ * Files allowed to touch the owner connection. Machine endpoints authenticate with the worker
+ * bearer secret or AudioKit's webhook signature before accessing cross-org job state.
+ */
+const ALLOWED = new Set([
+	'src/hooks.server.ts',
+	'src/lib/server/db/client.ts',
+	'src/routes/api/audiokit/worker/+server.ts',
+	'src/routes/api/audiokit/reconcile/+server.ts',
+	'src/routes/api/audiokit/webhook/+server.ts'
+]);
 
 function* files(dir: string): Generator<string> {
 	for (const name of readdirSync(dir)) {
