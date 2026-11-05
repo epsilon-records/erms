@@ -10,6 +10,8 @@ import { AwsClient } from 'aws4fetch';
 export interface MasterStorage {
 	/** Presigned PUT for a single-request upload. */
 	presignPut(key: string, expiresIn: number): Promise<string>;
+	/** Presigned GET for downloading an object. */
+	presignGet(key: string, expiresIn: number): Promise<string>;
 	/** Starts a multipart upload and returns its upload id. */
 	createMultipart(key: string): Promise<string>;
 	/** Presigned PUT for one part of a multipart upload. */
@@ -56,9 +58,9 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 		return url;
 	};
 
-	async function presign(url: URL, expiresIn: number) {
+	async function presign(url: URL, method: 'GET' | 'PUT', expiresIn: number) {
 		url.searchParams.set('X-Amz-Expires', String(expiresIn));
-		const signed = await client.sign(url.toString(), { method: 'PUT', aws: { signQuery: true } });
+		const signed = await client.sign(url.toString(), { method, aws: { signQuery: true } });
 		return signed.url;
 	}
 
@@ -72,7 +74,9 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 	}
 
 	return {
-		presignPut: (key, expiresIn) => presign(objectUrl(key), expiresIn),
+		presignPut: (key, expiresIn) => presign(objectUrl(key), 'PUT', expiresIn),
+
+		presignGet: (key, expiresIn) => presign(objectUrl(key), 'GET', expiresIn),
 
 		async createMultipart(key) {
 			const res = await call(
@@ -86,7 +90,7 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 		},
 
 		presignPart: (key, uploadId, partNumber, expiresIn) =>
-			presign(objectUrl(key, { partNumber: String(partNumber), uploadId }), expiresIn),
+			presign(objectUrl(key, { partNumber: String(partNumber), uploadId }), 'PUT', expiresIn),
 
 		async completeMultipart(key, uploadId, parts) {
 			const body =
