@@ -48,6 +48,9 @@ class FakeStorage implements MasterStorage {
 		this.signed.push(key);
 		return `https://r2.test/${key}?X-Amz-Signature=x`;
 	}
+	async presignGet(key: string) {
+		return `https://r2.test/${key}?X-Amz-Signature=get`;
+	}
 	async createMultipart(key: string) {
 		const id = `upload-${this.uploads.size + 1}`;
 		this.uploads.set(id, { key });
