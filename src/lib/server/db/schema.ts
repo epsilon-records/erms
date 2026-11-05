@@ -791,7 +791,10 @@ export const webhookEvents = pgTable(
 		/** When ERMS first received this event. */
 		receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [index('webhook_events_job_idx').on(t.jobId), index('webhook_events_received_idx').on(t.receivedAt)]
+	(t) => [
+		index('webhook_events_job_idx').on(t.jobId),
+		index('webhook_events_received_idx').on(t.receivedAt)
+	]
 );
 
 export type WebhookEvent = typeof webhookEvents.$inferSelect;

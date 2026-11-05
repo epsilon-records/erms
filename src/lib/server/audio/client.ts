@@ -1,11 +1,4 @@
-import type {
-	ApiError,
-	ApiErrorCode,
-	Capability,
-	Job,
-	JobRequest,
-	WebhookEvent
-} from './contract';
+import type { ApiError, ApiErrorCode, Capability, Job, JobRequest, WebhookEvent } from './contract';
 import { AudioProviderError, type AudioProvider, WebhookRejected } from './provider';
 import * as webhook from './webhook';
 

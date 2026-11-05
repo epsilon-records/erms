@@ -5,11 +5,7 @@ import { WebhookRejected } from '#lib/server/audio/provider.js';
 import { WebhookEvent } from '#lib/server/audio/contract.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { audiokitJobs, webhookEvents } from '#lib/server/db/schema.js';
-import {
-	AUDIOKIT_API_KEY,
-	AUDIOKIT_BASE_URL,
-	AUDIOKIT_WEBHOOK_SECRET
-} from '$app/env/private';
+import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
 import type { RequestHandler } from './$types';
 
 /**
@@ -21,7 +17,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	const rawBody = await request.text();
 	const signature = request.headers.get('x-signature');
 
-	const audiokit = createAudioKitClient(AUDIOKIT_BASE_URL, AUDIOKIT_API_KEY, AUDIOKIT_WEBHOOK_SECRET);
+	const audiokit = createAudioKitClient(
+		AUDIOKIT_BASE_URL,
+		AUDIOKIT_API_KEY,
+		AUDIOKIT_WEBHOOK_SECRET
+	);
 	if (!audiokit) {
 		throw error(503, 'AudioKit client not configured');
 	}

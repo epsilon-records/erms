@@ -5,11 +5,7 @@ import { submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { audiokitJobs } from '#lib/server/db/schema.js';
 import { masterStorage } from '#lib/server/storage/env.js';
-import {
-	AUDIOKIT_API_KEY,
-	AUDIOKIT_BASE_URL,
-	AUDIOKIT_WEBHOOK_SECRET
-} from '$app/env/private';
+import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
 import type { RequestHandler } from './$types';
 
 /**
@@ -37,7 +33,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(503, 'Storage not configured');
 	}
 
-	const audiokit = createAudioKitClient(AUDIOKIT_BASE_URL, AUDIOKIT_API_KEY, AUDIOKIT_WEBHOOK_SECRET);
+	const audiokit = createAudioKitClient(
+		AUDIOKIT_BASE_URL,
+		AUDIOKIT_API_KEY,
+		AUDIOKIT_WEBHOOK_SECRET
+	);
 	if (!audiokit) {
 		throw error(503, 'AudioKit client not configured');
 	}
