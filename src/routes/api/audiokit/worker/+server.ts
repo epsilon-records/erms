@@ -5,6 +5,7 @@ import { submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { audiokitJobs } from '#lib/server/db/schema.js';
 import { masterStorage } from '#lib/server/storage/env.js';
+import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
 import type { RequestHandler } from './$types';
 
@@ -22,9 +23,7 @@ const MAX_ATTEMPTS = 5;
 
 export const POST: RequestHandler = async ({ request }) => {
 	// Simple authentication - in production, use a proper secret
-	const auth = request.headers.get('authorization');
-	const workerSecret = process.env.WORKER_SECRET;
-	if (!workerSecret || auth !== `Bearer ${workerSecret}`) {
+	if (!isAuthorizedWorkerRequest(request)) {
 		throw error(401, 'Unauthorized');
 	}
 
