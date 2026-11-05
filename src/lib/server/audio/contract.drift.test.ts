@@ -323,7 +323,7 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 	it('agrees with the spec on which requests are valid', () => {
 		const base = requestFor('loudness', 'erms-1');
 		// Where ERMS is deliberately stricter than the schema (the spec says it in prose only).
-		const STRICTER = new Set(['http input']);
+		const STRICTER = new Set<string>([]);
 		const cases: [string, unknown][] = [
 			...(Object.keys(OPERATIONS) as Operation[]).map(
 				(op) => [`valid ${op}`, requestFor(op, `erms-${op}`)] as [string, unknown]
