@@ -8,8 +8,13 @@ import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
 import { ORG_COOKIE, pickMembership } from '#lib/server/org.js';
 
-/** Routes reachable without signing in. */
-const PUBLIC_PATHS = ['/login', '/auth/callback'];
+/**
+ * Routes reachable without signing in. `/api/audiokit/` holds machine endpoints that
+ * verify their own credentials before running (worker/reconcile require the WORKER_SECRET
+ * bearer token; webhook verifies AudioKit's X-Signature HMAC), so the login redirect must
+ * not intercept them. Every other path stays behind the sign-in redirect.
+ */
+const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.supabase = createServerClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY, {

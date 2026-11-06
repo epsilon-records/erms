@@ -1,0 +1,52 @@
+import { describe, expect, it, vi } from 'vitest';
+
+// The hook builds a Supabase client on every request; the tests only care about the
+// unauthenticated path, so a client that reports no user is enough.
+vi.mock('@supabase/ssr', () => ({
+	createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: null } }) } })
+}));
+
+/** Minimal `event` for the hook: an unauthenticated browser request to `pathname`. */
+function requestEvent(pathname: string) {
+	const url = new URL(pathname, 'https://erms.test');
+	return {
+		url,
+		request: new Request(url),
+		cookies: { getAll: () => [], get: () => undefined, set: () => {} },
+		locals: {}
+	} as never;
+}
+
+async function runHook(pathname: string) {
+	const { handle } = await import('./hooks.server.js');
+	let resolved = false;
+	const response = await handle({
+		event: requestEvent(pathname),
+		resolve: async () => {
+			resolved = true;
+			return new Response('ok');
+		}
+	} as never);
+	return { response, resolved };
+}
+
+describe('auth hook allowlist', () => {
+	it.each(['/api/audiokit/worker', '/api/audiokit/webhook', '/api/audiokit/reconcile'])(
+		'lets the machine endpoint %s reach its handler without a Supabase user',
+		async (pathname) => {
+			const { response, resolved } = await runHook(pathname);
+			expect(resolved).toBe(true);
+			expect(response.status).toBe(200);
+			// Security headers are still applied to machine responses.
+			expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+			expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+		}
+	);
+
+	it.each(['/', '/dashboard', '/api/recordings', '/api/audiokit'])(
+		'still redirects the unauthenticated app path %s to /login',
+		async (pathname) => {
+			await expect(runHook(pathname)).rejects.toMatchObject({ status: 303, location: '/login' });
+		}
+	);
+});
