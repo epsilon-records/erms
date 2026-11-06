@@ -41,6 +41,7 @@
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.4.0",
+		"@sentry/sveltekit": "^11.11.0",
 		"@supabase/ssr": "^0.12.7",
 		"@supabase/supabase-js": "^2.118.0",
 		"aws4fetch": "^1.0.20",
