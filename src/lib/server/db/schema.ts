@@ -593,6 +593,7 @@ export const authorizationDecisions = pgTable(
 	},
 	(t) => [
 		index('authorization_decisions_org_recording_idx').on(t.orgId, t.recordingId, t.decidedAt),
+		unique('authorization_decisions_org_id_id_key').on(t.orgId, t.id),
 		foreignKey({
 			name: 'authorization_decisions_recording_same_org_fk',
 			columns: [t.orgId, t.recordingId],
@@ -676,3 +677,125 @@ export const masters = pgTable(
 
 export type Master = typeof masters.$inferSelect;
 export type MasterStatus = (typeof masterStatusEnum.enumValues)[number];
+
+/* ------------------------------------------------------------------------- */
+/* Phase 4: AudioKit jobs                                                     */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * queued: waiting to be submitted. submitted: sent to AudioKit. succeeded/failed/canceled: final.
+ */
+export const audiokitJobStatusEnum = pgEnum('audiokit_job_status', [
+	'queued',
+	'submitted',
+	'succeeded',
+	'failed',
+	'canceled'
+]);
+
+/**
+ * Jobs submitted to AudioKit for audio processing. One row per job; the worker polls for
+ * queued jobs, issues presigned URLs, submits to AudioKit, and stores the provider_job_id.
+ * Webhooks from AudioKit update the row with results or errors.
+ */
+export const audiokitJobs = pgTable(
+	'audiokit_jobs',
+	{
+		/** ERMS's job id, used as the idempotency key in AudioKit's API. */
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		recordingId: uuid('recording_id').notNull(),
+		masterId: uuid('master_id').notNull(),
+		/** The AudioKit operation to run (analyze, transcode, etc). */
+		operation: text('operation').notNull(),
+		/** Operation parameters as JSON (null for operations with no params). */
+		params: jsonb('params'),
+		/** AudioKit's provider_job_id, returned when the job is submitted. */
+		providerJobId: uuid('provider_job_id'),
+		status: audiokitJobStatusEnum('status').notNull().default('queued'),
+		/** The result from AudioKit (for succeeded jobs). */
+		result: jsonb('result'),
+		/** The error from AudioKit (for failed jobs). */
+		error: jsonb('error'),
+		/** Provenance from AudioKit (input hash, version, operation, params). */
+		provenance: jsonb('provenance'),
+		/** Authorization decision id that allowed this job. */
+		authorizationId: uuid('authorization_id'),
+		/** Who requested the job. */
+		requestedBy: text('requested_by').notNull(),
+		requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+		/** When the job was submitted to AudioKit. */
+		submittedAt: timestamp('submitted_at', { withTimezone: true }),
+		/** When AudioKit reported the job finished (succeeded, failed or canceled). */
+		finishedAt: timestamp('finished_at', { withTimezone: true }),
+		/** Number of times the worker has tried to submit this job. */
+		attempts: integer('attempts').notNull().default(0),
+		/** When the worker last tried to submit (used to avoid retrying too fast). */
+		lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true })
+	},
+	(t) => [
+		index('audiokit_jobs_org_recording_idx').on(t.orgId, t.recordingId, t.requestedAt),
+		index('audiokit_jobs_master_idx').on(t.masterId),
+		index('audiokit_jobs_status_idx').on(t.status, t.requestedAt),
+		index('audiokit_jobs_provider_idx').on(t.providerJobId),
+		check(
+			'audiokit_jobs_submitted_complete',
+			sql`${t.status} = 'queued' OR (${t.providerJobId} IS NOT NULL AND ${t.submittedAt} IS NOT NULL)`
+		),
+		check(
+			'audiokit_jobs_finished_complete',
+			sql`${t.status} NOT IN ('succeeded', 'failed', 'canceled') OR ${t.finishedAt} IS NOT NULL`
+		),
+		check(
+			'audiokit_jobs_result_on_success',
+			sql`${t.status} <> 'succeeded' OR ${t.result} IS NOT NULL`
+		),
+		check('audiokit_jobs_error_on_failure', sql`${t.status} <> 'failed' OR ${t.error} IS NOT NULL`),
+		foreignKey({
+			name: 'audiokit_jobs_recording_same_org_fk',
+			columns: [t.orgId, t.recordingId],
+			foreignColumns: [recordings.orgId, recordings.id]
+		}),
+		foreignKey({
+			name: 'audiokit_jobs_master_fk',
+			columns: [t.masterId],
+			foreignColumns: [masters.id]
+		}),
+		foreignKey({
+			name: 'audiokit_jobs_authorization_same_org_fk',
+			columns: [t.orgId, t.authorizationId],
+			foreignColumns: [authorizationDecisions.orgId, authorizationDecisions.id]
+		})
+	]
+);
+
+export type AudiokitJob = typeof audiokitJobs.$inferSelect;
+export type AudiokitJobStatus = (typeof audiokitJobStatusEnum.enumValues)[number];
+
+/**
+ * Tracks webhook event_ids to drop duplicates. AudioKit may resend the same webhook if it
+ * doesn't receive a 2xx response, so ERMS tracks seen event_ids and ignores repeats.
+ */
+export const webhookEvents = pgTable(
+	'webhook_events',
+	{
+		/** The event_id from AudioKit's webhook (UUID). */
+		eventId: uuid('event_id').primaryKey(),
+		/** The event type (job.succeeded, job.failed, job.canceled). */
+		eventType: text('event_type').notNull(),
+		/** The ERMS job_id this event relates to. */
+		jobId: uuid('job_id')
+			.notNull()
+			.references(() => audiokitJobs.id),
+		/** When ERMS first received this event. */
+		receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('webhook_events_job_idx').on(t.jobId),
+		index('webhook_events_received_idx').on(t.receivedAt)
+	]
+);
+
+export type WebhookEvent = typeof webhookEvents.$inferSelect;

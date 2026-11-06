@@ -24,9 +24,21 @@ export const variables = defineEnvVars({
 		schema: z.enum(['stub', 'audiokit']).default('stub'),
 		description: 'Which AudioProvider implementation the processing worker uses'
 	},
+	AUDIOKIT_BASE_URL: {
+		schema: (value) => value || undefined,
+		description: 'AudioKit API base URL (e.g., https://api.audiokit.ai)'
+	},
+	AUDIOKIT_API_KEY: {
+		schema: (value) => value || undefined,
+		description: 'AudioKit API key for authentication'
+	},
 	AUDIOKIT_WEBHOOK_SECRET: {
 		schema: (value) => value || undefined,
 		description: 'HMAC secret for AudioKit webhooks (required once AUDIO_PROVIDER=audiokit)'
+	},
+	WORKER_SECRET: {
+		schema: (value) => value || undefined,
+		description: 'Bearer token for the background job worker endpoint'
 	},
 	// Master uploads (Cloudflare R2, decision 0011). Uploads stay off until all four are set.
 	R2_ACCOUNT_ID: {
