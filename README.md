@@ -59,15 +59,16 @@ Actions tab. The job runs in the `production` GitHub environment and:
 3. runs `pnpm db:migrate` to apply the pending migrations, and
 4. runs `pnpm db:drift` again, failing the job if the database is still behind.
 
-The `production` environment gates the job, so it can require approval from the environment's
-reviewers before it reads the connection string. One-time setup:
+The `production` environment holds the connection string, so the job runs unattended on every
+merge; the environment secret scopes it to this workflow. One-time setup:
 
-- Go to **Settings → Environments → New environment**, create `production`, and add the
-  required reviewers (for example Nate) under **Deployment protection rules**.
+- Create the `production` environment under **Settings → Environments** if it does not exist.
 - Add an environment secret named **`DATABASE_URL`** to `production`. It is the production
   Supabase connection string from the project's Connect panel, using the transaction pooler
   on port `6543` (the client disables prepared statements for it). Nothing in the repo sets or
   reads this secret, and the workflow never prints it.
+- To require a manual approval before a run applies migrations, add required reviewers under
+  the environment's **Deployment protection rules**. Without them, migrations run automatically.
 
 The drift check compares the database's `drizzle.__drizzle_migrations` rows with
 `drizzle/meta/_journal.json`, so a merged migration that never reached the database shows up

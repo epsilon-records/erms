@@ -3,9 +3,9 @@ name: Migrate production database
 # Applies ERMS migrations to the production Supabase project after a merge to main,
 # so a merged migration can never silently miss production again (EPSILON-47).
 #
-# Gated: the job runs in the `production` GitHub environment. Configure that
-# environment with required reviewers (Settings → Environments → production) so a
-# person approves each run, and store the `DATABASE_URL` environment secret there.
+# The job runs in the `production` GitHub environment and reads its `DATABASE_URL`
+# environment secret. It runs automatically on merge; add required reviewers to the
+# environment (Settings → Environments → production) to require approval first.
 # See README, "Migrations and deploy". Never commit the connection string.
 on:
   push:
