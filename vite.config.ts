@@ -1,9 +1,20 @@
 import adapter from '@sveltejs/adapter-netlify';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { sentrySvelteKit } from '@sentry/sveltekit/vite';
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({
+export default defineConfig(async () => ({
 	plugins: [
+		// Creates a Sentry release and uploads source maps when SENTRY_AUTH_TOKEN is set
+		// (CI/production builds only; local builds skip it).
+		...(process.env.SENTRY_AUTH_TOKEN
+			? await sentrySvelteKit({
+					org: 'epsilon-records',
+					project: 'erms',
+					authToken: process.env.SENTRY_AUTH_TOKEN,
+					autoInstrument: false
+				})
+			: []),
 		sveltekit({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
@@ -49,4 +60,4 @@ export default defineConfig({
 		include: ['src/**/*.test.ts'],
 		environment: 'node'
 	}
-});
+}));

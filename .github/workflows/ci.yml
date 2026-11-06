@@ -45,7 +45,11 @@ jobs:
           echo "AUDIOKIT_OPENAPI=$out" >> "$GITHUB_ENV"
       - run: pnpm test
       - run: pnpm db:check
+      # Creates a Sentry release and uploads source maps for this commit
+      # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
   secrets:
     runs-on: ubuntu-latest
