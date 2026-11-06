@@ -52,6 +52,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		uploadsEnabled: masterStorage() !== null,
 		can: {
 			uploadMaster: canUploadMasters(m.role),
+			deleteMaster: canUploadMasters(m.role),
 			edit: hasScope(m.role, 'catalog:write'),
 			approve: hasScope(m.role, 'metadata:approve'),
 			rights: rights.write,

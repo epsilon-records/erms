@@ -11,6 +11,7 @@ import {
 	abortMasterUpload,
 	canUploadMasters,
 	completeMasterUpload,
+	deleteMaster,
 	keyInOrg,
 	listMasters,
 	type MasterCtx,
@@ -558,6 +559,133 @@ describe('master uploads', () => {
 			);
 			expect(storage.uploads.has(uploadId!)).toBe(false);
 			expect((await keyOf(start.masterId)).status).toBe('aborted');
+		});
+	});
+
+	describe('deleting a master', () => {
+		/** Upload and complete a single-PUT master so it is ready to delete. */
+		const startReady = async (userId: string, role: Role) => {
+			const start = await asUser(db, userId, (tx) =>
+				startMasterUpload(tx, storage, ctx(userId, role), recA, wav(2048))
+			);
+			const row = await keyOf(start.masterId);
+			storage.put(row.objectKey, 2048);
+			await asUser(db, userId, (tx) =>
+				completeMasterUpload(tx, storage, ctx(userId, role), start.masterId, { sha256: SHA })
+			);
+			return start.masterId;
+		};
+
+		const auditFor = (id: string) =>
+			db
+				.select({ action: auditLog.action, before: auditLog.before, after: auditLog.after })
+				.from(auditLog)
+				.where(and(eq(auditLog.entity, 'master'), eq(auditLog.entityId, id)));
+
+		it.each([
+			[viewerA, 'viewer'],
+			[rightsA, 'rights_admin'],
+			[agentA, 'agent']
+		] as const)('refuses to delete a master for a %s (%s)', async (userId, role) => {
+			const id = await startReady(ownerA, 'owner');
+			const row = await keyOf(id);
+			await refused(
+				asUser(db, userId, (tx) => deleteMaster(tx, storage, ctx(userId, role), id)),
+				403
+			);
+			expect(storage.removed).toEqual([]);
+			expect((await keyOf(id))?.id).toBe(id);
+			expect((await keyOf(id))?.objectKey).toBe(row.objectKey);
+		});
+
+		it.each([
+			[ownerA, 'owner'],
+			[managerA, 'catalog_manager']
+		] as const)('lets a %s delete a ready master and audits it', async (userId, role) => {
+			const id = await startReady(ownerA, 'owner');
+			const row = await keyOf(id);
+			const res = await asUser(db, userId, (tx) =>
+				deleteMaster(tx, storage, ctx(userId, role), id)
+			);
+			expect(res).toEqual({ status: 'deleted', masterId: id });
+			expect(storage.removed).toEqual([row.objectKey]);
+			expect(storage.objects.has(row.objectKey)).toBe(false);
+			expect(await keyOf(id)).toBeUndefined();
+
+			const trail = await auditFor(id);
+			const deleted = trail.find((t) => t.action === 'master_delete');
+			expect(deleted?.before).toEqual({
+				objectKey: row.objectKey,
+				status: 'ready',
+				sha256: SHA,
+				sizeBytes: row.sizeBytes
+			});
+			expect(deleted?.after).toBeNull();
+		});
+
+		it("won't delete another org's master", async () => {
+			const id = await startReady(ownerA, 'owner');
+			const row = await keyOf(id);
+			for (const orgId of [orgA, orgB]) {
+				await refused(
+					asUser(db, ownerB, (tx) => deleteMaster(tx, storage, ctx(ownerB, 'owner', orgId), id)),
+					404
+				);
+			}
+			expect(storage.removed).toEqual([]);
+			expect((await keyOf(id))?.objectKey).toBe(row.objectKey);
+		});
+
+		it('aborts a pending multipart upload instead of removing the object', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(MULTIPART_THRESHOLD + 1))
+			);
+			const row = await keyOf(start.masterId);
+			expect(row.uploadId).toBeTruthy();
+			expect(storage.uploads.has(row.uploadId!)).toBe(true);
+			await asUser(db, ownerA, (tx) =>
+				deleteMaster(tx, storage, ctx(ownerA, 'owner'), start.masterId)
+			);
+			expect(storage.uploads.has(row.uploadId!)).toBe(false);
+			expect(storage.removed).toEqual([]);
+			expect(await keyOf(start.masterId)).toBeUndefined();
+		});
+
+		it('removes the object for a pending single upload', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav())
+			);
+			const row = await keyOf(start.masterId);
+			expect(row.uploadId).toBeNull();
+			await asUser(db, ownerA, (tx) =>
+				deleteMaster(tx, storage, ctx(ownerA, 'owner'), start.masterId)
+			);
+			expect(storage.removed).toEqual([row.objectKey]);
+			expect(await keyOf(start.masterId)).toBeUndefined();
+		});
+
+		it('returns 404 for an unknown or malformed master id', async () => {
+			await refused(
+				asUser(db, ownerA, (tx) => deleteMaster(tx, storage, ctx(ownerA, 'owner'), uuidv7())),
+				404
+			);
+			await refused(
+				asUser(db, ownerA, (tx) => deleteMaster(tx, storage, ctx(ownerA, 'owner'), 'not-a-uuid')),
+				404
+			);
+			expect(storage.removed).toEqual([]);
+		});
+
+		it('the database removes nothing when a viewer deletes a master directly', async () => {
+			const id = await startReady(ownerA, 'owner');
+			await asUser(db, viewerA, (tx) => tx.delete(masters).where(eq(masters.id, id)));
+			expect((await keyOf(id))?.id).toBe(id);
+		});
+
+		it('the database removes nothing when another org deletes a master directly', async () => {
+			const id = await startReady(ownerA, 'owner');
+			await asUser(db, ownerB, (tx) => tx.delete(masters).where(eq(masters.id, id)));
+			expect((await keyOf(id))?.id).toBe(id);
 		});
 	});
 });
