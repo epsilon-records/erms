@@ -54,6 +54,7 @@ export const KNOWN_API_ERROR_CODES = [
 	'unauthorized',
 	'not_found',
 	'idempotency_conflict',
+	'client_bootstrap',
 	'unavailable'
 ] as const;
 export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});
