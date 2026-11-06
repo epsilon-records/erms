@@ -55,7 +55,9 @@ export const memberships = pgTable(
 			.references(() => orgs.id, { onDelete: 'cascade' }),
 		userId: uuid('user_id').notNull(),
 		role: roleEnum('role').notNull(),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		// Set once the member has been through first-run onboarding.
+		onboardedAt: timestamp('onboarded_at', { withTimezone: true })
 	},
 	(t) => [primaryKey({ columns: [t.orgId, t.userId] }), index('memberships_user_idx').on(t.userId)]
 );
