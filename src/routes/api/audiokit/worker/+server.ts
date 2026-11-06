@@ -54,6 +54,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		.limit(MAX_JOBS_PER_RUN);
 
 	const results = [];
+	const webhookUrl = new URL('/api/audiokit/webhook', request.url).toString();
 	for (const job of queuedJobs) {
 		// Skip if too many attempts
 		if (job.attempts >= MAX_ATTEMPTS) {
@@ -80,7 +81,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		try {
-			await submitQueuedJob(db, storage, audiokit, job.id);
+			await submitQueuedJob(db, storage, audiokit, job.id, webhookUrl);
 			results.push({ jobId: job.id, status: 'submitted' });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
