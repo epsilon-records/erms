@@ -30,6 +30,11 @@ export default defineConfig({
 						'self',
 						'https://24caefe07a98f735e8555dbc2e270449.r2.cloudflarestorage.com'
 					],
+					// The same R2 endpoint, for the presigned preview audio the browser plays.
+					'media-src': [
+						'self',
+						'https://24caefe07a98f735e8555dbc2e270449.r2.cloudflarestorage.com'
+					],
 					'form-action': ['self'],
 					'frame-ancestors': ['none'],
 					'base-uri': ['self'],

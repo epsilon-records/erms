@@ -1,4 +1,6 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
+import { latestReadyMasterId, recordingAnalysis } from '#lib/server/analysis.js';
+import { canSubmitJobs, JobError, queueAudioKitJob } from '#lib/server/audiokit-jobs.js';
 import { getRecording } from '#lib/server/catalog.js';
 import {
 	addCredit,
@@ -32,6 +34,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		read: hasScope(m.role, 'rights:read'),
 		write: hasScope(m.role, 'rights:write')
 	};
+	const masters = await locals.db((tx) => listMasters(tx, m.orgId, params.id));
+	const analysis = await locals.db((tx) => recordingAnalysis(tx, m.orgId, params.id));
 	return {
 		...data,
 		ownership: rights.read
@@ -42,13 +46,16 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		compositionChoices: rights.write
 			? await locals.db((tx) => listCompositions(tx, m.orgId))
 			: null,
-		masters: await locals.db((tx) => listMasters(tx, m.orgId, params.id)),
+		masters,
+		analysis,
+		previewPlayable: masterStorage() !== null && analysis.preview.status === 'done',
 		uploadsEnabled: masterStorage() !== null,
 		can: {
 			uploadMaster: canUploadMasters(m.role),
 			edit: hasScope(m.role, 'catalog:write'),
 			approve: hasScope(m.role, 'metadata:approve'),
-			rights: rights.write
+			rights: rights.write,
+			runAnalysis: canSubmitJobs(m.role) && masters.some((master) => master.status === 'ready')
 		}
 	};
 };
@@ -119,5 +126,38 @@ export const actions: Actions = {
 		return editAction('approveCredit', f, () =>
 			locals.db((tx) => approveCredit(tx, ctx, f.creditId))
 		);
+	},
+	runAnalysis: async ({ request, locals, params }) => {
+		const m = requireScope(locals, 'catalog:write');
+		const f = await formFields(request);
+		const ctx = {
+			orgId: m.orgId,
+			role: m.role,
+			actor: { id: locals.user!.id, kind: 'user' as const }
+		};
+		try {
+			const masterId = await locals.db((tx) => latestReadyMasterId(tx, m.orgId, params.id));
+			if (!masterId) {
+				return fail(409, {
+					action: 'runAnalysis',
+					ok: false as const,
+					errors: { form: 'Upload a ready master before running analysis.' },
+					values: f
+				});
+			}
+			const result = await locals.db((tx) =>
+				queueAudioKitJob(tx, ctx, params.id, masterId, { operation: f.operation })
+			);
+			return { action: 'runAnalysis', ok: true as const, result };
+		} catch (e) {
+			if (e instanceof JobError)
+				return fail(e.status, {
+					action: 'runAnalysis',
+					ok: false as const,
+					errors: { form: e.message },
+					values: f
+				});
+			throw e;
+		}
 	}
 };
