@@ -19,6 +19,7 @@ export const Operation = z.enum([
 	'waveform',
 	'transcode',
 	'preview',
+	'normalize',
 	'tempo',
 	'key',
 	'fingerprint',
@@ -183,6 +184,29 @@ export const PreviewParams = z
 			ctx.addIssue({ code: 'custom', message: 'bitrate_kbps is for mp3 and aac only' });
 	});
 
+export const NormalizeParams = z
+	.strictObject({
+		target_lufs: z.number().min(-70).max(0),
+		true_peak_dbtp: z.number().min(-20).max(0).default(-1).optional(),
+		format: Format.default('flac').optional(),
+		sample_rate: SampleRate.optional(),
+		channels: z.union([z.literal(1), z.literal(2)]).optional(),
+		bit_depth: z
+			.union([z.literal(16), z.literal(24)])
+			.default(24)
+			.optional(),
+		bitrate_kbps: z.int().min(64).max(320).optional()
+	})
+	.superRefine((p, ctx) => {
+		const lossy = p.format === 'mp3' || p.format === 'aac';
+		if (lossy && p.bit_depth !== undefined)
+			ctx.addIssue({ code: 'custom', message: 'bit_depth is for wav and flac only' });
+		if (!lossy && p.bitrate_kbps !== undefined)
+			ctx.addIssue({ code: 'custom', message: 'bitrate_kbps is for mp3 and aac only' });
+		if (p.format === 'mp3' && (p.sample_rate ?? 0) > 48000)
+			ctx.addIssue({ code: 'custom', message: 'mp3 goes up to 48000 Hz' });
+	});
+
 /**
  * Per operation: its params schema (by OpenAPI component name), whether params are required,
  * and which outputs need upload targets. The drift test checks this table against the spec.
@@ -193,6 +217,7 @@ export const OPERATIONS = {
 	waveform: { params: 'WaveformParams', paramsRequired: false, outputs: [] },
 	transcode: { params: 'TranscodeParams', paramsRequired: true, outputs: ['audio'] },
 	preview: { params: 'PreviewParams', paramsRequired: false, outputs: ['audio'] },
+	normalize: { params: 'NormalizeParams', paramsRequired: true, outputs: ['audio'] },
 	tempo: { params: 'TempoParams', paramsRequired: false, outputs: [] },
 	key: { params: 'NoParams', paramsRequired: false, outputs: [] },
 	fingerprint: { params: 'NoParams', paramsRequired: false, outputs: [] },
@@ -209,7 +234,8 @@ export const PARAMS_SCHEMAS = {
 	TempoParams,
 	TagsParams,
 	TranscodeParams,
-	PreviewParams
+	PreviewParams,
+	NormalizeParams
 };
 type ParamsSchemaName = keyof typeof PARAMS_SCHEMAS;
 
@@ -386,6 +412,15 @@ export const TranscodeResult = z.strictObject({ outputs: z.strictObject({ audio:
 export const PreviewResult = z.strictObject({
 	outputs: z.strictObject({ audio: PreviewAudioOutput })
 });
+export const NormalizeResult = z.strictObject({
+	target_lufs: z.number(),
+	true_peak_ceiling_dbtp: z.number(),
+	target_reached: z.boolean(),
+	gain_db: z.number(),
+	before: z.strictObject(LoudnessFields),
+	after: z.strictObject(LoudnessFields),
+	outputs: z.strictObject({ audio: AudioOutput })
+});
 
 /** Result schema per operation (OpenAPI component names). */
 export const RESULT_SCHEMAS = {
@@ -394,6 +429,7 @@ export const RESULT_SCHEMAS = {
 	waveform: WaveformResult,
 	transcode: TranscodeResult,
 	preview: PreviewResult,
+	normalize: NormalizeResult,
 	tempo: TempoResult,
 	key: KeyResult,
 	fingerprint: FingerprintResult,
