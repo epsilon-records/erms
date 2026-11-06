@@ -64,15 +64,16 @@ merge; the environment secret scopes it to this workflow. One-time setup:
 
 - Create the `production` environment under **Settings → Environments** if it does not exist.
 - Add an environment secret named **`DATABASE_URL`** to `production`. It is the production
-  Supabase connection string from the project's Connect panel, using the transaction pooler
-  on port `6543` (the client disables prepared statements for it). Nothing in the repo sets or
-  reads this secret, and the workflow never prints it.
+  Supabase connection string from the project's Connect panel, using the session pooler on
+  port `5432` so migrations run in a normal session (the app keeps the transaction pooler on
+  `6543`). Nothing in the repo sets or reads this secret, and the workflow never prints it.
 - To require a manual approval before a run applies migrations, add required reviewers under
   the environment's **Deployment protection rules**. Without them, migrations run automatically.
 
-The drift check compares the database's `drizzle.__drizzle_migrations` rows with
-`drizzle/meta/_journal.json`, so a merged migration that never reached the database shows up
-instead of passing silently. It also works by hand against any database:
+The drift check hashes each `drizzle/*.sql` file the way drizzle does and compares those
+hashes with the rows in `drizzle.__drizzle_migrations`, so a merged migration that never
+reached the database shows up instead of passing silently (and a file edited after it was
+applied shows up too). It also works by hand against any database:
 
 ```bash
 DATABASE_URL=postgres://... pnpm db:drift          # exit 1 when behind
