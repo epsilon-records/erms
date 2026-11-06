@@ -6,10 +6,12 @@
 //   pnpm db:drift --warn # print a warning and exit 0
 //
 // The database records one row per applied migration in drizzle.__drizzle_migrations,
-// keyed by the journal entry's `when` timestamp (this is how drizzle-kit migrate decides
-// what to apply). We compare that set with drizzle/meta/_journal.json, so a database that
-// has not received a merged migration shows up as "behind" instead of silently passing.
+// keyed by the migration's content hash (drizzle's own identifier). We hash each
+// drizzle/*.sql file the same way drizzle does and compare, so a database that has not
+// received a merged migration shows up as "behind" instead of silently passing. A
+// migration whose file changed after it was applied also shows up (hash mismatch).
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import postgres from 'postgres';
@@ -17,7 +19,13 @@ import postgres from 'postgres';
 const warnOnly = process.argv.includes('--warn');
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const journal = JSON.parse(readFileSync(join(repoRoot, 'drizzle/meta/_journal.json'), 'utf8'));
-const entries = [...(journal.entries ?? [])].sort((a, b) => a.when - b.when);
+const migrations = (journal.entries ?? []).map((entry) => ({
+	idx: entry.idx,
+	tag: entry.tag,
+	hash: createHash('sha256')
+		.update(readFileSync(join(repoRoot, 'drizzle', `${entry.tag}.sql`)))
+		.digest('hex')
+}));
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -33,34 +41,31 @@ try {
 	const [{ present }] = await sql`
 		SELECT to_regclass('drizzle.__drizzle_migrations') IS NOT NULL AS present
 	`;
-	const applied = present
-		? await sql`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at`
-		: [];
+	const applied = present ? await sql`SELECT hash FROM drizzle.__drizzle_migrations` : [];
 
-	const appliedTimes = new Set(applied.map((row) => Number(row.created_at)));
-	const pending = entries.filter((entry) => !appliedTimes.has(Number(entry.when)));
-	const unknown = applied
-		.map((row) => Number(row.created_at))
-		.filter((when) => !entries.some((entry) => Number(entry.when) === when));
+	const appliedHashes = new Set(applied.map((row) => String(row.hash)));
+	const pending = migrations.filter((migration) => !appliedHashes.has(migration.hash));
+	const known = new Set(migrations.map((migration) => migration.hash));
+	const unknown = [...appliedHashes].filter((hash) => !known.has(hash));
 
 	if (unknown.length > 0) {
 		console.warn(
-			`::warning::${unknown.length} migration(s) are applied to the database but missing ` +
-				'from drizzle/meta/_journal.json; the repo and database may have diverged.'
+			`::warning::${unknown.length} migration(s) are applied to the database but not in ` +
+				'drizzle/meta/_journal.json; the repo and database may have diverged.'
 		);
 	}
 
 	if (pending.length === 0) {
 		console.log(
-			`Database is up to date: ${entries.length} migration(s) applied` +
+			`Database is up to date: ${migrations.length} migration(s) applied` +
 				(unknown.length > 0 ? `, ${unknown.length} unknown to the journal.` : '.')
 		);
 	} else {
 		const detail = pending
-			.map((entry) => `  ${String(entry.idx).padStart(4, '0')} ${entry.tag}`)
+			.map((migration) => `  ${String(migration.idx).padStart(4, '0')} ${migration.tag}`)
 			.join('\n');
 		const summary =
-			`Database is behind the repo journal: ${pending.length} of ${entries.length} ` +
+			`Database is behind the repo journal: ${pending.length} of ${migrations.length} ` +
 			'migration(s) not applied.';
 		if (warnOnly) {
 			console.error(`::warning::${summary}`);
