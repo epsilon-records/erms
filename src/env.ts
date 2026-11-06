@@ -40,6 +40,16 @@ export const variables = defineEnvVars({
 		schema: (value) => value || undefined,
 		description: 'Bearer token for the background job worker endpoint'
 	},
+	// Error monitoring (shared decision 0003). Optional: unset disables Sentry.
+	SENTRY_DSN: {
+		schema: (value) => value || undefined,
+		description: 'Sentry DSN for server-side error monitoring'
+	},
+	PUBLIC_SENTRY_DSN: {
+		public: true,
+		schema: (value) => value || undefined,
+		description: 'Sentry DSN for browser error monitoring (safe for the browser)'
+	},
 	// Master uploads (Cloudflare R2, decision 0011). Uploads stay off until all four are set.
 	R2_ACCOUNT_ID: {
 		schema: (value) => value || undefined,

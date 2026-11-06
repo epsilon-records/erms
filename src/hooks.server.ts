@@ -1,7 +1,10 @@
 import { createServerClient } from '@supabase/ssr';
 import { error, redirect } from '@sveltejs/kit';
-import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
+import { sequence, type Handle, type HandleServerError } from '@sveltejs/kit/hooks';
+import * as Sentry from '@sentry/sveltekit';
+import { handleErrorWithSentry, sentryHandle } from '@sentry/sveltekit';
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
+import { SENTRY_DSN } from '$app/env/private';
 import { asc, eq } from 'drizzle-orm';
 import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
@@ -16,7 +19,15 @@ import { ORG_COOKIE, pickMembership } from '#lib/server/org.js';
  */
 const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/'];
 
-export const handle: Handle = async ({ event, resolve }) => {
+// Server-side error monitoring (shared decision 0003). A no-op when the DSN is unset.
+Sentry.init({
+	dsn: SENTRY_DSN,
+	environment: process.env.CONTEXT ?? process.env.NODE_ENV ?? 'production',
+	release: process.env.COMMIT_REF,
+	tracesSampleRate: SENTRY_DSN ? 0.1 : 0
+});
+
+const appHandle: Handle = async ({ event, resolve }) => {
 	event.locals.supabase = createServerClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
 		cookies: {
 			getAll: () => event.cookies.getAll(),
@@ -66,6 +77,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
+export const handle = SENTRY_DSN ? sequence(sentryHandle(), appHandle) : appHandle;
+
 /** Sent with every server response. The CSP itself comes from SvelteKit (vite.config.ts). */
 const SECURITY_HEADERS = {
 	'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
@@ -80,7 +93,7 @@ const SECURITY_HEADERS = {
  * the browser only sees the reference. Errors raised on purpose with error(), 404s and
  * other framework errors keep their own safe messages.
  */
-export const handleError: HandleServerError = (caught) => {
+export const handleError: HandleServerError = handleErrorWithSentry((caught) => {
 	if (caught.kind !== 'unknown') return;
 	const { error: err, event } = caught;
 	const ref = crypto.randomUUID().slice(0, 8);
@@ -96,4 +109,4 @@ export const handleError: HandleServerError = (caught) => {
 		})
 	);
 	return { message: `Something went wrong (ref ${ref}).` };
-};
+});
