@@ -2,6 +2,7 @@
 	import Credits from '#lib/components/Credits.svelte';
 	import Masters from '#lib/components/Masters.svelte';
 	import Ownership from '#lib/components/Ownership.svelte';
+	import RecordingAnalysis from '#lib/components/RecordingAnalysis.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -14,6 +15,13 @@
 	);
 	const failed = (a: string) => form && 'action' in form && form.action === a && !form.ok;
 	const saved = $derived(form && 'action' in form && form.action === 'save' && form.ok);
+	const runFailed = $derived(failed('runAnalysis'));
+	const runError = $derived(
+		runFailed ? (Object.values(errors)[0] ?? 'Could not queue the analysis job.') : null
+	);
+	const runQueued = $derived(
+		!!(form && 'action' in form && form.action === 'runAnalysis' && form.ok)
+	);
 
 	function fmt(ms: number | null) {
 		if (ms == null) return '';
@@ -180,6 +188,18 @@
 					masters={data.masters}
 					canUpload={data.can.uploadMaster}
 					enabled={data.uploadsEnabled}
+				/>
+			</section>
+
+			<section class="stack" aria-labelledby="analysis-h">
+				<h2 id="analysis-h" class="h2">Analysis</h2>
+				<RecordingAnalysis
+					recordingId={rec.id}
+					analysis={data.analysis}
+					canRun={data.can.runAnalysis}
+					previewPlayable={data.previewPlayable}
+					{runError}
+					queued={runQueued}
 				/>
 			</section>
 
