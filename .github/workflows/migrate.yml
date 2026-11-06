@@ -1,0 +1,54 @@
+name: Migrate production database
+
+# Applies ERMS migrations to the production Supabase project after a merge to main,
+# so a merged migration can never silently miss production again (EPSILON-47).
+#
+# The job runs in the `production` GitHub environment and reads its `DATABASE_URL`
+# environment secret. It runs automatically on merge; add required reviewers to the
+# environment (Settings → Environments → production) to require approval first.
+# See README, "Migrations and deploy". Never commit the connection string.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One migration at a time: queue rather than cancel, so a run is never interrupted
+# halfway through applying a migration.
+concurrency:
+  group: production-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      # Production connection string (Supabase transaction pooler, port 6543).
+      # Environment secret on `production`; never in the repo or build output.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Repository consistency: the journal and snapshots are intact.
+      - run: pnpm db:check
+
+      # Say what production is missing before we touch it, but don't fail yet.
+      - name: Report drift before migrating
+        run: pnpm db:drift --warn
+
+      # Applies every migration in drizzle/ that production has not recorded yet.
+      - run: pnpm db:migrate
+
+      # Fail the job if production is still behind after migrating.
+      - name: Verify production is current
+        run: pnpm db:drift
