@@ -187,6 +187,7 @@
 					recordingId={rec.id}
 					masters={data.masters}
 					canUpload={data.can.uploadMaster}
+					canDelete={data.can.deleteMaster}
 					enabled={data.uploadsEnabled}
 				/>
 			</section>

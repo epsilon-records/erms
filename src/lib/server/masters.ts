@@ -315,6 +315,53 @@ export async function abortMasterUpload(
 	});
 }
 
+/**
+ * Delete a master (EPSILON-55): drop its R2 object and its row in one audited transaction.
+ * The role check is the same as an upload's. A pending multipart upload is aborted first;
+ * anything else is removed. The row carries its own org, so RLS scoping is the database's
+ * masters_catalog_delete policy plus the org filter here.
+ */
+export async function deleteMaster(
+	db: Database,
+	storage: MasterStorage,
+	ctx: MasterCtx,
+	masterId: string
+) {
+	assertCanUpload(ctx);
+	return withAudit(db, ctx, async (tx, audit) => {
+		if (!UUID.test(masterId)) throw new MasterError(404, 'Master not found');
+		const [row] = await tx
+			.select()
+			.from(masters)
+			.where(and(eq(masters.orgId, ctx.orgId), eq(masters.id, masterId)))
+			.for('update');
+		if (!row) throw new MasterError(404, 'Master not found');
+		// Defence in depth: the database check already ties the key to the org.
+		if (!keyInOrg(row.objectKey, ctx.orgId)) throw new MasterError(403, 'Master not in this org');
+
+		if (row.status === 'pending' && row.uploadId) {
+			await storage.abortMultipart(row.objectKey, row.uploadId);
+		} else {
+			await storage.remove(row.objectKey);
+		}
+
+		await tx.delete(masters).where(eq(masters.id, row.id));
+		await audit({
+			entity: 'master',
+			entityId: row.id,
+			action: 'master_delete',
+			before: {
+				objectKey: row.objectKey,
+				status: row.status,
+				sha256: row.sha256,
+				sizeBytes: row.sizeBytes
+			},
+			after: null
+		});
+		return { status: 'deleted' as const, masterId: row.id };
+	});
+}
+
 /** Masters for a recording, newest first. */
 export function listMasters(db: Database, orgId: string, recordingId: string) {
 	return db

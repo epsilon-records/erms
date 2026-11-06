@@ -101,6 +101,9 @@ A recording page uploads a WAV master straight from the browser to R2. ERMS neve
 2. `POST …/masters/:masterId/parts` signs part URLs, up to 16 at a time. URLs last 15 minutes.
 3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete`. ERMS completes the multipart upload, HEADs the object to confirm its size, reads its first 12 bytes to confirm a WAV header, and records the key, SHA-256, size and format. A file that fails is deleted and marked rejected.
 4. `POST …/masters/:masterId/abort` cancels a pending upload.
+5. `DELETE …/masters/:masterId` (owner or catalog manager) removes the object from R2 and
+   deletes the row in one transaction, audited as `master_delete`. A pending multipart upload
+   is aborted first, and the recording page offers the same action behind a confirm.
 
 Org isolation: object keys are `orgs/{org_id}/recordings/{recording_id}/masters/{master_id}.wav`, built on the server from the signed-in user's active org and never taken from the request. The `masters_key_in_org` check ties each key to its row, RLS limits rows to the user's orgs, and `erms_app` can only update an upload's progress, not its key, org or size.
 
