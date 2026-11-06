@@ -9,7 +9,7 @@ import { asc, eq } from 'drizzle-orm';
 import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
-import { ORG_COOKIE, pickMembership } from '#lib/server/org.js';
+import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /**
  * Routes reachable without signing in. `/api/audiokit/` holds machine endpoints that
@@ -18,6 +18,9 @@ import { ORG_COOKIE, pickMembership } from '#lib/server/org.js';
  * not intercept them. Every other path stays behind the sign-in redirect.
  */
 const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/'];
+
+/** Routes a signed-in member can reach before finishing first-run onboarding. */
+const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
 
 // Server-side error monitoring (shared decision 0003). A no-op when the DSN is unset.
 Sentry.init({
@@ -54,7 +57,12 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		event.locals.db = scoped;
 		const rows = await scoped((tx) =>
 			tx
-				.select({ orgId: memberships.orgId, role: memberships.role, orgName: orgs.name })
+				.select({
+					orgId: memberships.orgId,
+					role: memberships.role,
+					orgName: orgs.name,
+					onboardedAt: memberships.onboardedAt
+				})
 				.from(memberships)
 				.innerJoin(orgs, eq(orgs.id, memberships.orgId))
 				.where(eq(memberships.userId, user.id))
@@ -67,6 +75,11 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const isPublic = PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p));
 	if (!user && !isPublic) {
 		redirect(303, '/login');
+	}
+
+	// First run: send a member who hasn't finished onboarding to the welcome page.
+	if (needsOnboarding(event.locals.membership, event.url.pathname, ONBOARDING_EXEMPT)) {
+		redirect(303, '/onboarding');
 	}
 
 	const response = await resolve(event, {

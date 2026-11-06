@@ -80,6 +80,9 @@
 				</form>
 			{/if}
 			<span class="muted">{data.user.email}</span>
+			{#if data.membership?.onboardedAt}
+				<a href="/onboarding" class="linkish">Get started</a>
+			{/if}
 			<form method="POST" action="/logout"><button class="linkish">Log out</button></form>
 		</div>
 	</header>
