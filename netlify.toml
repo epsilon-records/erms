@@ -4,6 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # R2 account IDs are public endpoint identifiers, not credentials.
+  SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID"
 
 # Static assets don't pass through the SvelteKit server, so they get the same headers here.
 [[headers]]

@@ -25,8 +25,11 @@ export default defineConfig({
 					'style-src': ['self', 'unsafe-inline', 'https://fonts.googleapis.com'],
 					'font-src': ['self', 'https://fonts.gstatic.com'],
 					'img-src': ['self', 'data:'],
-					// R2's S3 endpoint is https://<account id>.r2.cloudflarestorage.com.
-					'connect-src': ['self', 'https://*.r2.cloudflarestorage.com'],
+					// R2's S3 endpoint for the Epsilon Records account.
+					'connect-src': [
+						'self',
+						'https://24caefe07a98f735e8555dbc2e270449.r2.cloudflarestorage.com'
+					],
 					'form-action': ['self'],
 					'frame-ancestors': ['none'],
 					'base-uri': ['self'],
