@@ -44,6 +44,41 @@ pnpm dev
 pnpm test                   # unit + database tests (PGlite, no Docker needed)
 ```
 
+## Migrations and deploy
+
+Schema migrations are plain SQL in `drizzle/`, generated with `pnpm db:generate` and applied
+with `pnpm db:migrate`. Development runs them against the Docker Postgres (see above);
+production is the Supabase project.
+
+Production migrations are applied by the **Migrate production database** workflow
+(`.github/workflows/migrate.yml`) whenever a commit lands on `main`, and on demand from the
+Actions tab. The job runs in the `production` GitHub environment and:
+
+1. runs `pnpm db:check` (journal and snapshot consistency in the repo),
+2. runs `pnpm db:drift --warn`, which lists any migrations the database is missing,
+3. runs `pnpm db:migrate` to apply the pending migrations, and
+4. runs `pnpm db:drift` again, failing the job if the database is still behind.
+
+The `production` environment holds the connection string, so the job runs unattended on every
+merge; the environment secret scopes it to this workflow. One-time setup:
+
+- Create the `production` environment under **Settings → Environments** if it does not exist.
+- Add an environment secret named **`DATABASE_URL`** to `production`. It is the production
+  Supabase connection string from the project's Connect panel, using the transaction pooler
+  on port `6543` (the client disables prepared statements for it). Nothing in the repo sets or
+  reads this secret, and the workflow never prints it.
+- To require a manual approval before a run applies migrations, add required reviewers under
+  the environment's **Deployment protection rules**. Without them, migrations run automatically.
+
+The drift check compares the database's `drizzle.__drizzle_migrations` rows with
+`drizzle/meta/_journal.json`, so a merged migration that never reached the database shows up
+instead of passing silently. It also works by hand against any database:
+
+```bash
+DATABASE_URL=postgres://... pnpm db:drift          # exit 1 when behind
+DATABASE_URL=postgres://... pnpm db:drift --warn  # report only
+```
+
 ## Rules
 
 - Every write goes through `withAudit()`. A write with no audit entry is rejected.
@@ -54,7 +89,7 @@ pnpm test                   # unit + database tests (PGlite, no Docker needed)
 - `src/lib/server/tenancy.test.ts` proves one org cannot read, write or link into another.
 - Security headers: SvelteKit sets a nonce-based CSP (`vite.config.ts`); `hooks.server.ts` and `netlify.toml` add HSTS, frame, referrer and permissions headers. Unexpected errors are logged server-side as JSON with a short reference; the browser sees only the reference.
 - CI also runs `pnpm audit` and a gitleaks scan of the full history; CodeQL and Dependabot run separately.
-- No secrets in the repo. Netlify and Supabase hold production env vars and secrets.
+- No secrets in the repo. Netlify, Supabase and the GitHub Actions `production` environment hold production env vars and secrets.
 - In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
 
 ## Master uploads (Cloudflare R2)
