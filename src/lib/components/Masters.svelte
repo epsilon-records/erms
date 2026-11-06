@@ -18,13 +18,21 @@
 		recordingId,
 		masters,
 		canUpload = false,
+		canDelete = false,
 		enabled = false
-	}: { recordingId: string; masters: Master[]; canUpload?: boolean; enabled?: boolean } = $props();
+	}: {
+		recordingId: string;
+		masters: Master[];
+		canUpload?: boolean;
+		canDelete?: boolean;
+		enabled?: boolean;
+	} = $props();
 
 	let file = $state<File | null>(null);
 	let progress = $state<Progress | null>(null);
 	let message = $state<{ kind: 'ok' | 'error'; text: string } | null>(null);
 	let controller: AbortController | null = null;
+	let deleting = $state<string | null>(null);
 
 	const busy = $derived(progress !== null);
 	const pct = $derived(progress ? Math.floor((progress.sent / progress.total) * 100) : 0);
@@ -45,6 +53,28 @@
 			message = { kind: 'error', text: problem };
 			file = null;
 		} else file = f;
+	}
+
+	/** Delete a master after the browser's confirm. The DELETE route removes the R2 object
+	 * and the row in one audited transaction. */
+	async function remove(m: Master) {
+		if (!confirm(`Delete the master ${m.fileName}? The file and its record are removed for good.`))
+			return;
+		message = null;
+		deleting = m.id;
+		try {
+			const res = await fetch(`/recordings/${recordingId}/masters/${m.id}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const body = await res.json().catch(() => null);
+				throw new Error(body?.message ?? `Delete failed (${res.status}).`);
+			}
+			message = { kind: 'ok', text: `Deleted ${m.fileName}.` };
+			await invalidateAll();
+		} catch (err) {
+			message = { kind: 'error', text: err instanceof Error ? err.message : String(err) };
+		} finally {
+			deleting = null;
+		}
 	}
 
 	async function upload(e: SubmitEvent) {
@@ -80,6 +110,7 @@
 					<th class="num">Size</th>
 					<th>SHA-256</th>
 					<th>Status</th>
+					{#if canDelete}<th class="sr-only">Actions</th>{/if}
 				</tr>
 			</thead>
 			<tbody>
@@ -94,6 +125,18 @@
 							{#if m.status === 'ready'}<span class="tag">Ready</span>
 							{:else}<span class="tag outline">{m.status}</span>{/if}
 						</td>
+						{#if canDelete}
+							<td>
+								<button
+									class="btn small"
+									type="button"
+									disabled={deleting === m.id}
+									onclick={() => remove(m)}
+								>
+									{deleting === m.id ? 'Deleting…' : 'Delete'}
+								</button>
+							</td>
+						{/if}
 					</tr>
 				{/each}
 			</tbody>
@@ -129,12 +172,13 @@
 				<span class="bar" aria-hidden="true"><span style="width: {pct}%"></span></span>
 			</div>
 		{/if}
-		{#if message}
-			<div class="alert {message.kind}" role={message.kind === 'error' ? 'alert' : 'status'}>
-				{message.text}
-			</div>
-		{/if}
 	{:else}
 		<p class="muted">Master uploads aren't set up yet (R2 storage is not configured).</p>
 	{/if}
+{/if}
+
+{#if message}
+	<div class="alert {message.kind}" role={message.kind === 'error' ? 'alert' : 'status'}>
+		{message.text}
+	</div>
 {/if}
