@@ -28,7 +28,9 @@ export default defineConfig({
 					// R2's S3 endpoint for the Epsilon Records account.
 					'connect-src': [
 						'self',
-						'https://24caefe07a98f735e8555dbc2e270449.r2.cloudflarestorage.com'
+						'https://24caefe07a98f735e8555dbc2e270449.r2.cloudflarestorage.com',
+						// Sentry ingest, for browser error monitoring (shared decision 0003).
+						'https://o337159.ingest.us.sentry.io'
 					],
 					// The same R2 endpoint, for the presigned preview audio the browser plays.
 					'media-src': [
