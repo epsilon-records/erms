@@ -146,7 +146,8 @@ const PAIRS: Record<string, z.ZodType> = {
 	AudioOutput: contract.AudioOutput,
 	PreviewAudioOutput: contract.PreviewAudioOutput,
 	TranscodeResult: contract.TranscodeResult,
-	PreviewResult: contract.PreviewResult
+	PreviewResult: contract.PreviewResult,
+	NormalizeResult: contract.NormalizeResult
 };
 
 // Sample results per operation: shapes only, no catalog data.
@@ -200,6 +201,15 @@ const SAMPLE_RESULTS: { [O in Operation]: ResultFor<O> } = {
 	preview: {
 		outputs: { audio: { ...audio, duration_seconds: 30, start_seconds: 60, fade_seconds: 1 } }
 	},
+	normalize: {
+		target_lufs: -14,
+		true_peak_ceiling_dbtp: -1,
+		target_reached: true,
+		gain_db: 5.3,
+		before: loud,
+		after: { ...loud, integrated_lufs: -14 },
+		outputs: { audio }
+	},
 	tempo: { ...tempo, ...stream },
 	key: { ...(key as ResultFor<'key'>), ...stream },
 	fingerprint: { ...(fp as ResultFor<'fingerprint'>), ...stream },
@@ -220,6 +230,7 @@ function requestFor(op: Operation, jobId: string): JobRequest {
 		operation: op,
 		input: { url: 'https://r2.example/get/master.wav?sig=a', sha256: 'a'.repeat(64) },
 		...(op === 'transcode' ? { params: { format: 'flac' } } : {}),
+		...(op === 'normalize' ? { params: { target_lufs: -14 } } : {}),
 		...(OPERATIONS[op].outputs.length
 			? { outputs: { audio: { url: 'https://r2.example/put/out?sig=b', headers: { 'x-a': '1' } } } }
 			: {}),
