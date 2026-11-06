@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getRelease } from './catalog';
 import { updateRecording } from './catalog-edit';
@@ -17,7 +17,7 @@ import {
 import { asUser } from './db/scoped';
 import { applyImport } from './import/apply';
 import { parseSymphonicInventory } from './import/symphonic';
-import { pickMembership } from './org';
+import { pickMembership, needsOnboarding } from './org';
 import { createTestDb } from './test-db';
 
 const SAMPLE = readFileSync(
@@ -210,6 +210,27 @@ describe('tenant isolation', () => {
 		});
 	});
 
+	it('a member can complete only their own onboarding', async () => {
+		await asUser(db, viewerA, (tx) =>
+			tx.execute(sql`select app.complete_onboarding(${orgA}::uuid)`)
+		);
+		const stamp = async (orgId: string, userId: string) => {
+			const [row] = await db
+				.select({ onboardedAt: memberships.onboardedAt })
+				.from(memberships)
+				.where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)));
+			return row?.onboardedAt ?? null;
+		};
+		expect(await stamp(orgA, viewerA)).not.toBeNull();
+		expect(await stamp(orgA, ownerA)).toBeNull();
+
+		// Calling it for an org you are not in changes nothing.
+		await asUser(db, ownerA, (tx) =>
+			tx.execute(sql`select app.complete_onboarding(${orgB}::uuid)`)
+		);
+		expect(await stamp(orgB, ownerB)).toBeNull();
+	});
+
 	describe('links between rows', () => {
 		it('the database refuses a track that points into another label', async () => {
 			const msg = await pgError(
@@ -275,5 +296,20 @@ describe('pickMembership', () => {
 	});
 	it('is null without memberships', () => {
 		expect(pickMembership([], 'a')).toBeNull();
+	});
+});
+
+describe('needsOnboarding', () => {
+	const exempt = ['/login', '/onboarding', '/logout'];
+	const member = { orgId: 'a', orgName: 'A', role: 'viewer' as const };
+
+	it('is true for a member who has not onboarded', () => {
+		expect(needsOnboarding({ ...member, onboardedAt: null }, '/', exempt)).toBe(true);
+	});
+
+	it('is false once onboarded, without a membership, or on an exempt path', () => {
+		expect(needsOnboarding({ ...member, onboardedAt: new Date() }, '/', exempt)).toBe(false);
+		expect(needsOnboarding(null, '/', exempt)).toBe(false);
+		expect(needsOnboarding({ ...member, onboardedAt: null }, '/onboarding', exempt)).toBe(false);
 	});
 });
