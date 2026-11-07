@@ -14,7 +14,7 @@ SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGl
 | Auth (magic link)               | Supabase Auth                                                                      |
 | Master files (WAV)              | Cloudflare R2, private bucket; browser uploads with presigned URLs (decision 0011) |
 | File storage (artwork)          | Supabase Storage                                                                   |
-| Background processing (Phase 3) | Supabase Queues + Cron + an Edge Function                                          |
+| Background processing (Phase 3) | Netlify Scheduled Functions call ERMS's authenticated AudioKit job routes          |
 
 ## Layout
 
@@ -69,6 +69,18 @@ merge; the environment secret scopes it to this workflow. One-time setup:
   `6543`). Nothing in the repo sets or reads this secret, and the workflow never prints it.
 - To require a manual approval before a run applies migrations, add required reviewers under
   the environment's **Deployment protection rules**. Without them, migrations run automatically.
+
+### AudioKit job schedule
+
+Netlify Scheduled Functions submit queued AudioKit jobs every minute and reconcile submitted jobs
+every 15 minutes. The functions call `POST /api/audiokit/worker` and
+`POST /api/audiokit/reconcile` on the deployed ERMS site using the existing `WORKER_SECRET`
+bearer token. Netlify runs these schedules in UTC on published deploys; use **Functions → Run now**
+in the Netlify UI to invoke either function manually. No GitHub Actions or Supabase cron is involved.
+
+Set `WORKER_SECRET` in Netlify's production environment with the same value used by the ERMS
+routes. The function uses Netlify's built-in `URL` variable to find the deployed site; no URL
+variable needs to be added.
 
 The drift check hashes each `drizzle/*.sql` file the way drizzle does and compares those
 hashes with the rows in `drizzle.__drizzle_migrations`, so a merged migration that never
