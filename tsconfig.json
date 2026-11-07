@@ -1,7 +1,9 @@
 {
 	"extends": "$app/tsconfig",
 	"compilerOptions": {
-		"strict": true
+		"strict": true,
+		// The Netlify scheduled functions are plain .mjs and are covered by worker-schedule.test.ts.
+		"allowJs": true
 	},
 	"include": ["src", "vite.config.ts"]
 }

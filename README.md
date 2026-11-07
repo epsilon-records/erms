@@ -74,13 +74,20 @@ merge; the environment secret scopes it to this workflow. One-time setup:
 
 Netlify Scheduled Functions submit queued AudioKit jobs every minute and reconcile submitted jobs
 every 15 minutes. The functions call `POST /api/audiokit/worker` and
-`POST /api/audiokit/reconcile` on the deployed ERMS site using the existing `WORKER_SECRET`
+`POST /api/audiokit/reconcile` on the deployed ERMS site using the `WORKER_SECRET`
 bearer token. Netlify runs these schedules in UTC on published deploys; use **Functions → Run now**
 in the Netlify UI to invoke either function manually. No GitHub Actions or Supabase cron is involved.
 
-Set `WORKER_SECRET` in Netlify's production environment with the same value used by the ERMS
-routes. The function uses Netlify's built-in `URL` variable to find the deployed site; no URL
+`WORKER_SECRET` is one production variable that both sides read: the scheduled function sends it as
+a bearer token and the route compares it against the same value. Any long random string works, but it
+must be scoped to **Functions** and **Runtime** (not just Builds), and the site must be redeployed
+after it is set. The function uses Netlify's built-in `URL` variable to find the deployed site; no URL
 variable needs to be added.
+
+The functions also send an `origin` header. SvelteKit's CSRF guard rejects a POST that carries
+neither a same-origin `origin` header nor a JSON `content-type` with 403 _Cross-site POST form
+submissions are forbidden_, before the route's own bearer check runs; a bare scheduled-function POST
+has neither, so the schedule silently 403s without it.
 
 The drift check hashes each `drizzle/*.sql` file the way drizzle does and compares those
 hashes with the rows in `drizzle.__drizzle_migrations`, so a merged migration that never

@@ -7,7 +7,9 @@ export default async () => {
 
 	const response = await fetch(new URL('/api/audiokit/reconcile', siteUrl), {
 		method: 'POST',
-		headers: { authorization: `Bearer ${workerSecret}` },
+		// See audiokit-worker.mjs: without a same-origin `origin` header SvelteKit's CSRF guard
+		// answers 403 before the route's bearer-token check runs.
+		headers: { authorization: `Bearer ${workerSecret}`, origin: siteUrl },
 		signal: AbortSignal.timeout(25_000)
 	});
 	if (!response.ok) {
