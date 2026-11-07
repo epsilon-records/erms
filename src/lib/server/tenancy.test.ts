@@ -4,9 +4,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { getRelease } from './catalog';
 import { updateRecording } from './catalog-edit';
 import {
+	audiokitJobs,
 	auditLog,
 	credits,
 	labels,
+	masters,
 	memberships,
 	orgs,
 	parties,
@@ -14,6 +16,7 @@ import {
 	releases,
 	releaseTracks
 } from './db/schema';
+import { uuidv7 } from './db/uuidv7';
 import { asUser } from './db/scoped';
 import { applyImport } from './import/apply';
 import { parseSymphonicInventory } from './import/symphonic';
@@ -29,6 +32,7 @@ const SAMPLE = readFileSync(
 const ownerA = '00000000-0000-7000-8000-00000000000a';
 const viewerA = '00000000-0000-7000-8000-0000000000a2';
 const ownerB = '00000000-0000-7000-8000-00000000000b';
+const viewerB = '00000000-0000-7000-8000-0000000000b2';
 
 /** The Postgres error behind Drizzle's wrapper. */
 async function pgError(p: Promise<unknown>) {
@@ -55,7 +59,8 @@ describe('tenant isolation', () => {
 		await db.insert(memberships).values([
 			{ orgId: orgA, userId: ownerA, role: 'owner' },
 			{ orgId: orgA, userId: viewerA, role: 'viewer' },
-			{ orgId: orgB, userId: ownerB, role: 'owner' }
+			{ orgId: orgB, userId: ownerB, role: 'owner' },
+			{ orgId: orgB, userId: viewerB, role: 'viewer' }
 		]);
 		// Both imports run the real write path under RLS, as their own owner.
 		const plan = parseSymphonicInventory(SAMPLE);
@@ -152,6 +157,65 @@ describe('tenant isolation', () => {
 				)
 			);
 			expect(msg).toMatch(/row-level security|foreign key/);
+		});
+
+		it('only catalog roles may update an AudioKit job', async () => {
+			// Insert as the owner connection (bypasses RLS): a job needs a real
+			// recording and master in its org.
+			const masterId = uuidv7();
+			await db.insert(masters).values({
+				id: masterId,
+				orgId: orgB,
+				recordingId: recB.id,
+				objectKey: `orgs/${orgB}/recordings/${recB.id}/masters/${masterId}.wav`,
+				sizeBytes: 1000,
+				fileName: 'master.wav',
+				uploadedBy: ownerB
+			});
+			const [job] = await db
+				.insert(audiokitJobs)
+				.values({
+					orgId: orgB,
+					recordingId: recB.id,
+					masterId,
+					operation: 'probe',
+					requestedBy: ownerB
+				})
+				.returning();
+
+			// An owner in the job's org may update it; a viewer in the same org and
+			// an owner of another org may not.
+			const asOwner = await asUser(db, ownerB, (tx) =>
+				tx
+					.update(audiokitJobs)
+					.set({
+						status: 'canceled',
+						providerJobId: uuidv7(),
+						submittedAt: new Date(),
+						finishedAt: new Date()
+					})
+					.where(eq(audiokitJobs.id, job.id))
+					.returning()
+			);
+			expect(asOwner).toHaveLength(1);
+
+			const asViewer = await asUser(db, viewerB, (tx) =>
+				tx
+					.update(audiokitJobs)
+					.set({ status: 'succeeded' })
+					.where(eq(audiokitJobs.id, job.id))
+					.returning()
+			);
+			expect(asViewer).toEqual([]);
+
+			const asOtherOrg = await asUser(db, ownerA, (tx) =>
+				tx
+					.update(audiokitJobs)
+					.set({ status: 'failed' })
+					.where(eq(audiokitJobs.id, job.id))
+					.returning()
+			);
+			expect(asOtherOrg).toEqual([]);
 		});
 
 		it('a viewer cannot write, even through the app', async () => {
