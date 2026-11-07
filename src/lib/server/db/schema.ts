@@ -681,7 +681,7 @@ export type Master = typeof masters.$inferSelect;
 export type MasterStatus = (typeof masterStatusEnum.enumValues)[number];
 
 /* ------------------------------------------------------------------------- */
-/* Phase 4: AudioKit jobs                                                     */
+/* Phase 3: AudioKit jobs                                                     */
 /* ------------------------------------------------------------------------- */
 
 /**
