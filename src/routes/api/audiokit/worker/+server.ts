@@ -22,7 +22,7 @@ const MIN_RETRY_DELAY_MS = 60_000; // 1 minute
 const MAX_ATTEMPTS = 5;
 
 export const POST: RequestHandler = async ({ request }) => {
-	// Simple authentication - in production, use a proper secret
+	// Machine endpoint: the shared WORKER_SECRET bearer token (worker-auth.ts).
 	if (!isAuthorizedWorkerRequest(request)) {
 		throw error(401, 'Unauthorized');
 	}
