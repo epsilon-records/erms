@@ -1,0 +1,190 @@
+/**
+ * Row-level security, checked against a real PostgreSQL server.
+ *
+ * Why a second host when `pnpm test` already runs the same cases on PGlite: PGlite bundles a newer
+ * major than production (18.x vs 17) and does not honour BYPASSRLS the way a server on disk does,
+ * so the in-process suite cannot be the evidence that production RLS behaves. CI runs this against
+ * the postgres:17 service it already brings up for the migrations, so the policies are verified on
+ * the major that actually serves the catalogue.
+ *
+ * Run: pnpm test:rls            (needs DATABASE_URL; CI provides it)
+ *      docker compose up -d && DATABASE_URL=postgres://erms:erms@localhost:54329/erms \
+ *        pnpm db:migrate && pnpm test:rls
+ */
+import postgres from 'postgres';
+import { RLS_CASES, SEED_SQL, SUPABASE_ROLE_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
+
+const url = process.env.DATABASE_URL;
+if (!url) {
+	console.error(
+		'DATABASE_URL is not set. This host exists to check RLS on the server version production ' +
+			'runs, so it refuses to fall back to anything else.\n' +
+			'Local: docker compose up -d && pnpm db:migrate, then re-run.\n' +
+			'CI: the postgres:17 service in .github/workflows/ci.yml already provides it.'
+	);
+	process.exit(2);
+}
+
+const sql = postgres(url, { max: 1, prepare: false });
+
+/**
+ * Sentinel thrown to unwind the transaction that opened each case. Every probe — including the ones
+ * that legitimately write inside the caller own org — must leave the database exactly as it was
+ * found, so no case inherits another case's rows.
+ */
+const ROLLBACK = Symbol('rollback');
+const results = [];
+let failures = 0;
+
+const scalar = async (statement) => {
+	const rows = await sql.unsafe(statement);
+	if (!rows.length) throw new Error('probe returned no rows');
+	return String(Object.values(rows[0])[0]);
+};
+
+try {
+	const [{ version }] = await sql`SELECT current_setting('server_version') AS version`;
+	const [{ num }] = await sql`SELECT current_setting('server_version_num')::int / 10000 AS num`;
+	console.log(`PostgreSQL ${version} (major ${num})\n`);
+
+	if (Number(num) !== 17) {
+		// Not a failure: production may move. Loud enough that a silent drift is visible in CI.
+		console.log(
+			`NOTE: expecting major 17 (production); got ${num}. Update scripts/rls-cases.mjs too.\n`
+		);
+	}
+
+	// The migrations must be applied: this host deliberately does not create the schema.
+	try {
+		await sql`SELECT count(*) FROM labels`;
+	} catch {
+		throw new Error('the schema is not there yet — run `pnpm db:migrate` first');
+	}
+
+	for (const statement of SUPABASE_ROLE_SQL) await sql.unsafe(statement);
+	// Idempotent seed, so the job can be re-run against a database that already has it.
+	for (const statement of TEARDOWN_SQL) await sql.unsafe(statement).catch(() => undefined);
+	await sql`
+		DELETE FROM memberships WHERE user_id IN (
+			'11111111-1111-4111-8111-111111111111',
+			'22222222-2222-4222-8222-222222222222',
+			'33333333-3333-4333-8333-333333333333')`;
+	for (const statement of SEED_SQL) await sql.unsafe(statement);
+
+	const seeded = await scalar('SELECT count(*) FROM labels');
+	if (seeded !== '2') throw new Error(`seed expected 2 labels, found ${seeded}`);
+
+	for (const testCase of RLS_CASES) {
+		let outcome = '';
+		try {
+			await sql.begin(async (tx) => {
+				await tx.unsafe(assumeSql(testCase.role, testCase.claim));
+
+				if (testCase.expect === 'error') {
+					let message = '';
+					let code = '';
+					try {
+						await tx.unsafe(testCase.probe);
+					} catch (error) {
+						message = String(error?.message ?? '');
+						code = String(error?.code ?? '');
+					}
+					if (!message) throw new Error('the probe succeeded; RLS did not refuse it');
+					const matched = code === testCase.errorCode || /row-level security/i.test(message);
+					if (!matched) throw new Error(`refused for the wrong reason: ${code} ${message}`);
+					// Force the rollback: a refused statement must not leave anything behind.
+					throw ROLLBACK;
+				}
+
+				const value = await tx
+					.unsafe(testCase.probe)
+					.then((rows) => String(Object.values(rows[0] ?? {})[0]));
+				if (value !== String(testCase.expect)) {
+					throw new Error(`expected ${testCase.expect}, got ${value}`);
+				}
+				throw ROLLBACK;
+			});
+			outcome = 'pass';
+		} catch (error) {
+			if (error === ROLLBACK) outcome = 'pass';
+			else {
+				outcome = `FAIL: ${error.message}`;
+				failures += 1;
+			}
+		}
+		results.push([outcome === 'pass' ? 'ok  ' : 'FAIL', testCase.role, testCase.name, outcome]);
+	}
+
+	// Structural facts the behavioural cases lean on.
+	const structural = await sql`
+		SELECT
+			-- The jsonb lookup spans majors: pg_roles.rolbypassrls was renamed in PostgreSQL 18, and
+			-- has_bypassrls_privilege() does not exist on 17, so either single spelling would pin this
+			-- check to one version.
+			(coalesce((select (to_jsonb(r) ->> 'rolbypassrls') from pg_roles r where rolname = 'erms_app'),
+			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'erms_app')))
+				= 'false' AS app_no_bypass,
+			(coalesce((select (to_jsonb(r) ->> 'rolbypassrls') from pg_roles r where rolname = 'service_role'),
+			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'service_role')))
+				= 'true' AS service_bypass,
+			-- anon/authenticated must really hold table privileges; otherwise their filtered reads
+			-- would be a permission accident rather than evidence that RLS did the work.
+			(SELECT count(*) > 0 FROM information_schema.role_table_grants
+			  WHERE grantee = 'authenticated' AND table_schema = 'public'
+			    AND privilege_type = 'SELECT') AS grantee_has_select,
+			-- The asymmetry every case above encodes: reads carry no TO clause (they reach PUBLIC,
+			-- which is why authenticated reads its own org, writes are addressed to erms_app only.
+			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
+			  AND cmd <> 'SELECT' AND roles::text[] && array['anon', 'authenticated']) AS foreign_writes,
+			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
+			  AND cmd = 'SELECT' AND roles::text[] @> array['public']) AS public_reads,
+			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
+			  AND cmd <> 'SELECT' AND roles::text[] @> array['erms_app']) AS scoped_writes
+	`;
+	const row = structural[0];
+
+	const checks = [
+		['erms_app cannot bypass RLS', row.app_no_bypass === true || row.app_no_bypass === 't'],
+		[
+			'service_role does bypass RLS (the one trusted path)',
+			row.service_bypass === true || row.service_bypass === 't'
+		],
+		[
+			'authenticated holds SELECT, so its filtered reads are RLS at work',
+			row.grantee_has_select === true || row.grantee_has_select === 't'
+		],
+		['no write policy is addressed to anon or authenticated', Number(row.foreign_writes) === 0],
+		[
+			'reads reach PUBLIC while writes reach only erms_app',
+			Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
+		]
+	];
+	for (const [label, passed] of checks) {
+		if (!passed) {
+			console.log(`FAIL ${label}`);
+			failures += 1;
+		}
+	}
+	console.log(
+		`\nstructural: ${checks.filter(([, ok]) => ok).length}/${checks.length} passed  ` +
+			`(public reads ${row.public_reads}, scoped writes ${row.scoped_writes}, ` +
+			`foreign writes ${row.foreign_writes})`
+	);
+} catch (error) {
+	console.log(`FAIL ${error.message ?? String(error)}`);
+	failures += 1;
+} finally {
+	for (const statement of TEARDOWN_SQL) await sql.unsafe(statement).catch(() => undefined);
+	await sql.end({ timeout: 5 });
+}
+
+for (const [status, role, name, outcome] of results) {
+	console.log(
+		`${status}\t${role.padEnd(13)}\t${name}${outcome === 'pass' ? '' : `\n\t\t${outcome}`}`
+	);
+}
+const failedCases = results.filter((r) => r[0] === 'FAIL').length;
+console.log(
+	`\n${results.length} behaviour cases: ${results.length - failedCases} passed, ${failedCases} failed`
+);
+process.exit(failures ? 1 : 0);

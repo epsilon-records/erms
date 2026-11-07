@@ -79,6 +79,12 @@ jobs:
         run: pnpm db:drift
       - name: PostgreSQL major agrees across README, compose, CI and the live server
         run: pnpm db:pgversion
+
+      # RLS behaviour on production's major. `pnpm test` runs the same cases on PGlite, but PGlite
+      # is a newer major and does not honour BYPASSRLS, so this is the authoritative run for the
+      # policies that keep one label's catalogue away from every other label's.
+      - name: Row-level security blocks cross-org access (PostgreSQL 17)
+        run: pnpm test:rls
       # Creates a Sentry release and uploads source maps for this commit
       # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build
