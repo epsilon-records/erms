@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
 import type { AudioProvider } from './audio/provider';
-import { type Actor, type Database, withAudit } from './audit';
+import { type Actor, type Database, recordSystemAudit, withAudit } from './audit';
 import { audiokitJobs, masters, recordings, type Role } from './db/schema';
 import { uuidv7 } from './db/uuidv7';
 import { hasScope } from './rbac';
@@ -209,17 +209,26 @@ export async function submitQueuedJob(
 		webhook: { url: webhookUrl }
 	});
 
-	// Store provider_job_id and mark as submitted
-	await db
-		.update(audiokitJobs)
-		.set({
-			providerJobId: audiokitJob.provider_job_id,
-			status: 'submitted',
-			submittedAt: new Date(),
-			attempts: job.attempts + 1,
-			lastAttemptAt: new Date()
-		})
-		.where(eq(audiokitJobs.id, job.id));
+	// Store provider_job_id and mark as submitted, with an audit entry (decision 0014).
+	await db.transaction(async (tx) => {
+		await tx
+			.update(audiokitJobs)
+			.set({
+				providerJobId: audiokitJob.provider_job_id,
+				status: 'submitted',
+				submittedAt: new Date(),
+				attempts: job.attempts + 1,
+				lastAttemptAt: new Date()
+			})
+			.where(eq(audiokitJobs.id, job.id));
+		await recordSystemAudit(tx, {
+			orgId: job.orgId,
+			entity: 'audiokit_job',
+			entityId: job.id,
+			action: 'submit',
+			after: { status: 'submitted', provider_job_id: audiokitJob.provider_job_id }
+		});
+	});
 }
 
 /**
@@ -262,7 +271,8 @@ export async function reconcileJobs(
 		.select({
 			id: audiokitJobs.id,
 			providerJobId: audiokitJobs.providerJobId,
-			status: audiokitJobs.status
+			status: audiokitJobs.status,
+			orgId: audiokitJobs.orgId
 		})
 		.from(audiokitJobs)
 		.where(
@@ -288,16 +298,28 @@ export async function reconcileJobs(
 				audiokitJob.status === 'canceled'
 			) {
 				const now = new Date();
-				await db
-					.update(audiokitJobs)
-					.set({
-						status: audiokitJob.status,
-						result: audiokitJob.result ?? null,
-						error: audiokitJob.error ?? null,
-						provenance: audiokitJob.provenance ?? null,
-						finishedAt: now
-					})
-					.where(eq(audiokitJobs.id, job.id));
+				// Narrowed here so it survives into the transaction closure.
+				const status = audiokitJob.status;
+				// Audit the machine write in the same transaction (decision 0014).
+				await db.transaction(async (tx) => {
+					await tx
+						.update(audiokitJobs)
+						.set({
+							status,
+							result: audiokitJob.result ?? null,
+							error: audiokitJob.error ?? null,
+							provenance: audiokitJob.provenance ?? null,
+							finishedAt: now
+						})
+						.where(eq(audiokitJobs.id, job.id));
+					await recordSystemAudit(tx, {
+						orgId: job.orgId,
+						entity: 'audiokit_job',
+						entityId: job.id,
+						action: 'reconcile',
+						after: { status }
+					});
+				});
 
 				updated++;
 			}

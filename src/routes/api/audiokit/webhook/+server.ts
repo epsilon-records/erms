@@ -4,6 +4,7 @@ import { createAudioKitClient } from '#lib/server/audio/client.js';
 import { WebhookRejected } from '#lib/server/audio/provider.js';
 import { WebhookEvent } from '#lib/server/audio/contract.js';
 import { db as adminDb } from '#lib/server/db/client.js';
+import { recordSystemAudit } from '#lib/server/audit.js';
 import { audiokitJobs, webhookEvents } from '#lib/server/db/schema.js';
 import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
 import type { RequestHandler } from './$types';
@@ -66,7 +67,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Find the job by ERMS job_id (which we sent to AudioKit)
 		const [job] = await tx
-			.select({ id: audiokitJobs.id, providerJobId: audiokitJobs.providerJobId })
+			.select({
+				id: audiokitJobs.id,
+				providerJobId: audiokitJobs.providerJobId,
+				orgId: audiokitJobs.orgId
+			})
 			.from(audiokitJobs)
 			.where(eq(audiokitJobs.id, ermsJobId))
 			.for('update');
@@ -120,6 +125,15 @@ export const POST: RequestHandler = async ({ request }) => {
 					.where(eq(audiokitJobs.id, ermsJobId));
 				break;
 		}
+
+		// Audit the machine write in the same transaction (decision 0014).
+		await recordSystemAudit(tx, {
+			orgId: job.orgId,
+			entity: 'audiokit_job',
+			entityId: ermsJobId,
+			action: 'webhook',
+			after: { status: validEvent.data.status, event: eventType }
+		});
 
 		return 'processed' as const;
 	});

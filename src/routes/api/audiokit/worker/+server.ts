@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createAudioKitClient } from '#lib/server/audio/client.js';
 import { submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
+import { recordSystemAudit } from '#lib/server/audit.js';
 import { audiokitJobs } from '#lib/server/db/schema.js';
 import { masterStorage } from '#lib/server/storage/env.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
@@ -47,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	// Find queued jobs that haven't been attempted recently
 	const queuedJobs = await db
-		.select({ id: audiokitJobs.id, attempts: audiokitJobs.attempts })
+		.select({ id: audiokitJobs.id, attempts: audiokitJobs.attempts, orgId: audiokitJobs.orgId })
 		.from(audiokitJobs)
 		.where(eq(audiokitJobs.status, 'queued'))
 		.orderBy(audiokitJobs.requestedAt)
@@ -58,14 +59,24 @@ export const POST: RequestHandler = async ({ request }) => {
 	for (const job of queuedJobs) {
 		// Skip if too many attempts
 		if (job.attempts >= MAX_ATTEMPTS) {
-			await db
-				.update(audiokitJobs)
-				.set({
-					status: 'failed',
-					error: { code: 'max_attempts', message: 'Job failed after maximum retry attempts' },
-					finishedAt: now
-				})
-				.where(eq(audiokitJobs.id, job.id));
+			// Machine write: audit the terminal status change in the same transaction (0014).
+			await db.transaction(async (tx) => {
+				await tx
+					.update(audiokitJobs)
+					.set({
+						status: 'failed',
+						error: { code: 'max_attempts', message: 'Job failed after maximum retry attempts' },
+						finishedAt: now
+					})
+					.where(eq(audiokitJobs.id, job.id));
+				await recordSystemAudit(tx, {
+					orgId: job.orgId,
+					entity: 'audiokit_job',
+					entityId: job.id,
+					action: 'max_attempts',
+					after: { status: 'failed' }
+				});
+			});
 			results.push({ jobId: job.id, status: 'failed', reason: 'max_attempts' });
 			continue;
 		}
