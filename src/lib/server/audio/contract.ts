@@ -24,11 +24,12 @@ export const Operation = z.enum([
 	'key',
 	'fingerprint',
 	'analyze',
-	'tags'
+	'tags',
+	'stems'
 ]);
 export type Operation = z.infer<typeof Operation>;
 
-export const OutputName = z.enum(['audio']);
+export const OutputName = z.enum(['audio', 'vocals', 'drums', 'bass', 'other']);
 export type OutputName = z.infer<typeof OutputName>;
 
 export const JobStatus = z.enum(['queued', 'running', 'succeeded', 'failed', 'canceled']);
@@ -73,6 +74,8 @@ export const KNOWN_JOB_ERROR_CODES = [
 	'encode_failed',
 	'output_url_rejected',
 	'output_upload_failed',
+	'stems_failed',
+	'stems_unavailable',
 	'timeout',
 	'canceled',
 	'internal'
@@ -150,6 +153,13 @@ export const TagsParams = z.strictObject({
 	embedding: z.boolean().default(false).optional()
 });
 
+export const StemsModel = z.enum(['htdemucs_ft', 'htdemucs']);
+export type StemsModel = z.infer<typeof StemsModel>;
+
+export const StemsParams = z.strictObject({
+	model: StemsModel.default('htdemucs_ft').optional()
+});
+
 export const TranscodeParams = z
 	.strictObject({
 		format: Format,
@@ -222,7 +232,12 @@ export const OPERATIONS = {
 	key: { params: 'NoParams', paramsRequired: false, outputs: [] },
 	fingerprint: { params: 'NoParams', paramsRequired: false, outputs: [] },
 	analyze: { params: 'TempoParams', paramsRequired: false, outputs: [] },
-	tags: { params: 'TagsParams', paramsRequired: false, outputs: [] }
+	tags: { params: 'TagsParams', paramsRequired: false, outputs: [] },
+	stems: {
+		params: 'StemsParams',
+		paramsRequired: false,
+		outputs: ['vocals', 'drums', 'bass', 'other']
+	}
 } as const satisfies Record<
 	Operation,
 	{ params: ParamsSchemaName; paramsRequired: boolean; outputs: readonly OutputName[] }
@@ -235,7 +250,8 @@ export const PARAMS_SCHEMAS = {
 	TagsParams,
 	TranscodeParams,
 	PreviewParams,
-	NormalizeParams
+	NormalizeParams,
+	StemsParams
 };
 type ParamsSchemaName = keyof typeof PARAMS_SCHEMAS;
 
@@ -408,6 +424,27 @@ export const PreviewAudioOutput = z
 	.strictObject({ ...AudioOutputFields, start_seconds: z.number(), fade_seconds: z.number() })
 	.refine(exactlyOneOfDepthOrBitrate, 'exactly one of bit_depth and bitrate_kbps');
 
+export const StemOutput = z.strictObject({
+	sha256: Sha256,
+	size_bytes: z.int().min(1),
+	format: z.string().optional(),
+	content_type: z.string().optional(),
+	sample_rate: z.int().optional(),
+	channels: z.int().optional(),
+	duration_seconds: z.number().optional()
+});
+export type StemOutput = z.infer<typeof StemOutput>;
+
+export const StemsResult = z.strictObject({
+	model: StemsModel,
+	outputs: z.strictObject({
+		vocals: StemOutput,
+		drums: StemOutput,
+		bass: StemOutput,
+		other: StemOutput
+	})
+});
+
 export const TranscodeResult = z.strictObject({ outputs: z.strictObject({ audio: AudioOutput }) });
 export const PreviewResult = z.strictObject({
 	outputs: z.strictObject({ audio: PreviewAudioOutput })
@@ -434,7 +471,8 @@ export const RESULT_SCHEMAS = {
 	key: KeyResult,
 	fingerprint: FingerprintResult,
 	analyze: AnalyzeResult,
-	tags: TagsResult
+	tags: TagsResult,
+	stems: StemsResult
 } as const satisfies Record<Operation, z.ZodType>;
 
 export type ResultFor<O extends Operation> = z.infer<(typeof RESULT_SCHEMAS)[O]>;
