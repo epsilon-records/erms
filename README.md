@@ -42,13 +42,27 @@ docker compose up -d        # local Postgres 17
 pnpm db:migrate
 pnpm dev
 pnpm test                   # unit + database tests (PGlite, no Docker needed)
+pnpm db:pgversion           # README, compose, CI and the live server name the same major
 ```
+
+`pnpm test` uses **PGlite**, an in-process Postgres, which is convenient and fast but currently
+bundles a **newer major than production (18.6 vs 17)**. It is not evidence that the SQL in `drizzle/`
+runs on 17, so CI applies the real migrations to a `postgres:17` service as well — see
+[Migrations and deploy](#migrations-and-deploy).
 
 ## Migrations and deploy
 
 Schema migrations are plain SQL in `drizzle/`, generated with `pnpm db:generate` and applied
 with `pnpm db:migrate`. Development runs them against the Docker Postgres (see above);
 production is the Supabase project.
+
+**Version discipline.** All four places that name a PostgreSQL major must agree — the stack table
+above (production, stated by Nate on 2026-11-07), `docker-compose.yml` (development),
+`.github/workflows/ci.yml` (CI), and the live server behind `DATABASE_URL`.
+`pnpm db:pgversion` (`scripts/check-pg-version.mjs`) compares them and fails on a split, and CI runs
+it after applying the migrations. Verified on PostgreSQL 17.11: all 17 migrations apply cleanly,
+`pnpm db:drift` reports the ledger up to date, and the `erms_app` role, 61 RLS policies and the
+`unaccent` extension all come up as intended.
 
 Production migrations are applied by the **Migrate production database** workflow
 (`.github/workflows/migrate.yml`) whenever a commit lands on `main`, and on demand from the

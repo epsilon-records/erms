@@ -8,11 +8,35 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # Production is Supabase on PostgreSQL 17, and docker-compose pins postgres:17 for development,
+    # so CI must apply the migrations to the same major. Until now CI ran no database at all: the
+    # "database tests" in `pnpm test` run on in-process PGlite, which currently bundles 18.6 — newer
+    # than production — so nothing proved the SQL in drizzle/ works where it actually ships.
+    # scripts/check-pg-version.mjs keeps README, docker-compose, this image and the live server
+    # naming the same major.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Trust auth on a localhost-only port on an ephemeral runner: no credential of any kind,
+          # and this database is thrown away after the job.
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: erms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d erms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       # Placeholders so build-time env validation passes. No real secrets in CI.
       PUBLIC_SUPABASE_URL: https://example.supabase.co
       PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci
-      DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+      DATABASE_URL: postgres://postgres@localhost:5432/erms
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -45,6 +69,16 @@ jobs:
           echo "AUDIOKIT_OPENAPI=$out" >> "$GITHUB_ENV"
       - run: pnpm test
       - run: pnpm db:check
+
+      # The real proof for drizzle/: apply every migration to PostgreSQL 17, the major production
+      # runs, then confirm the ledger the drift checker reads. `pnpm test` cannot substitute for
+      # this: PGlite is 18.6 and in-process.
+      - name: Apply migrations on production's PostgreSQL major
+        run: pnpm db:migrate
+      - name: Migration ledger matches the repo journal
+        run: pnpm db:drift
+      - name: PostgreSQL major agrees across README, compose, CI and the live server
+        run: pnpm db:pgversion
       # Creates a Sentry release and uploads source maps for this commit
       # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build

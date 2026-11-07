@@ -15,7 +15,8 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:check": "drizzle-kit check",
-		"db:drift": "node scripts/db-drift.mjs"
+		"db:drift": "node scripts/db-drift.mjs",
+		"db:pgversion": "node scripts/check-pg-version.mjs"
 	},
 	"devDependencies": {
 		"@electric-sql/pglite": "^0.5.13",
