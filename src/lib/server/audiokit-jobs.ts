@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
@@ -252,9 +252,12 @@ export async function reconcileJobs(
 	db: Database,
 	audiokit: AudioProvider
 ): Promise<{ checked: number; updated: number }> {
-	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago
+	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago.
+	// Newer jobs still have time to receive their webhook without a poll (EPSILON-67).
 	const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
+	// No `.for('update')`: the lock would be released before the AudioKit call below,
+	// and each job's terminal update is idempotent, so a plain read is enough.
 	const jobs = await db
 		.select({
 			id: audiokitJobs.id,
@@ -262,8 +265,9 @@ export async function reconcileJobs(
 			status: audiokitJobs.status
 		})
 		.from(audiokitJobs)
-		.where(eq(audiokitJobs.status, 'submitted'))
-		.for('update');
+		.where(
+			and(eq(audiokitJobs.status, 'submitted'), lte(audiokitJobs.submittedAt, fiveMinutesAgo))
+		);
 
 	let checked = 0;
 	let updated = 0;
