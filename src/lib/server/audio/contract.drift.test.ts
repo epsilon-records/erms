@@ -147,7 +147,9 @@ const PAIRS: Record<string, z.ZodType> = {
 	PreviewAudioOutput: contract.PreviewAudioOutput,
 	TranscodeResult: contract.TranscodeResult,
 	PreviewResult: contract.PreviewResult,
-	NormalizeResult: contract.NormalizeResult
+	NormalizeResult: contract.NormalizeResult,
+	StemOutput: contract.StemOutput,
+	StemsResult: contract.StemsResult
 };
 
 // Sample results per operation: shapes only, no catalog data.
@@ -184,6 +186,7 @@ const audio = {
 	sha256: 'b'.repeat(64),
 	size_bytes: 1000
 };
+const stem = { sha256: 'c'.repeat(64), size_bytes: 1000 };
 const SAMPLE_RESULTS: { [O in Operation]: ResultFor<O> } = {
 	probe: {
 		container: 'wave',
@@ -221,7 +224,11 @@ const SAMPLE_RESULTS: { [O in Operation]: ResultFor<O> } = {
 		fingerprint: fp as ResultFor<'analyze'>['fingerprint'],
 		tags
 	},
-	tags: { ...tags, ...stream }
+	tags: { ...tags, ...stream },
+	stems: {
+		model: 'htdemucs_ft',
+		outputs: { vocals: stem, drums: stem, bass: stem, other: stem }
+	}
 };
 
 function requestFor(op: Operation, jobId: string): JobRequest {
@@ -232,7 +239,14 @@ function requestFor(op: Operation, jobId: string): JobRequest {
 		...(op === 'transcode' ? { params: { format: 'flac' } } : {}),
 		...(op === 'normalize' ? { params: { target_lufs: -14 } } : {}),
 		...(OPERATIONS[op].outputs.length
-			? { outputs: { audio: { url: 'https://r2.example/put/out?sig=b', headers: { 'x-a': '1' } } } }
+			? {
+					outputs: Object.fromEntries(
+						OPERATIONS[op].outputs.map((name) => [
+							name,
+							{ url: 'https://r2.example/put/out?sig=b', headers: { 'x-a': '1' } }
+						])
+					)
+				}
 			: {}),
 		webhook: { url: 'https://erms.example/api/webhooks/audiokit' },
 		authorization: { decision_id: 'authz-1', purpose: 'analysis' }
@@ -261,7 +275,7 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 		const ignored = new Set([
 			// Building blocks, enums and scalars, checked through the schemas that use them.
 			...['ApiErrorCode', 'JobErrorCode', 'Operation', 'OutputName', 'Sha256', 'HttpsUrl'],
-			...['Format', 'SampleRate', 'JobStatus', 'Decibels', 'KeyName', 'Camelot'],
+			...['Format', 'SampleRate', 'JobStatus', 'Decibels', 'KeyName', 'Camelot', 'StemsModel'],
 			...['StreamFields', 'LoudnessFields', 'TempoFields', 'KeyFields', 'FingerprintFields'],
 			...['TagsFields', 'AudioOutputFields'],
 			// The admin client-sync API (billing service), not part of the Jobs API ERMS calls.

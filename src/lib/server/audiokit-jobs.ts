@@ -38,19 +38,9 @@ function assertCanSubmit(ctx: JobsCtx) {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+// Derived from the contract so a newly supported operation cannot be forgotten here.
 export const QueueJobRequest = z.object({
-	operation: z.enum([
-		'probe',
-		'loudness',
-		'waveform',
-		'transcode',
-		'preview',
-		'tempo',
-		'key',
-		'fingerprint',
-		'analyze',
-		'tags'
-	]),
+	operation: z.enum(Object.keys(OPERATIONS) as [Operation, ...Operation[]]),
 	params: z.record(z.string(), z.unknown()).nullable().optional()
 });
 
