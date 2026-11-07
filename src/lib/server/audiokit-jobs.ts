@@ -1,9 +1,9 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
 import type { AudioProvider } from './audio/provider';
-import { type Actor, type Database, withAudit } from './audit';
+import { type Actor, type Database, recordSystemAudit, withAudit } from './audit';
 import { audiokitJobs, masters, recordings, type Role } from './db/schema';
 import { uuidv7 } from './db/uuidv7';
 import { hasScope } from './rbac';
@@ -199,17 +199,26 @@ export async function submitQueuedJob(
 		webhook: { url: webhookUrl }
 	});
 
-	// Store provider_job_id and mark as submitted
-	await db
-		.update(audiokitJobs)
-		.set({
-			providerJobId: audiokitJob.provider_job_id,
-			status: 'submitted',
-			submittedAt: new Date(),
-			attempts: job.attempts + 1,
-			lastAttemptAt: new Date()
-		})
-		.where(eq(audiokitJobs.id, job.id));
+	// Store provider_job_id and mark as submitted, with an audit entry (decision 0014).
+	await db.transaction(async (tx) => {
+		await tx
+			.update(audiokitJobs)
+			.set({
+				providerJobId: audiokitJob.provider_job_id,
+				status: 'submitted',
+				submittedAt: new Date(),
+				attempts: job.attempts + 1,
+				lastAttemptAt: new Date()
+			})
+			.where(eq(audiokitJobs.id, job.id));
+		await recordSystemAudit(tx, {
+			orgId: job.orgId,
+			entity: 'audiokit_job',
+			entityId: job.id,
+			action: 'submit',
+			after: { status: 'submitted', provider_job_id: audiokitJob.provider_job_id }
+		});
+	});
 }
 
 /**
@@ -242,18 +251,23 @@ export async function reconcileJobs(
 	db: Database,
 	audiokit: AudioProvider
 ): Promise<{ checked: number; updated: number }> {
-	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago
+	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago.
+	// Newer jobs still have time to receive their webhook without a poll (EPSILON-67).
 	const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
+	// No `.for('update')`: the lock would be released before the AudioKit call below,
+	// and each job's terminal update is idempotent, so a plain read is enough.
 	const jobs = await db
 		.select({
 			id: audiokitJobs.id,
 			providerJobId: audiokitJobs.providerJobId,
-			status: audiokitJobs.status
+			status: audiokitJobs.status,
+			orgId: audiokitJobs.orgId
 		})
 		.from(audiokitJobs)
-		.where(eq(audiokitJobs.status, 'submitted'))
-		.for('update');
+		.where(
+			and(eq(audiokitJobs.status, 'submitted'), lte(audiokitJobs.submittedAt, fiveMinutesAgo))
+		);
 
 	let checked = 0;
 	let updated = 0;
@@ -274,16 +288,28 @@ export async function reconcileJobs(
 				audiokitJob.status === 'canceled'
 			) {
 				const now = new Date();
-				await db
-					.update(audiokitJobs)
-					.set({
-						status: audiokitJob.status,
-						result: audiokitJob.result ?? null,
-						error: audiokitJob.error ?? null,
-						provenance: audiokitJob.provenance ?? null,
-						finishedAt: now
-					})
-					.where(eq(audiokitJobs.id, job.id));
+				// Narrowed here so it survives into the transaction closure.
+				const status = audiokitJob.status;
+				// Audit the machine write in the same transaction (decision 0014).
+				await db.transaction(async (tx) => {
+					await tx
+						.update(audiokitJobs)
+						.set({
+							status,
+							result: audiokitJob.result ?? null,
+							error: audiokitJob.error ?? null,
+							provenance: audiokitJob.provenance ?? null,
+							finishedAt: now
+						})
+						.where(eq(audiokitJobs.id, job.id));
+					await recordSystemAudit(tx, {
+						orgId: job.orgId,
+						entity: 'audiokit_job',
+						entityId: job.id,
+						action: 'reconcile',
+						after: { status }
+					});
+				});
 
 				updated++;
 			}

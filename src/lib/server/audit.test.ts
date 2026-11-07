@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { withAudit } from './audit';
+import { recordSystemAudit, withAudit } from './audit';
 import { auditLog, orgs } from './db/schema';
 import { createTestDb } from './test-db';
 
@@ -70,5 +70,27 @@ describe('withAudit', () => {
 		const err = await db.delete(auditLog).catch((e: Error & { cause?: Error }) => e);
 		expect(String((err as { cause?: Error }).cause?.message)).toMatch(/append-only/);
 		expect(await db.select().from(auditLog)).toHaveLength(1);
+	});
+
+	it('records a machine write with a system actor', async () => {
+		await db.transaction(async (tx) => {
+			await recordSystemAudit(tx, {
+				orgId,
+				entity: 'audiokit_job',
+				entityId: 'job-1',
+				action: 'webhook',
+				after: { status: 'succeeded' }
+			});
+		});
+
+		const entries = await db.select().from(auditLog);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			action: 'webhook',
+			actorId: 'system:audiokit',
+			actorKind: 'system',
+			entity: 'audiokit_job',
+			entityId: 'job-1'
+		});
 	});
 });

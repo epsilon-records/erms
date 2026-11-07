@@ -18,7 +18,7 @@ export type AuditRecord = {
 	after?: unknown;
 };
 
-type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 /** Record one entry, or many in a single insert (bulk operations such as imports). */
 export type AuditFn = (record: AuditRecord | AuditRecord[]) => Promise<void>;
@@ -39,6 +39,27 @@ export class NoChange<T> extends Error {
  * If a write records no audit entry, the transaction is rejected: every change
  * that goes through this helper must leave a trace.
  */
+/**
+ * Record a machine (system-actor) entry inside an existing transaction. The
+ * webhook, worker and reconcile routes use this: they write without a user, but
+ * every job status or result change still needs a trace (decision 0014).
+ */
+export async function recordSystemAudit(
+	tx: Tx,
+	record: AuditRecord & { orgId: string; actorId?: string }
+): Promise<void> {
+	await tx.insert(auditLog).values({
+		orgId: record.orgId,
+		actorId: record.actorId ?? 'system:audiokit',
+		actorKind: 'system',
+		entity: record.entity,
+		entityId: record.entityId,
+		action: record.action,
+		before: record.before ?? null,
+		after: record.after ?? null
+	});
+}
+
 export async function withAudit<T>(
 	db: Database,
 	ctx: { orgId: string; actor: Actor },
