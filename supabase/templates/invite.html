@@ -1,0 +1,31 @@
+<!--
+  Supabase Auth "Invite user" template for ERMS (EPSILON-87).
+
+  One sender serves every label (decision 0021) and Supabase's templates are shared by every org,
+  so this copy never names Epsilon Records: it names the label the person is invited to, from
+  `invited_org_name`, which the members page sets when it sends the invite
+  (src/lib/server/auth-admin.ts). It is the inviting org's display name, set by its owners.
+
+  The link uses the token hash and lands on /auth/confirm, not the confirmation URL: an invite
+  is opened in a browser other than the one that sent it, so a PKCE code would fail there.
+
+  Production: paste this body into Authentication -> Emails -> Invite user in the ERMS project.
+  Subject: as in supabase/config.toml, [auth.email.template.invite].
+-->
+<h2>
+	You're invited to {{ if .Data.invited_org_name }}{{ .Data.invited_org_name }}{{ else }}a label{{
+	end }} on ERMS
+</h2>
+
+<p>
+	{{ if .Data.invited_org_name }}{{ .Data.invited_org_name }}{{ else }}A label{{ end }} uses ERMS
+	for its catalogue, rights and releases, and has invited you to join.
+</p>
+
+<p>
+	<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite"
+		>Accept the invite and sign in</a
+	>
+</p>
+
+<p>The link works once. If you weren't expecting this, you can ignore this email.</p>
