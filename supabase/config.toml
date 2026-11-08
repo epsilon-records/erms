@@ -1,5 +1,5 @@
 #:schema https://supabase.com/schemas/config/v1.json
-# ERMS uses the local stack for the database tests (`pnpm test`) and for CI. Only what those touch is
+# ERMS uses the local stack for development (`pnpm dev`), the database tests (`pnpm test`) and CI. Only what those touch is
 # enabled; migrations stay in drizzle/ (CLI-managed migrations are off). `major_version` is read by
 # scripts/check-pg-version.mjs and must match production.
 # For detailed configuration reference documentation, visit:

@@ -38,12 +38,11 @@ drizzle/                    SQL migrations (RLS, append-only audit log, same-org
 ```bash
 pnpm install
 cp .env.example .env        # fill in Supabase URL and publishable key
-docker compose up -d        # local Postgres 17, for pnpm dev
+supabase start              # local Supabase stack, PostgreSQL 17 (CLI 3.1.0-beta.26+)
 pnpm db:migrate
 pnpm dev
-supabase start              # local Supabase stack (CLI 3.1.0-beta.26+), for the tests
 pnpm test                   # unit + database tests
-pnpm db:pgversion           # README, compose, Supabase config and the live server agree
+pnpm db:pgversion           # README, Supabase config and the live server agree
 ```
 
 The database tests run on the **local Supabase stack**, not on an engine of our own: production's
@@ -57,15 +56,20 @@ Without the stack, the database tests fail with instructions to run `supabase st
 fallback engine, because a fallback is how a green run stops meaning anything. Tests that need no
 database run regardless.
 
+Development and the tests share one stack. `pnpm dev` uses the stack's own `postgres` database;
+the tests only ever create and drop their own `erms_test_*` copies, so they never touch dev data.
+`pnpm test:rls` is the exception: it seeds and removes its fixed fixture rows in the database
+behind `DATABASE_URL`.
+
 ## Migrations and deploy
 
 Schema migrations are plain SQL in `drizzle/`, generated with `pnpm db:generate` and applied
-with `pnpm db:migrate`. Development runs them against the Docker Postgres (see above);
+with `pnpm db:migrate`. Development runs them against the local Supabase stack (see above);
 production is the Supabase project.
 
-**Version discipline.** All four places that name a PostgreSQL major must agree — the stack table
-above (production, stated by Nate on 2026-11-07), `docker-compose.yml` (development),
-`supabase/config.toml` (tests and CI), and the live server behind `DATABASE_URL`.
+**Version discipline.** All three places that name a PostgreSQL major must agree — the stack table
+above (production, stated by Nate on 2026-11-07), `supabase/config.toml` (development, tests and
+CI), and the live server behind `DATABASE_URL`.
 `pnpm db:pgversion` (`scripts/check-pg-version.mjs`) compares them and fails on a split, and CI runs
 it after applying the migrations. Verified on PostgreSQL 17.11: all 17 migrations apply cleanly,
 `pnpm db:drift` reports the ledger up to date, and the `erms_app` role, 61 RLS policies and the
