@@ -101,6 +101,42 @@ console.log(`API ${API_URL}  (roles: anon, authenticated, service_role — all m
 
 const cases = [
 	{
+		name: 'an owner JWT cannot create memberships through PostgREST',
+		expect: 'RLS rejects INSERT and no membership is created',
+		run: async () => {
+			const target = '33333333-3333-4333-8333-333333333333';
+			const r = await call('POST', '/memberships', userJwt, {
+				org_id: IDS.orgA,
+				user_id: target,
+				role: 'owner'
+			});
+			const after = await call('GET', `/memberships?user_id=eq.${target}`, SERVICE_KEY);
+			return (
+				r.status >= 400 &&
+				/row-level security/i.test(JSON.stringify(r.body)) &&
+				Array.isArray(after.body) &&
+				after.body.length === 0
+			);
+		}
+	},
+	{
+		name: 'an owner JWT cannot demote itself or remove another org owner through REST',
+		expect: 'both owner memberships survive unchanged',
+		run: async () => {
+			await call('PATCH', `/memberships?org_id=eq.${IDS.orgA}&user_id=eq.${IDS.u1}`, userJwt, {
+				role: 'viewer'
+			});
+			await call('DELETE', `/memberships?org_id=eq.${IDS.orgB}&user_id=eq.${IDS.u2}`, userJwt);
+			const after = await call('GET', `/memberships?user_id=in.(${IDS.u1},${IDS.u2})`, SERVICE_KEY);
+			return (
+				after.status === 200 &&
+				Array.isArray(after.body) &&
+				after.body.length === 2 &&
+				after.body.every((m) => m.role === 'owner')
+			);
+		}
+	},
+	{
 		name: 'anon key reads nothing',
 		expect: '200 and 0 rows',
 		run: async () => {

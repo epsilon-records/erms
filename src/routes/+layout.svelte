@@ -29,6 +29,7 @@
 		{ href: '/releases', label: 'Releases' },
 		{ href: '/artists', label: 'Artists' },
 		{ href: '/compositions', label: 'Compositions' },
+		...(data.membership?.role === 'owner' ? [{ href: '/members', label: 'Members' }] : []),
 		...(canRights ? [{ href: '/rights', label: 'Rights' }] : []),
 		...(canImport ? [{ href: '/import', label: 'Import' }] : [])
 	]);

@@ -120,6 +120,20 @@
       "when": 1794051684479,
       "tag": "0016_tighten_audiokit_jobs_update",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794142031185,
+      "tag": "0017_curved_bastion",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794142152708,
+      "tag": "0018_complex_mockingbird",
+      "breakpoints": true
     }
   ]
 }

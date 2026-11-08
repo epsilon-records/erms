@@ -16,6 +16,15 @@ export const variables = defineEnvVars({
 		schema: z.string().min(1),
 		description: 'Supabase publishable (anon) key; safe for the browser'
 	},
+	SUPABASE_SECRET_KEY: {
+		schema: (value) => value || undefined,
+		description:
+			'Server-only Supabase secret/service-role key for owner-authorized invitation links'
+	},
+	RESEND_API_KEY: {
+		schema: (value) => value || undefined,
+		description: 'Send-only Resend key for invitations from no-reply@auth.epsilonrecords.com'
+	},
 	DATABASE_URL: {
 		schema: z.string().startsWith('postgres'),
 		description: 'Postgres connection string (server only)'

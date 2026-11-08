@@ -54,6 +54,8 @@ export const memberships = pgTable(
 			.notNull()
 			.references(() => orgs.id, { onDelete: 'cascade' }),
 		userId: uuid('user_id').notNull(),
+		// Contact recorded by the inviting owner; identity is always the Supabase user id.
+		email: text('email'),
 		role: roleEnum('role').notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		// Set once the member has been through first-run onboarding.
@@ -71,6 +73,9 @@ export const auditLog = pgTable(
 			.notNull()
 			.references(() => orgs.id),
 		actorId: text('actor_id').notNull(),
+		transactionId: bigint('transaction_id', { mode: 'bigint' })
+			.notNull()
+			.default(sql`txid_current()`),
 		actorKind: actorKindEnum('actor_kind').notNull(),
 		entity: text('entity').notNull(),
 		entityId: text('entity_id').notNull(),
