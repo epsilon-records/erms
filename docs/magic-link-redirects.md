@@ -87,15 +87,19 @@ config, preservation and idempotence. CI runs those and the callback tests as pa
 of the existing full `pnpm test` on the pinned Supabase stack; it does not need
 production management credentials.
 
-## Remaining live proof
+## User-confirmed production sign-in
 
-With the config repaired, request a fresh sign-in email with the user's
-explicit approval, on `https://erms.epsilonrecords.com/login`. Open it in the same
-browser/profile that requested it. Confirm `/auth/callback` is reached on that
-host, the token grant is `pkce` and succeeds, session cookies survive the 303, and
-the next page stays signed in (or reaches onboarding as appropriate). Do not
-capture the credential-bearing URL in a report. No email was sent and no user
-session was created as part of this investigation.
+On 2026-11-08, after the URL configuration repair, Nate replied **“Confirmed”**
+to the request to verify sign-in with a fresh magic link on the canonical site.
+This records user-confirmed successful production sign-in through the requested
+fresh-link flow. It does not add independently observed browser, callback, token-grant
+or cookie details beyond that confirmation. The agent sent no email and created no
+user session to obtain this evidence.
+
+The sign-in confirmation closes the remaining user sign-in proof for this incident.
+It is not approval to merge PR 42, which remains open and unmerged. EPSILON-87's
+invite/membership acceptance and decision-0022 invite/onboarding proof remain
+separate and are not established by this sign-in confirmation.
 
 A different browser/profile/device cannot supply the verifier cookie for this
 PKCE flow. If that is a product requirement, use a separately reviewed token-hash
