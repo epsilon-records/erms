@@ -57,6 +57,7 @@ export const KNOWN_API_ERROR_CODES = [
 	'not_found',
 	'idempotency_conflict',
 	'client_bootstrap',
+	'rate_limited',
 	'unavailable'
 ] as const;
 export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});
