@@ -55,7 +55,7 @@ jobs:
         run: pnpm db:migrate
       - name: Migration ledger matches the repo journal
         run: pnpm db:drift
-      - name: PostgreSQL major agrees across README, compose, Supabase config and the live server
+      - name: PostgreSQL major agrees across README, Supabase config and the live server
         run: pnpm db:pgversion
 
       # The audio contract is checked against AudioKit's openapi.yaml (contract.drift.test.ts).
