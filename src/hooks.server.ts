@@ -16,7 +16,7 @@ import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js'
  * bearer token; webhook verifies AudioKit's X-Signature HMAC), so the login redirect must
  * not intercept them. Every other path stays behind the sign-in redirect.
  */
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/'];
+const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/', '/preview'];
 
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
 const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
