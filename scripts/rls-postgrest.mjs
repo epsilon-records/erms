@@ -77,8 +77,9 @@ const call = async (method, path, key, body) => {
 // Seed directly, then tell PostgREST the schema changed: migrations do not notify it on their own.
 const sql = postgres(DB_URL, { max: 1 });
 await sql`DELETE FROM labels WHERE id IN (${IDS.labelA}, ${IDS.labelB})`;
-await sql`DELETE FROM memberships WHERE user_id IN (${IDS.u1}, ${IDS.u2})`;
+// Orgs first: their memberships cascade, and a sole owner's membership alone cannot be deleted.
 await sql`DELETE FROM orgs WHERE id IN (${IDS.orgA}, ${IDS.orgB})`;
+await sql`DELETE FROM memberships WHERE user_id IN (${IDS.u1}, ${IDS.u2})`;
 await sql`INSERT INTO orgs (id, name, slug) VALUES
 		(${IDS.orgA}, 'Alpha Records', 'rls-verify-alpha'),
 		(${IDS.orgB}, 'Beta Records', 'rls-verify-beta')`;
@@ -157,6 +158,35 @@ const cases = [
 			return r.status === 204 && Array.isArray(after.body) && after.body.length === 1;
 		}
 	},
+	// Member management (EPSILON-87): there is no browser path into memberships. A user JWT holds
+	// INSERT/UPDATE/DELETE on the table (Supabase's grants), but every membership write policy is
+	// addressed to erms_app, so a forged invite or self-promotion through the REST API cannot land.
+	{
+		name: 'a user JWT cannot invite itself into another org',
+		expect: '403 from row-level security',
+		run: async () => {
+			const r = await call('POST', '/memberships', userJwt, {
+				org_id: IDS.orgB,
+				user_id: IDS.u1,
+				role: 'owner'
+			});
+			return r.status >= 400 && /row-level security/i.test(JSON.stringify(r.body));
+		}
+	},
+	{
+		name: 'a user JWT cannot re-role or remove members, even as owner',
+		expect: 'memberships unchanged',
+		run: async () => {
+			await call('PATCH', `/memberships?org_id=eq.${IDS.orgB}`, userJwt, { role: 'viewer' });
+			await call('DELETE', `/memberships?org_id=eq.${IDS.orgA}`, userJwt);
+			const r = await call(
+				'GET',
+				`/memberships?select=org_id,role&org_id=in.(${IDS.orgA},${IDS.orgB})`,
+				SERVICE_KEY
+			);
+			return r.status === 200 && r.body.length === 2 && r.body.every((row) => row.role === 'owner');
+		}
+	},
 	{
 		name: 'the org survived every attempt above',
 		expect: 'Alpha Sound and Beta Sound both intact',
@@ -205,8 +235,9 @@ for (const testCase of cases) {
 
 const cleanup = postgres(DB_URL, { max: 1 });
 await cleanup`DELETE FROM labels WHERE id IN (${IDS.labelA}, ${IDS.labelB})`;
-await cleanup`DELETE FROM memberships WHERE user_id IN (${IDS.u1}, ${IDS.u2})`;
+// Orgs first: their memberships cascade, and a sole owner's membership alone cannot be deleted.
 await cleanup`DELETE FROM orgs WHERE id IN (${IDS.orgA}, ${IDS.orgB})`;
+await cleanup`DELETE FROM memberships WHERE user_id IN (${IDS.u1}, ${IDS.u2})`;
 await cleanup.end();
 
 console.log(`\n${cases.length - failed}/${cases.length} PostgREST cases passed`);

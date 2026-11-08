@@ -263,12 +263,19 @@ describe('tenant isolation', () => {
 			).toMatch(/row-level security/);
 		});
 
-		it('cannot read or write orgs and memberships beyond reading its own', async () => {
+		it('cannot write orgs, nor place itself in another org', async () => {
+			// Since EPSILON-87 owners write their own org's memberships; another org's stay refused,
+			// by row-level security rather than by privilege (drizzle/0017_members_manage.sql).
 			expect(
 				await pgError(
 					asUser(db, ownerA, (tx) =>
 						tx.insert(memberships).values({ orgId: orgB, userId: ownerA, role: 'owner' })
 					)
+				)
+			).toMatch(/row-level security/);
+			expect(
+				await pgError(
+					asUser(db, ownerA, (tx) => tx.insert(orgs).values({ name: 'Sneaky', slug: 'sneaky' }))
 				)
 			).toMatch(/permission denied/);
 		});

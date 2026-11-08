@@ -25,12 +25,14 @@
 	const canRights = $derived(
 		data.membership?.role === 'owner' || data.membership?.role === 'rights_admin'
 	);
+	const canManageMembers = $derived(data.membership?.role === 'owner');
 	const nav = $derived([
 		{ href: '/releases', label: 'Releases' },
 		{ href: '/artists', label: 'Artists' },
 		{ href: '/compositions', label: 'Compositions' },
 		...(canRights ? [{ href: '/rights', label: 'Rights' }] : []),
-		...(canImport ? [{ href: '/import', label: 'Import' }] : [])
+		...(canImport ? [{ href: '/import', label: 'Import' }] : []),
+		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 </script>

@@ -109,7 +109,9 @@ try {
 						code = String(error?.code ?? '');
 					}
 					if (!message) throw new Error('the probe succeeded; RLS did not refuse it');
-					const matched = code === testCase.errorCode || /row-level security/i.test(message);
+					const matched = testCase.errorMatch
+						? code === testCase.errorCode && new RegExp(testCase.errorMatch, 'i').test(message)
+						: code === testCase.errorCode || /row-level security/i.test(message);
 					if (!matched) throw new Error(`refused for the wrong reason: ${code} ${message}`);
 					// Force the rollback: a refused statement must not leave anything behind.
 					throw ROLLBACK;

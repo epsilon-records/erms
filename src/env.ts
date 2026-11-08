@@ -20,6 +20,13 @@ export const variables = defineEnvVars({
 		schema: z.string().startsWith('postgres'),
 		description: 'Postgres connection string (server only)'
 	},
+	// Member invites (EPSILON-87). Server only, and read by one module: src/lib/server/auth-admin.ts.
+	// Optional: unset turns invites off (the members page still lists and manages members).
+	SUPABASE_SECRET_KEY: {
+		schema: (value) => value || undefined,
+		description:
+			'Supabase secret (service-role) key for the Auth admin API, used only to send member invites'
+	},
 	AUDIO_PROVIDER: {
 		schema: z.enum(['stub', 'audiokit']).default('stub'),
 		description: 'Which AudioProvider implementation the processing worker uses'

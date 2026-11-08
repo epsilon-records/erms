@@ -39,7 +39,12 @@ export const IDS = {
 	// u1 owns org A only. u2 owns org B. u3 has no membership anywhere.
 	u1: '11111111-1111-4111-8111-111111111111',
 	u2: '22222222-2222-4222-8222-222222222222',
-	u3: '33333333-3333-4333-8333-333333333333'
+	u3: '33333333-3333-4333-8333-333333333333',
+	// Member management (EPSILON-87): u4 is a viewer in A, u5 is invited by the probes, and u6 is
+	// B's second owner — so B has two owners while A's only owner is u1.
+	u4: '44444444-4444-4444-8444-444444444444',
+	u5: '55555555-5555-4555-8555-555555555555',
+	u6: '66666666-6666-4666-8666-666666666666'
 };
 
 export const SEED_SQL = [
@@ -48,7 +53,9 @@ export const SEED_SQL = [
 		('${IDS.orgB}', 'Beta Records', 'beta')`,
 	`INSERT INTO memberships (org_id, user_id, role) VALUES
 		('${IDS.orgA}', '${IDS.u1}', 'owner'),
-		('${IDS.orgB}', '${IDS.u2}', 'owner')`,
+		('${IDS.orgA}', '${IDS.u4}', 'viewer'),
+		('${IDS.orgB}', '${IDS.u2}', 'owner'),
+		('${IDS.orgB}', '${IDS.u6}', 'owner')`,
 	`INSERT INTO labels (id, org_id, name) VALUES
 		('${IDS.labelA}', '${IDS.orgA}', 'Alpha Sound'),
 		('${IDS.labelB}', '${IDS.orgB}', 'Beta Sound')`
@@ -56,14 +63,18 @@ export const SEED_SQL = [
 
 export const TEARDOWN_SQL = [
 	`DELETE FROM labels WHERE id IN ('${IDS.labelA}', '${IDS.labelB}', '${IDS.sneakLabel}', '${IDS.freshLabel}')`,
-	`DELETE FROM memberships WHERE user_id IN ('${IDS.u1}', '${IDS.u2}', '${IDS.u3}')`,
-	`DELETE FROM orgs WHERE id IN ('${IDS.orgA}', '${IDS.orgB}')`
+	// Deleting the orgs cascades to their memberships. Deleting a sole owner's membership on its own
+	// is refused by the last-owner rule (0017_members_manage.sql), so the orgs go first.
+	`DELETE FROM orgs WHERE id IN ('${IDS.orgA}', '${IDS.orgB}')`,
+	`DELETE FROM memberships WHERE user_id IN ('${IDS.u1}', '${IDS.u2}', '${IDS.u3}', '${IDS.u4}', '${IDS.u5}', '${IDS.u6}')`
 ];
 
 /**
  * `role` + `claim: null` means no session at all. `expect` is a scalar, or `'error'` for a probe
  * that must be refused (`errorCode` is the SQLSTATE Postgres has to raise, so a policy that
- * silently filters is not confused with one that blocks a write).
+ * silently filters is not confused with one that blocks a write). `errorMatch`, when set, is a
+ * pattern the refusal's message must match as well, for cases where a refusal for another reason
+ * (say, row-level security instead of the last-owner rule) would be a false pass.
  */
 export const RLS_CASES = [
 	{
@@ -153,6 +164,171 @@ export const RLS_CASES = [
 		claim: IDS.u2,
 		probe: `SELECT count(*) FROM labels WHERE id = '${IDS.labelA}'`,
 		expect: '0'
+	},
+	// Member management (EPSILON-87, decision 0020). Invites are INSERTs into memberships, role
+	// changes UPDATE its role column, removals DELETE. Only an org's owners may do any of it, only
+	// in that org, and the org always keeps an owner.
+	{
+		name: 'members: an owner invites into their own org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `WITH ins AS (
+			INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgA}', '${IDS.u5}', 'catalog_manager') RETURNING 1
+		) SELECT count(*) FROM ins`,
+		expect: '1'
+	},
+	{
+		name: 'members: a cross-org invite is refused, not filtered',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgB}', '${IDS.u5}', 'viewer')`,
+		expect: 'error',
+		errorCode: '42501'
+	},
+	{
+		name: 'members: an owner cannot place themselves in another org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgB}', '${IDS.u1}', 'owner')`,
+		expect: 'error',
+		errorCode: '42501'
+	},
+	{
+		name: 'members: a non-owner cannot invite, even into their own org',
+		role: 'erms_app',
+		claim: IDS.u4,
+		probe: `INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgA}', '${IDS.u5}', 'viewer')`,
+		expect: 'error',
+		errorCode: '42501'
+	},
+	{
+		name: 'members: the agent role cannot be handed to a person',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgA}', '${IDS.u5}', 'agent')`,
+		expect: 'error',
+		errorCode: '42501'
+	},
+	{
+		name: 'members: an owner changes a role in their own org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `WITH upd AS (
+			UPDATE memberships SET role = 'rights_admin'
+			WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u4}' RETURNING 1
+		) SELECT count(*) FROM upd`,
+		expect: '1'
+	},
+	{
+		name: 'members: an owner cannot change a role in another org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `WITH upd AS (
+			UPDATE memberships SET role = 'viewer'
+			WHERE org_id = '${IDS.orgB}' AND user_id = '${IDS.u6}' RETURNING 1
+		) SELECT count(*) FROM upd`,
+		expect: '0'
+	},
+	{
+		name: 'members: a viewer cannot promote themselves',
+		role: 'erms_app',
+		claim: IDS.u4,
+		probe: `WITH upd AS (
+			UPDATE memberships SET role = 'owner'
+			WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u4}' RETURNING 1
+		) SELECT count(*) FROM upd`,
+		expect: '0'
+	},
+	{
+		name: 'members: a membership cannot be moved to another org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `UPDATE memberships SET org_id = '${IDS.orgB}'
+			WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u4}'`,
+		expect: 'error',
+		errorCode: '42501', // permission denied: erms_app may update the role column only
+		errorMatch: 'permission denied'
+	},
+	{
+		name: 'members: an owner removes a member of their own org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `WITH del AS (
+			DELETE FROM memberships
+			WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u4}' RETURNING 1
+		) SELECT count(*) FROM del`,
+		expect: '1'
+	},
+	{
+		name: 'members: an owner cannot remove a member of another org',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `WITH del AS (
+			DELETE FROM memberships WHERE org_id = '${IDS.orgB}' RETURNING 1
+		) SELECT count(*) FROM del`,
+		expect: '0'
+	},
+	{
+		name: 'members: the last owner cannot step down (owners elsewhere do not count)',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `UPDATE memberships SET role = 'viewer'
+			WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u1}'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		name: 'members: the last owner cannot be removed',
+		role: 'erms_app',
+		claim: IDS.u1,
+		probe: `DELETE FROM memberships WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u1}'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		name: 'members: with a second owner in the org, an owner may step down',
+		role: 'erms_app',
+		claim: IDS.u2,
+		probe: `WITH upd AS (
+			UPDATE memberships SET role = 'viewer'
+			WHERE org_id = '${IDS.orgB}' AND user_id = '${IDS.u2}' RETURNING 1
+		) SELECT count(*) FROM upd`,
+		expect: '1'
+	},
+	{
+		name: 'members: removing every owner in one statement is refused',
+		role: 'erms_app',
+		claim: IDS.u2,
+		probe: `DELETE FROM memberships WHERE org_id = '${IDS.orgB}' AND role = 'owner'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		name: 'members: the last-owner rule holds for the owner connection too',
+		role: 'postgres',
+		claim: null,
+		probe: `DELETE FROM memberships WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u1}'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		requiresSupabaseRoles: true,
+		name: 'members: authenticated cannot write memberships (no PostgREST invite path)',
+		role: 'authenticated',
+		claim: IDS.u1,
+		probe: `INSERT INTO memberships (org_id, user_id, role)
+			VALUES ('${IDS.orgA}', '${IDS.u5}', 'viewer')`,
+		expect: 'error',
+		errorCode: '42501'
 	},
 	// The PostgREST-shaped surface (Supabase's own API, reached with the publishable key plus a
 	// user JWT). The member-read policies carry no TO clause, so they apply to PUBLIC — which

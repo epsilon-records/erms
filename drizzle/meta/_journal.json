@@ -120,6 +120,13 @@
       "when": 1794051684479,
       "tag": "0016_tighten_audiokit_jobs_update",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794175893201,
+      "tag": "0017_members_manage",
+      "breakpoints": true
     }
   ]
 }

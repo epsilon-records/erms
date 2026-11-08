@@ -20,7 +20,16 @@
 						note: 'bring in a SymphonicMS export'
 					},
 					{ href: '/recordings', label: 'Browse recordings', note: 'check the import landed' },
-					{ href: '/org', label: 'Invite your team', note: 'add members and set their roles' }
+					// Only owners hold roles:manage, so only they get the invite step.
+					...(data.role === 'owner'
+						? [
+								{
+									href: '/members',
+									label: 'Invite your team',
+									note: 'add members and set their roles'
+								}
+							]
+						: [])
 				]
 			: data.role === 'rights_admin'
 				? [

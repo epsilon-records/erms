@@ -29,6 +29,8 @@ src/
     rbac.ts                 roles and scopes
     audio/                  AudioKit contract (Zod), AudioProvider, stub, webhook HMAC
     masters.ts              master uploads: who may upload, org-scoped keys, WAV checks
+    members.ts              org members: list, invite, change role, remove (owners only)
+    auth-admin.ts           Supabase Auth admin client, for invites only (the one secret-key path)
     storage/                R2 client (S3 API via aws4fetch): presigning and control calls
 drizzle/                    SQL migrations (RLS, append-only audit log, same-org keys, app role)
 ```
@@ -154,6 +156,32 @@ DATABASE_URL=postgres://... pnpm db:drift --warn  # report only
 - CI also runs `pnpm audit` and a gitleaks scan of the full history; CodeQL and Dependabot run separately.
 - No secrets in the repo. Netlify, Supabase and the GitHub Actions `production` environment hold production env vars and secrets.
 - In production `DATABASE_URL` points at Supabase's transaction pooler (port 6543); the client already disables prepared statements for it.
+
+## Members and invites
+
+Owners manage their label's members at `/members` (EPSILON-87): list them with their role and
+onboarding state, invite by email with a role, change a role, remove someone.
+
+- **The database decides.** `erms_app` may insert, delete and update the `role` column of
+  `memberships`, and only where `app.has_role(org_id, ['owner'])`: an owner of one label cannot
+  place anyone in another (refused with 42501), and `agent` is never handed to a person. The
+  `memberships_keep_one_owner` trigger keeps at least one owner per org, for every connection
+  including the owner's; deleting the org itself is the exemption. See `drizzle/0017_members_manage.sql`
+  and the `members:` cases in `scripts/rls-cases.mjs`. Every change is written through `withAudit()`
+  as `member_invite`, `member_role` or `member_remove`, without the person's address.
+- **Sending the invite** needs Supabase's Auth admin API, so it uses the secret key
+  (`SUPABASE_SECRET_KEY`), server-only and read by `src/lib/server/auth-admin.ts` alone; only the
+  members route imports that module (`auth-admin-access.test.ts`). It calls Auth and nothing else:
+  the membership row is still written under RLS. The route asks the database whether the caller
+  owns the org before any email goes out. Without the key, invites are off and the page says so.
+- **New address:** Supabase creates the account and sends its Invite email through the one sender
+  (`auth.epsilonrecords.com`, decisions 0004 and 0021). **Existing account:** no email; the label
+  appears in their switcher at next sign-in.
+- **The email** is `supabase/templates/invite.html` with the subject in `supabase/config.toml`. It
+  names the label from `invited_org_name` and never Epsilon, because one template serves every
+  label. Its link lands on `/auth/confirm` with the token hash: an invite is opened in another
+  browser than the one that sent it, so `/auth/callback`'s PKCE code cannot serve it. In
+  production the template is pasted into the hosted project's Invite email.
 
 ## Master uploads (Cloudflare R2)
 

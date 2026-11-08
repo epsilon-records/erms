@@ -67,8 +67,13 @@ describe('row-level security behaviour', () => {
 					}
 					// The same rule as scripts/rls-behavior.mjs: the expected SQLSTATE, or a refusal
 					// that names row-level security.
+					// errorMatch narrows it: the expected SQLSTATE and that message, nothing else.
+					const errorMatch = (testCase as { errorMatch?: string }).errorMatch;
 					expect(
-						detail.includes(testCase.errorCode ?? '') || /row-level security/i.test(detail),
+						errorMatch
+							? detail.includes(testCase.errorCode ?? '') &&
+									new RegExp(errorMatch, 'i').test(detail)
+							: detail.includes(testCase.errorCode ?? '') || /row-level security/i.test(detail),
 						`unexpected refusal: ${detail.trim().slice(0, 160)}`
 					).toBe(true);
 					return;

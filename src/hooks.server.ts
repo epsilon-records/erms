@@ -11,12 +11,13 @@ import { scopedTo } from '#lib/server/db/scoped.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /**
- * Routes reachable without signing in. `/api/audiokit/` holds machine endpoints that
+ * Routes reachable without signing in. `/auth/confirm` is where an invite link lands
+ * (EPSILON-87). `/api/audiokit/` holds machine endpoints that
  * verify their own credentials before running (worker/reconcile require the WORKER_SECRET
  * bearer token; webhook verifies AudioKit's X-Signature HMAC), so the login redirect must
  * not intercept them. Every other path stays behind the sign-in redirect.
  */
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/audiokit/'];
+const PUBLIC_PATHS = ['/login', '/auth/callback', '/auth/confirm', '/api/audiokit/'];
 
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
 const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
