@@ -12,7 +12,7 @@
 	const done = $derived(!!form && 'ok' in form && form.ok ? form : null);
 	const invited = $derived(
 		done && done.action === 'invite' && 'result' in done
-			? (done.result as { outcome: 'added' | 'already'; emailed: boolean; email: string })
+			? (done.result as { outcome: 'added' | 'already'; email: string })
 			: null
 	);
 
@@ -100,8 +100,8 @@
 		<h2 id="invite-h" class="h2">Invite someone</h2>
 		{#if data.invitesOn}
 			<p class="soft" style="margin: 0">
-				They get an email with a sign-in link to {data.orgName}, then a short welcome page. The link
-				works once.
+				Add them to {data.orgName} with the chosen role. They can use their invitation or sign in, then
+				select this label. A new email is not guaranteed.
 			</p>
 			<div class="form-grid">
 				<label for="email">Email</label>
@@ -132,16 +132,10 @@
 					.map(([k, msg]) => (k === 'form' ? msg : `${k}: ${msg}`))
 					.join('\n')}
 			</div>
-		{:else if invited?.outcome === 'added' && invited.emailed}
-			<div class="alert ok" role="status">Invite sent to {invited.email}.</div>
 		{:else if invited?.outcome === 'added'}
 			<div class="alert ok" role="status">
-				{invited.email} already has an ERMS account, so no email was sent. {data.orgName} appears in their
-				label switcher the next time they sign in.
-			</div>
-		{:else if invited?.outcome === 'already' && invited.emailed}
-			<div class="alert ok" role="status">
-				{invited.email} was already invited and has not signed in yet; the invite was sent again.
+				Member added: {invited.email}. They can use their invitation or sign in, then select
+				{data.orgName} in the label switcher.
 			</div>
 		{:else if invited?.outcome === 'already'}
 			<div class="alert ok" role="status">{invited.email} is already a member.</div>

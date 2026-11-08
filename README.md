@@ -91,7 +91,7 @@ production is the Supabase project.
 above (production, stated by Nate on 2026-11-07), `supabase/config.toml` (development, tests and
 CI), and the live server behind `DATABASE_URL`.
 `pnpm db:pgversion` (`scripts/check-pg-version.mjs`) compares them and fails on a split, and CI runs
-it after applying the migrations. Verified on PostgreSQL 17.11: all 17 migrations apply cleanly,
+it after applying the migrations. CI applies the complete migration chain on PostgreSQL 17.11;
 `pnpm db:drift` reports the ledger up to date, and the `erms_app` role, 61 RLS policies and the
 `unaccent` extension all come up as intended.
 
@@ -166,22 +166,37 @@ onboarding state, invite by email with a role, change a role, remove someone.
   `memberships`, and only where `app.has_role(org_id, ['owner'])`: an owner of one label cannot
   place anyone in another (refused with 42501), and `agent` is never handed to a person. The
   `memberships_keep_one_owner` trigger keeps at least one owner per org, for every connection
-  including the owner's; deleting the org itself is the exemption. See `drizzle/0017_members_manage.sql`
+  including the owner's; deleting the org itself is the exemption. Membership identity (`org_id`,
+  `user_id`) is immutable even on the owner connection (`drizzle/0018_membership_identity.sql`).
+  See `drizzle/0017_members_manage.sql`
   and the `members:` cases in `scripts/rls-cases.mjs`. Every change is written through `withAudit()`
-  as `member_invite`, `member_role` or `member_remove`, without the person's address.
+  as `member_invite`, `member_role` or `member_remove`, without the person's address. Role changes
+  and removals lock the membership before reading its audit value, so concurrent changes record
+  the actual preceding role and identical role submissions become no-ops.
 - **Sending the invite** needs Supabase's Auth admin API, so it uses the secret key
   (`SUPABASE_SECRET_KEY`), server-only and read by `src/lib/server/auth-admin.ts` alone; only the
   members route imports that module (`auth-admin-access.test.ts`). It calls Auth and nothing else:
   the membership row is still written under RLS. The route asks the database whether the caller
   owns the org before any email goes out. Without the key, invites are off and the page says so.
 - **New address:** Supabase creates the account and sends its Invite email through the one sender
-  (`auth.epsilonrecords.com`, decisions 0004 and 0021). **Existing account:** no email; the label
-  appears in their switcher at next sign-in.
+  (`auth.epsilonrecords.com`, decisions 0004 and 0021). **Existing account, including a pending invitation:** reuse it without
+  resending mail or changing its shared metadata. Supabase would resend a pending account's stored
+  first-label copy, ignoring the second label's invite data. The person uses their invitation or
+  signs in, then selects the added label in the switcher. Success copy does not expose account
+  existence or promise a new email; actual send outcome stays in the org-scoped audit metadata.
+  Failed Auth lookups report unknown state, never confirmed evidence of an unsigned-in account.
 - **The email** is `supabase/templates/invite.html` with the subject in `supabase/config.toml`. It
   names the label from `invited_org_name` and never Epsilon, because one template serves every
   label. Its link lands on `/auth/confirm` with the token hash: an invite is opened in another
   browser than the one that sent it, so `/auth/callback`'s PKCE code cannot serve it. In
   production the template is pasted into the hosted project's Invite email.
+
+Auth and the membership transaction are separate operations: an email/account may remain if the
+subsequent database write fails. Retry an authorized add; never delete a shared Auth account as
+compensation. The read-only existing-account check is not atomic with Supabase account creation:
+simultaneous first invitations can race, so it does not prove per-invite routing or mail atomicity.
+The confirmation flow uses the existing verified-membership org selection, not a new label-specific
+redirect. Hosted configuration and the published-site decision-0022 proof remain release prerequisites.
 
 ## Master uploads (Cloudflare R2)
 

@@ -127,6 +127,13 @@
       "when": 1794175893201,
       "tag": "0017_members_manage",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794177801333,
+      "tag": "0018_membership_identity",
+      "breakpoints": true
     }
   ]
 }

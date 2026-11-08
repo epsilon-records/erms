@@ -122,11 +122,15 @@ export async function addMember(
 	);
 }
 
+// Lock the membership before reading its audit value. UPDATE/DELETE already take this row
+// lock before the last-owner trigger locks the org. Its owner count uses an MVCC read, not
+// membership locks, so concurrent single-member changes do not invert that lock order.
 async function current(db: Database, orgId: string, userId: string) {
 	const [row] = await db
 		.select({ role: memberships.role })
 		.from(memberships)
-		.where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)));
+		.where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)))
+		.for('update');
 	if (!row) throw new EditError({ form: 'That person is not a member of this label.' });
 	return row;
 }

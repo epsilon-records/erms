@@ -47,10 +47,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				role: r.role,
 				since: r.createdAt.toISOString().slice(0, 10),
 				email: account?.email ?? null,
-				state: onboardingState(
-					r.onboardedAt,
-					accounts ? (account?.lastSignInAt ?? null) : undefined
-				)
+				state: onboardingState(r.onboardedAt, account?.lastSignInAt)
 			};
 		})
 	};
@@ -112,7 +109,7 @@ export const actions: Actions = {
 					emailed: invited.emailed
 				})
 			);
-			return { outcome, emailed: invited.emailed, email: parsed.data.email };
+			return { outcome, email: parsed.data.email };
 		});
 	},
 

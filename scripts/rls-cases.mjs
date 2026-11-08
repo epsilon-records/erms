@@ -312,6 +312,44 @@ export const RLS_CASES = [
 		errorMatch: 'at least one owner'
 	},
 	{
+		name: 'members: bulk owner demotion is refused on the owner connection',
+		role: 'postgres',
+		claim: null,
+		probe: `UPDATE memberships SET role = 'viewer' WHERE org_id = '${IDS.orgB}' AND role = 'owner'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		name: 'members: bulk owner demotion is refused under RLS',
+		role: 'erms_app',
+		claim: IDS.u2,
+		probe: `UPDATE memberships SET role = 'viewer' WHERE org_id = '${IDS.orgB}' AND role = 'owner'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'at least one owner'
+	},
+	{
+		name: 'members: the owner connection cannot move a sole owner to another org',
+		role: 'postgres',
+		claim: null,
+		// Both orgs exist, and u1 has no destination membership: no FK or key collision.
+		probe: `UPDATE memberships SET org_id = '${IDS.orgB}' WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u1}'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'membership identity is immutable'
+	},
+	{
+		name: 'members: the owner connection cannot change membership user identity',
+		role: 'postgres',
+		claim: null,
+		probe: `UPDATE memberships SET user_id = '${IDS.u5}' WHERE org_id = '${IDS.orgA}' AND user_id = '${IDS.u4}'`,
+		expect: 'error',
+		errorCode: '23514',
+		errorMatch: 'membership identity is immutable'
+	},
+
+	{
 		name: 'members: the last-owner rule holds for the owner connection too',
 		role: 'postgres',
 		claim: null,

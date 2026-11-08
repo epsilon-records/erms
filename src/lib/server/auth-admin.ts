@@ -22,7 +22,7 @@ import { SUPABASE_SECRET_KEY } from '$app/env/private';
 
 export type InviteResult = {
 	userId: string;
-	/** False when the address already had a confirmed account: Supabase sends no invite then. */
+	/** False when reusing an existing account, including a pending invitation; no mail is resent. */
 	emailed: boolean;
 };
 
@@ -52,12 +52,17 @@ export function supabaseAuthAdmin(client: SupabaseClient): AuthAdmin {
 			if (hit) return hit.id;
 			if (data.users.length < 1000) return null;
 		}
-		return null;
+		throw new Error('Auth account scan exceeded its limit; no invitation was sent.');
 	}
 
 	return {
 		async invite(rawEmail, orgName) {
 			const email = rawEmail.trim().toLowerCase();
+			// Supabase resends to pending users with their STORED metadata, ignoring new
+			// invite data. Reuse every existing account before invoking the email endpoint,
+			// preserving the first invitation and never overwriting shared account metadata.
+			const existing = await findByEmail(email);
+			if (existing) return { userId: existing, emailed: false };
 			const { data, error } = await admin.inviteUserByEmail(email, {
 				data: { invited_org_name: orgName }
 			});
@@ -81,7 +86,9 @@ export function supabaseAuthAdmin(client: SupabaseClient): AuthAdmin {
 		async accounts(userIds) {
 			const out = new Map<string, MemberAccount>();
 			const rows = await Promise.all(userIds.map((id) => admin.getUserById(id)));
-			rows.forEach(({ data }, i) => {
+			rows.forEach(({ data, error }, i) => {
+				// A failed lookup is unknown, never evidence of an unsigned-in account.
+				if (error || !data.user) return;
 				out.set(userIds[i], {
 					email: data.user?.email ?? null,
 					lastSignInAt: data.user?.last_sign_in_at ?? null

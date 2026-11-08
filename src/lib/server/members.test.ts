@@ -1,5 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Database } from './audit';
 import { EditError } from './catalog-edit';
 import { auditLog, memberships, orgs } from './db/schema';
 import { asUser } from './db/scoped';
@@ -47,6 +48,162 @@ describe('member management (EPSILON-87)', () => {
 			{ orgId: orgA, userId: viewerA, role: 'viewer' },
 			{ orgId: orgB, userId: ownerB, role: 'owner' }
 		]);
+	});
+
+	// Two transactions plus a third observer connection. Hold the first after its write,
+	// start the second, and observe an actual database lock wait before allowing commit.
+	// This catches stale reads even when the eventual UPDATE itself also blocks.
+	async function interleave(
+		first: (tx: Database) => Promise<unknown>,
+		second: (tx: Database) => Promise<unknown>
+	) {
+		const written = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const started = Promise.withResolvers<number>();
+		let firstPid = 0;
+		const a = db.transaction(async (tx) => {
+			const [row] = await tx.execute(sql`select pg_backend_pid() as pid`);
+			firstPid = Number(row.pid);
+			await tx.execute(sql`set local statement_timeout = '5s'`);
+			const result = await first(tx);
+			written.resolve();
+			await release.promise;
+			return result;
+		});
+		// Propagate setup failures rather than leaving the barrier unresolved.
+		void a.catch(written.reject);
+		await written.promise;
+		const b = db.transaction(async (tx) => {
+			const [row] = await tx.execute(sql`select pg_backend_pid() as pid`);
+			await tx.execute(sql`set local statement_timeout = '5s'`);
+			started.resolve(Number(row.pid));
+			return second(tx);
+		});
+		// Attach immediately: expected last-owner failures must not become unhandled.
+		void b.catch(started.reject);
+		const results = Promise.allSettled([a, b]);
+		try {
+			const secondPid = await started.promise;
+			expect(secondPid).not.toBe(firstPid);
+			await expect
+				.poll(
+					async () => {
+						const [row] = await db.execute(
+							sql`select ${firstPid}::int = any(pg_blocking_pids(${secondPid}::int)) as blocked`
+						);
+						return row.blocked;
+					},
+					{ timeout: 3000, interval: 10 }
+				)
+				.toBe(true);
+		} finally {
+			release.resolve();
+			await results;
+		}
+		return results;
+	}
+
+	describe('coordinated concurrent changes', () => {
+		it.each(['rights_admin', 'catalog_manager', 'remove'] as const)(
+			'locks the audit role before a concurrent %s',
+			async (next) => {
+				const ctx = { orgId: orgA, actor: actor(ownerA) };
+				const results = await interleave(
+					(tx) =>
+						asUser(tx, ownerA, (scoped) => changeRole(scoped, ctx, viewerA, 'catalog_manager')),
+					(tx) =>
+						asUser(tx, ownerA, (scoped) =>
+							next === 'remove'
+								? removeMember(scoped, ctx, viewerA)
+								: changeRole(scoped, ctx, viewerA, next)
+						)
+				);
+				expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+				const entries = await auditOf(orgA);
+				expect(entries).toHaveLength(next === 'catalog_manager' ? 1 : 2);
+				expect(entries).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							action: 'member_role',
+							before: { role: 'viewer' },
+							after: { role: 'catalog_manager' }
+						})
+					])
+				);
+				if (next !== 'catalog_manager')
+					expect(entries).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								action: next === 'remove' ? 'member_remove' : 'member_role',
+								before: { role: 'catalog_manager' }
+							})
+						])
+					);
+				const target = (await membersOf(orgA)).find((m) => m.userId === viewerA);
+				if (next === 'remove') expect(target).toBeUndefined();
+				else expect(target?.role).toBe(next);
+			}
+		);
+
+		it('serializes two owners stepping down through the audited RLS path', async () => {
+			await db.update(memberships).set({ role: 'owner' }).where(eq(memberships.userId, viewerA));
+			const results = await interleave(
+				(tx) =>
+					asUser(tx, ownerA, (scoped) =>
+						changeRole(scoped, { orgId: orgA, actor: actor(ownerA) }, ownerA, 'viewer')
+					),
+				(tx) =>
+					asUser(tx, viewerA, (scoped) =>
+						changeRole(scoped, { orgId: orgA, actor: actor(viewerA) }, viewerA, 'viewer')
+					)
+			);
+			expect(results[0].status).toBe('fulfilled');
+			expect(results[1]).toMatchObject({
+				status: 'rejected',
+				reason: { fields: { form: expect.stringMatching(/at least one owner/i) } }
+			});
+			expect(
+				(await membersOf(orgA)).filter((m) => m.role === 'owner').map((m) => m.userId)
+			).toEqual([viewerA]);
+			expect(await auditOf(orgA)).toEqual([
+				expect.objectContaining({
+					actorId: ownerA,
+					before: { role: 'owner' },
+					after: { role: 'viewer' }
+				})
+			]);
+		});
+
+		it.each(['demote', 'remove'] as const)(
+			'serializes last-owner demotion against %s on the owner connection',
+			async (next) => {
+				await db.update(memberships).set({ role: 'owner' }).where(eq(memberships.userId, viewerA));
+				const results = await interleave(
+					(tx) =>
+						tx
+							.update(memberships)
+							.set({ role: 'viewer' })
+							.where(and(eq(memberships.orgId, orgA), eq(memberships.userId, ownerA))),
+					(tx) =>
+						next === 'remove'
+							? tx
+									.delete(memberships)
+									.where(and(eq(memberships.orgId, orgA), eq(memberships.userId, viewerA)))
+							: tx
+									.update(memberships)
+									.set({ role: 'viewer' })
+									.where(and(eq(memberships.orgId, orgA), eq(memberships.userId, viewerA)))
+				);
+				expect(results[0].status).toBe('fulfilled');
+				expect(results[1]).toMatchObject({
+					status: 'rejected',
+					reason: { cause: { code: '23514', constraint_name: 'memberships_keep_one_owner' } }
+				});
+				expect(
+					(await membersOf(orgA)).filter((m) => m.role === 'owner').map((m) => m.userId)
+				).toEqual([viewerA]);
+			}
+		);
 	});
 
 	describe('invite', () => {
