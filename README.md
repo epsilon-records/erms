@@ -37,13 +37,22 @@ drizzle/                    SQL migrations (RLS, append-only audit log, same-org
 
 ```bash
 pnpm install
-cp .env.example .env        # fill in Supabase URL and publishable key
-supabase start              # local Supabase stack, PostgreSQL 17 (CLI 3.1.0-beta.26+)
+cp .env.example .env        # enough for `pnpm build`; sign-in needs the real publishable key
+supabase start              # local Supabase stack, PostgreSQL 17 (CLI 3.1.0-beta.26+); needs Docker
 pnpm db:migrate
 pnpm dev
-pnpm test                   # unit + database tests
+pnpm test                   # unit + database tests; the database tests need `supabase start`
 pnpm db:pgversion           # README, Supabase config and the live server agree
 ```
+
+**Building without credentials.** `cp .env.example .env && pnpm build` works in a fresh clone, with
+no stack and no keys. `.env.example` holds the local stack's `DATABASE_URL` and a fake
+`PUBLIC_SUPABASE_PUBLISHABLE_KEY` (`placeholder-not-a-real-key`), which pass the checks in
+`src/env.ts`. The build only checks that values are present and well formed; it does not connect to
+anything. To use the app (`pnpm dev`, sign-in), replace the key with the ERMS project's publishable
+key. `.env` is gitignored, and Netlify and CI set their own values, so the placeholder never reaches
+a deploy. Without `.env`, or with a required variable missing, the build stops with SvelteKit's
+`env_invalid` error naming the variable. That is on purpose.
 
 The database tests run on the **local Supabase stack**, not on an engine of our own: production's
 server build (PostgreSQL 17), Supabase's `anon` / `authenticated` / `service_role` with their real
@@ -52,9 +61,18 @@ grants, and the app's own driver (`createDb`, postgres-js, `prepare: false`). On
 every migration — and each test gets a fresh copy of it. `TEST_DATABASE_URL` overrides the stack's
 default URL; it must be local.
 
-Without the stack, the database tests fail with instructions to run `supabase start`; there is no
-fallback engine, because a fallback is how a green run stops meaning anything. Tests that need no
-database run regardless.
+So `pnpm test` needs the stack running (`supabase start`, which needs Docker). Without it the
+database tests fail, each with:
+
+```
+Error: Cannot reach the database tests' Postgres at 127.0.0.1 (connect ECONNREFUSED 127.0.0.1:54322).
+Start the local Supabase stack and run the tests again:
+  supabase start   (CLI 3.1.0-beta.26 or later: the first line with a PostgreSQL 17 image)
+```
+
+and the run exits non-zero. There is no fallback engine and no skip, because a fallback is how a
+green run stops meaning anything (decision 0018). Tests that need no database still run and pass,
+so in a run without the stack, the only failures should be that error.
 
 Development and the tests share one stack. `pnpm dev` uses the stack's own `postgres` database;
 the tests only ever create and drop their own `erms_test_*` copies, so they never touch dev data.
