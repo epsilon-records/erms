@@ -4,6 +4,13 @@ import { sentrySvelteKit } from '@sentry/sveltekit/vite';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig(async () => ({
+	// Sentry environment and release for both hooks, fixed at build time from Netlify's
+	// build variables so browser and server events are tagged alike and deploy previews
+	// (CONTEXT=deploy-preview) don't report as production.
+	define: {
+		__SENTRY_ENVIRONMENT__: JSON.stringify(process.env.CONTEXT ?? 'development'),
+		__SENTRY_RELEASE__: JSON.stringify(process.env.COMMIT_REF ?? null)
+	},
 	plugins: [
 		// Always registered: besides uploads, it resolves `@sentry/sveltekit/browser-tracing-variant`
 		// to the Kit 3 (`$app/state`) tracing module. Without it the import falls back to the
