@@ -2,7 +2,6 @@ import { createServerClient } from '@supabase/ssr';
 import { error, redirect } from '@sveltejs/kit';
 import { sequence, type Handle, type HandleServerError } from '@sveltejs/kit/hooks';
 import * as Sentry from '@sentry/sveltekit';
-import { handleErrorWithSentry, sentryHandle } from '@sentry/sveltekit';
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
 import { SENTRY_DSN } from '$app/env/private';
 import { asc, eq } from 'drizzle-orm';
@@ -25,8 +24,8 @@ const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
 // Server-side error monitoring (shared decision 0003). A no-op when the DSN is unset.
 Sentry.init({
 	dsn: SENTRY_DSN,
-	environment: process.env.CONTEXT ?? process.env.NODE_ENV ?? 'production',
-	release: process.env.COMMIT_REF,
+	environment: __SENTRY_ENVIRONMENT__,
+	release: __SENTRY_RELEASE__ ?? undefined,
 	tracesSampleRate: SENTRY_DSN ? 0.1 : 0
 });
 
@@ -90,7 +89,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = SENTRY_DSN ? sequence(sentryHandle(), appHandle) : appHandle;
+export const handle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) : appHandle;
 
 /** Sent with every server response. The CSP itself comes from SvelteKit (vite.config.ts). */
 const SECURITY_HEADERS = {
@@ -106,7 +105,7 @@ const SECURITY_HEADERS = {
  * the browser only sees the reference. Errors raised on purpose with error(), 404s and
  * other framework errors keep their own safe messages.
  */
-export const handleError: HandleServerError = handleErrorWithSentry((caught) => {
+export const handleError: HandleServerError = Sentry.handleErrorWithSentry((caught) => {
 	if (caught.kind !== 'unknown') return;
 	const { error: err, event } = caught;
 	const ref = crypto.randomUUID().slice(0, 8);
