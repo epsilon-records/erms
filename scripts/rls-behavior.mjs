@@ -169,30 +169,54 @@ try {
 	`;
 	const row = structural[0];
 
+	// Some of these are claims about Supabase, not about Postgres. They are listed as not
+	// applicable on an engine without the roles rather than guarded by a boolean — a check that
+	// quietly becomes `true ||` on another engine is how this file failed CI once already.
+	const isSupabase = hasSupabaseRoles;
 	const checks = [
-		['erms_app cannot bypass RLS', row.app_no_bypass === true || row.app_no_bypass === 't'],
-		[
-			'service_role does bypass RLS (the one trusted path)',
-			row.service_bypass === true || row.service_bypass === 't'
-		],
-		[
-			'authenticated holds SELECT, so its filtered reads are RLS at work',
-			row.grantee_has_select === true || row.grantee_has_select === 't'
-		],
-		['no write policy is addressed to anon or authenticated', Number(row.foreign_writes) === 0],
-		[
-			'reads reach PUBLIC while writes reach only erms_app',
-			Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
-		]
+		{
+			label: 'erms_app cannot bypass RLS',
+			applies: true,
+			ok: row.app_no_bypass === true || row.app_no_bypass === 't'
+		},
+		{
+			label: 'service_role does bypass RLS (the one trusted path)',
+			applies: isSupabase,
+			ok: row.service_bypass === true || row.service_bypass === 't'
+		},
+		{
+			label: 'authenticated holds SELECT, so its filtered reads are RLS at work',
+			applies: isSupabase,
+			ok: row.grantee_has_select === true || row.grantee_has_select === 't'
+		},
+		{
+			// The premise that made the write cases matter: production grants the REST roles write
+			// privileges, so only the policies stand between a user JWT and a catalogue mutation.
+			label: 'authenticated holds INSERT too: RLS, not privileges, is the wall',
+			applies: isSupabase,
+			ok: row.grantee_can_insert === true || row.grantee_can_insert === 't'
+		},
+		{
+			label: 'no write policy is addressed to anon or authenticated',
+			applies: true,
+			ok: Number(row.foreign_writes) === 0
+		},
+		{
+			label: 'reads reach PUBLIC while writes reach only erms_app',
+			applies: true,
+			ok: Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
+		}
 	];
-	for (const [label, passed] of checks) {
-		if (!passed) {
-			console.log(`FAIL ${label}`);
+	const running = checks.filter((c) => c.applies);
+	const notApplicable = checks.filter((c) => !c.applies);
+	for (const check of running) {
+		if (!check.ok) {
+			console.log(`FAIL ${check.label}`);
 			failures += 1;
 		}
 	}
 	console.log(
-		`\nstructural: ${checks.filter(([, ok]) => ok).length}/${checks.length} passed  ` +
+		`\nstructural: ${running.filter((c) => c.ok).length}/${running.length} passed${notApplicable.length ? ` (${notApplicable.length} not applicable: no Supabase roles)` : ''}  ` +
 			`(public reads ${row.public_reads}, scoped writes ${row.scoped_writes}, ` +
 			`foreign writes ${row.foreign_writes})`
 	);
