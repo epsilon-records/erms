@@ -12,7 +12,7 @@
  *        pnpm db:migrate && pnpm test:rls
  */
 import postgres from 'postgres';
-import { RLS_CASES, SEED_SQL, SUPABASE_ROLE_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
+import { RLS_CASES, SEED_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -61,8 +61,18 @@ try {
 		throw new Error('the schema is not there yet — run `pnpm db:migrate` first');
 	}
 
-	for (const statement of SUPABASE_ROLE_SQL) await sql.unsafe(statement);
-	// Idempotent seed, so the job can be re-run against a database that already has it.
+	// Supabase's own roles are detected, never created: fabricating them here once produced a
+	// simulation stricter than production (see rls-cases.mjs). Absent roles means those cases skip.
+	const roleRows =
+		await sql`SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')`;
+	const hasSupabaseRoles = roleRows.length === 3;
+	const serviceBypass = await sql`
+		SELECT coalesce((to_jsonb(r) ->> 'rolbypassrls'), (to_jsonb(r) ->> 'bypassrls')) AS b
+		  FROM pg_roles r WHERE rolname = 'service_role'`;
+	const honoursBypass = serviceBypass[0]?.b === 'true';
+
+	// Clear first, then seed: the order was reversed once and the cleanup deleted the rows the
+	// cases depend on, so the run reported 0 labels instead of testing anything.
 	for (const statement of TEARDOWN_SQL) await sql.unsafe(statement).catch(() => undefined);
 	await sql`
 		DELETE FROM memberships WHERE user_id IN (
@@ -70,11 +80,23 @@ try {
 			'22222222-2222-4222-8222-222222222222',
 			'33333333-3333-4333-8333-333333333333')`;
 	for (const statement of SEED_SQL) await sql.unsafe(statement);
-
 	const seeded = await scalar('SELECT count(*) FROM labels');
 	if (seeded !== '2') throw new Error(`seed expected 2 labels, found ${seeded}`);
 
 	for (const testCase of RLS_CASES) {
+		if (testCase.requiresSupabaseRoles && !hasSupabaseRoles) {
+			results.push(['skip ', testCase.role ?? '', testCase.name, 'engine has no Supabase roles']);
+			continue;
+		}
+		if (testCase.requiresBypassRls && !honoursBypass) {
+			results.push([
+				'skip ',
+				testCase.role ?? '',
+				testCase.name,
+				'engine does not honour BYPASSRLS'
+			]);
+			continue;
+		}
 		let outcome = '';
 		try {
 			await sql.begin(async (tx) => {
@@ -128,10 +150,14 @@ try {
 			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'service_role')))
 				= 'true' AS service_bypass,
 			-- anon/authenticated must really hold table privileges; otherwise their filtered reads
-			-- would be a permission accident rather than evidence that RLS did the work.
+			-- would be a permission accident rather than evidence that RLS did the work. Supabase
+			-- grants INSERT/UPDATE/DELETE here too, which is why the write cases below matter.
 			(SELECT count(*) > 0 FROM information_schema.role_table_grants
 			  WHERE grantee = 'authenticated' AND table_schema = 'public'
 			    AND privilege_type = 'SELECT') AS grantee_has_select,
+			(SELECT count(*) > 0 FROM information_schema.role_table_grants
+			  WHERE grantee = 'authenticated' AND table_schema = 'public'
+			    AND privilege_type = 'INSERT') AS grantee_can_insert,
 			-- The asymmetry every case above encodes: reads carry no TO clause (they reach PUBLIC,
 			-- which is why authenticated reads its own org, writes are addressed to erms_app only.
 			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
@@ -184,7 +210,10 @@ for (const [status, role, name, outcome] of results) {
 	);
 }
 const failedCases = results.filter((r) => r[0] === 'FAIL').length;
+const skipped = results.filter((r) => r[0].startsWith('skip')).length;
+const ran = results.length - skipped;
 console.log(
-	`\n${results.length} behaviour cases: ${results.length - failedCases} passed, ${failedCases} failed`
+	`\n${ran} behaviour cases ran: ${ran - failedCases} passed, ${failedCases} failed` +
+		(skipped ? `  (${skipped} skipped: engine cannot honour them)` : '')
 );
 process.exit(failures ? 1 : 0);

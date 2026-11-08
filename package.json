@@ -17,7 +17,8 @@
 		"db:check": "drizzle-kit check",
 		"db:drift": "node scripts/db-drift.mjs",
 		"db:pgversion": "node scripts/check-pg-version.mjs",
-		"test:rls": "node scripts/rls-behavior.mjs"
+		"test:rls": "node scripts/rls-behavior.mjs",
+		"test:rls:rest": "node scripts/rls-postgrest.mjs"
 	},
 	"devDependencies": {
 		"@electric-sql/pglite": "^0.5.13",

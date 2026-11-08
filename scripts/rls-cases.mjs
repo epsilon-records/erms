@@ -12,6 +12,16 @@
  * `set_config('request.jwt.claim.sub', …)` from `src/lib/server/db/scoped.ts` — so a change to how
  * the app scopes a request moves these results or breaks them.
  *
+ * Cases are flagged with what the engine must provide, and hosts skip what they cannot honour:
+ *  - `requiresSupabaseRoles` — needs Supabase's own `anon`/`authenticated`/`service_role`. These
+ *    are NOT created here on purpose: an earlier revision of this file fabricated them and granted
+ *    `SELECT` only, while a real Supabase grants `anon`/`authenticated` INSERT, UPDATE, DELETE,
+ *    REFERENCES, TRIGGER and TRUNCATE on every migrated table. A simulation that hands out fewer
+ *    privileges than production can pass a test production would fail, which is the opposite of
+ *    what a security fixture is for. The Supabase stack job (`pnpm test:rls:supabase`) asserts the
+ *    real roles and real grants; plain Postgres skips these cases rather than imitating them.
+ *  - `requiresBypassRls` — needs an engine that honours BYPASSRLS (PGlite does not).
+ *
  * Consumed twice:
  *  - src/lib/server/rls-behavior.test.ts  (vitest + PGlite, runs on every `pnpm test`)
  *  - scripts/rls-behavior.mjs             (real PostgreSQL 17 in CI, production's major)
@@ -30,23 +40,6 @@ export const IDS = {
 	u2: '22222222-2222-4222-8222-222222222222',
 	u3: '33333333-3333-4333-8333-333333333333'
 };
-
-/**
- * The three roles Supabase ships and PostgREST uses. Production has them; a bare Postgres does
- * not, so CI and PGlite must create them or the most important case — "a role with SELECT on the
- * table still sees nothing" — would pass for the wrong reason (no privilege, not RLS).
- */
-export const SUPABASE_ROLE_SQL = [
-	`DO $$ BEGIN
-		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN NOBYPASSRLS; END IF;
-		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN NOBYPASSRLS; END IF;
-		IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
-	END $$`,
-	// What Supabase's own defaults grant: table access without any policy of ours applying.
-	`GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role`,
-	`GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated`,
-	`GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role`
-];
 
 export const SEED_SQL = [
 	`INSERT INTO orgs (id, name, slug) VALUES
@@ -165,6 +158,7 @@ export const RLS_CASES = [
 	// means this path reads *within* the caller org, by design. What must not happen is a
 	// cross-org read, or any write: every catalog write policy is addressed TO erms_app.
 	{
+		requiresSupabaseRoles: true,
 		name: 'authenticated reads its own org through the public read policies',
 		role: 'authenticated',
 		claim: IDS.u1,
@@ -172,6 +166,7 @@ export const RLS_CASES = [
 		expect: '1'
 	},
 	{
+		requiresSupabaseRoles: true,
 		name: 'authenticated cannot read another org',
 		role: 'authenticated',
 		claim: IDS.u1,
@@ -179,6 +174,7 @@ export const RLS_CASES = [
 		expect: '0'
 	},
 	{
+		requiresSupabaseRoles: true,
 		name: 'authenticated with no claim reads nothing',
 		role: 'authenticated',
 		claim: null,
@@ -186,6 +182,7 @@ export const RLS_CASES = [
 		expect: '0'
 	},
 	{
+		requiresSupabaseRoles: true,
 		name: 'authenticated cannot write: catalog writes are addressed to erms_app only',
 		role: 'authenticated',
 		claim: IDS.u1,
@@ -197,6 +194,7 @@ export const RLS_CASES = [
 		errorCode: '42501'
 	},
 	{
+		requiresSupabaseRoles: true,
 		name: 'anon has the same public read policies but no identity, so it reads nothing',
 		role: 'anon',
 		claim: null,
@@ -204,6 +202,7 @@ export const RLS_CASES = [
 		expect: '0'
 	},
 	{
+		requiresSupabaseRoles: true,
 		name: 'anon cannot write either',
 		role: 'anon',
 		claim: null,

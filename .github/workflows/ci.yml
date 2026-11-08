@@ -91,6 +91,59 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
+  # The authoritative RLS host: Supabase's own stack, so the roles, their grants and the PostgREST
+  # path are the real ones rather than a simulation of them. An earlier revision fabricated
+  # anon/authenticated with SELECT only; production grants those roles INSERT/UPDATE/DELETE on every
+  # migrated table, so only RLS stands between a user JWT and a catalogue write — a fixture with
+  # weaker grants than reality can pass a test production would fail.
+  #
+  # CLI pin: v3 is a prerelease (3.1.0-beta.26) and is the only line that ships a PostgreSQL 17
+  # local image; stable 2.x tops out at 15.8 while production runs 17.11. Move this to the first
+  # stable v3 and delete the pin comment.
+  rls-supabase:
+    name: Row-level security on the Supabase stack (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_CLI_VERSION: 3.1.0-beta.26
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Start the Supabase stack
+        run: supabase start
+
+      # The stack's own Postgres, so the migrations under test are applied by the real tooling.
+      - name: Point at the stack
+        run: |
+          db=$(supabase status --output json | jq -r .DB_URL)
+          echo "DATABASE_URL=$db" >> "$GITHUB_ENV"
+
+      - run: pnpm db:migrate
+
+      # SQL-layer cases (roles, grants, BYPASSRLS all real here) and the HTTP layer a browser uses.
+      - name: RLS through SQL
+        run: pnpm test:rls
+      - name: RLS through PostgREST
+        run: pnpm test:rls:rest
+
+      - name: Stop the stack
+        if: always()
+        run: supabase stop
+
   secrets:
     runs-on: ubuntu-latest
     steps:
