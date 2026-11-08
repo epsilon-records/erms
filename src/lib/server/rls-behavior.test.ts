@@ -1,12 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './test-db';
-import {
-	RLS_CASES,
-	SEED_SQL,
-	SUPABASE_ROLE_SQL,
-	TEARDOWN_SQL,
-	assumeSql
-} from '../../../scripts/rls-cases.mjs';
+import { RLS_CASES, SEED_SQL, TEARDOWN_SQL, assumeSql } from '../../../scripts/rls-cases.mjs';
 
 /**
  * Executes the shared RLS cases against PGlite — real Postgres, real row-level security, in
@@ -30,7 +24,9 @@ async function scalar(sql: string): Promise<string> {
 
 beforeAll(async () => {
 	handle = await createTestDb();
-	for (const statement of SUPABASE_ROLE_SQL) await exec(statement);
+	// PGlite is not Supabase: no anon/authenticated/service_role, and it does not honour BYPASSRLS.
+	// Those cases run against the Supabase stack (see the CI `rls-supabase` job). Fabricating the
+	// roles here was tried and it produced grants weaker than production's — see rls-cases.mjs.
 	for (const statement of SEED_SQL) await exec(statement);
 
 	// Fail loudly rather than passing on an empty case list.
@@ -49,10 +45,10 @@ afterAll(async () => {
 
 describe('row-level security behaviour', () => {
 	for (const testCase of RLS_CASES) {
-		// PGlite does not honour BYPASSRLS the way a server on disk does, so that one case is
-		// checked on CI's PostgreSQL 17 by scripts/rls-behavior.mjs. Skipping it here is a named,
-		// commented exception — the alternative is asserting a PGlite quirk as the security spec.
-		const host = testCase.requiresBypassRls ? it.skip : it;
+		// Fast loop only: this host proves policy semantics on in-process Postgres, a newer major
+		// than production and without Supabase's roles. Cases needing either go to the Supabase
+		// stack, where BYPASSRLS misbehaving is a finding rather than a fixture.
+		const host = testCase.requiresBypassRls || testCase.requiresSupabaseRoles ? it.skip : it;
 		host(testCase.name, async () => {
 			await exec('BEGIN');
 			try {
@@ -131,12 +127,21 @@ describe('the mechanisms the cases rely on', () => {
 		).toBe(0);
 	});
 
-	it('authenticated really holds table SELECT, so its filtered reads are RLS at work', async () => {
-		const granted = await scalar(
-			`SELECT count(*) FROM information_schema.role_table_grants
-			      WHERE grantee = 'authenticated' AND table_schema = 'public'
-			        AND privilege_type = 'SELECT'`
+	// Privilege-shape assertions belong to the engine that actually has the roles, so they live in
+	// the Supabase stack run. Here we only assert what the cases above rely on.
+	it('write policies are addressed to erms_app', async () => {
+		const scoped = await scalar(
+			`SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
+			   AND cmd <> 'SELECT' AND roles::text[] @> array['erms_app']`
 		);
-		expect(Number(granted)).toBeGreaterThan(0);
+		expect(Number(scoped)).toBeGreaterThan(0);
+	});
+
+	it('read policies carry no TO clause, so they reach PUBLIC', async () => {
+		const publicReads = await scalar(
+			`SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
+			   AND cmd = 'SELECT' AND roles::text[] @> array['public']`
+		);
+		expect(Number(publicReads)).toBeGreaterThan(0);
 	});
 });

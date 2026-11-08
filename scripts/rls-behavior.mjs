@@ -12,7 +12,7 @@
  *        pnpm db:migrate && pnpm test:rls
  */
 import postgres from 'postgres';
-import { RLS_CASES, SEED_SQL, SUPABASE_ROLE_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
+import { RLS_CASES, SEED_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -61,8 +61,18 @@ try {
 		throw new Error('the schema is not there yet — run `pnpm db:migrate` first');
 	}
 
-	for (const statement of SUPABASE_ROLE_SQL) await sql.unsafe(statement);
-	// Idempotent seed, so the job can be re-run against a database that already has it.
+	// Supabase's own roles are detected, never created: fabricating them here once produced a
+	// simulation stricter than production (see rls-cases.mjs). Absent roles means those cases skip.
+	const roleRows =
+		await sql`SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')`;
+	const hasSupabaseRoles = roleRows.length === 3;
+	const serviceBypass = await sql`
+		SELECT coalesce((to_jsonb(r) ->> 'rolbypassrls'), (to_jsonb(r) ->> 'bypassrls')) AS b
+		  FROM pg_roles r WHERE rolname = 'service_role'`;
+	const honoursBypass = serviceBypass[0]?.b === 'true';
+
+	// Clear first, then seed: the order was reversed once and the cleanup deleted the rows the
+	// cases depend on, so the run reported 0 labels instead of testing anything.
 	for (const statement of TEARDOWN_SQL) await sql.unsafe(statement).catch(() => undefined);
 	await sql`
 		DELETE FROM memberships WHERE user_id IN (
@@ -70,11 +80,23 @@ try {
 			'22222222-2222-4222-8222-222222222222',
 			'33333333-3333-4333-8333-333333333333')`;
 	for (const statement of SEED_SQL) await sql.unsafe(statement);
-
 	const seeded = await scalar('SELECT count(*) FROM labels');
 	if (seeded !== '2') throw new Error(`seed expected 2 labels, found ${seeded}`);
 
 	for (const testCase of RLS_CASES) {
+		if (testCase.requiresSupabaseRoles && !hasSupabaseRoles) {
+			results.push(['skip ', testCase.role ?? '', testCase.name, 'engine has no Supabase roles']);
+			continue;
+		}
+		if (testCase.requiresBypassRls && !honoursBypass) {
+			results.push([
+				'skip ',
+				testCase.role ?? '',
+				testCase.name,
+				'engine does not honour BYPASSRLS'
+			]);
+			continue;
+		}
 		let outcome = '';
 		try {
 			await sql.begin(async (tx) => {
@@ -128,10 +150,14 @@ try {
 			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'service_role')))
 				= 'true' AS service_bypass,
 			-- anon/authenticated must really hold table privileges; otherwise their filtered reads
-			-- would be a permission accident rather than evidence that RLS did the work.
+			-- would be a permission accident rather than evidence that RLS did the work. Supabase
+			-- grants INSERT/UPDATE/DELETE here too, which is why the write cases below matter.
 			(SELECT count(*) > 0 FROM information_schema.role_table_grants
 			  WHERE grantee = 'authenticated' AND table_schema = 'public'
 			    AND privilege_type = 'SELECT') AS grantee_has_select,
+			(SELECT count(*) > 0 FROM information_schema.role_table_grants
+			  WHERE grantee = 'authenticated' AND table_schema = 'public'
+			    AND privilege_type = 'INSERT') AS grantee_can_insert,
 			-- The asymmetry every case above encodes: reads carry no TO clause (they reach PUBLIC,
 			-- which is why authenticated reads its own org, writes are addressed to erms_app only.
 			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
@@ -143,30 +169,54 @@ try {
 	`;
 	const row = structural[0];
 
+	// Some of these are claims about Supabase, not about Postgres. They are listed as not
+	// applicable on an engine without the roles rather than guarded by a boolean — a check that
+	// quietly becomes `true ||` on another engine is how this file failed CI once already.
+	const isSupabase = hasSupabaseRoles;
 	const checks = [
-		['erms_app cannot bypass RLS', row.app_no_bypass === true || row.app_no_bypass === 't'],
-		[
-			'service_role does bypass RLS (the one trusted path)',
-			row.service_bypass === true || row.service_bypass === 't'
-		],
-		[
-			'authenticated holds SELECT, so its filtered reads are RLS at work',
-			row.grantee_has_select === true || row.grantee_has_select === 't'
-		],
-		['no write policy is addressed to anon or authenticated', Number(row.foreign_writes) === 0],
-		[
-			'reads reach PUBLIC while writes reach only erms_app',
-			Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
-		]
+		{
+			label: 'erms_app cannot bypass RLS',
+			applies: true,
+			ok: row.app_no_bypass === true || row.app_no_bypass === 't'
+		},
+		{
+			label: 'service_role does bypass RLS (the one trusted path)',
+			applies: isSupabase,
+			ok: row.service_bypass === true || row.service_bypass === 't'
+		},
+		{
+			label: 'authenticated holds SELECT, so its filtered reads are RLS at work',
+			applies: isSupabase,
+			ok: row.grantee_has_select === true || row.grantee_has_select === 't'
+		},
+		{
+			// The premise that made the write cases matter: production grants the REST roles write
+			// privileges, so only the policies stand between a user JWT and a catalogue mutation.
+			label: 'authenticated holds INSERT too: RLS, not privileges, is the wall',
+			applies: isSupabase,
+			ok: row.grantee_can_insert === true || row.grantee_can_insert === 't'
+		},
+		{
+			label: 'no write policy is addressed to anon or authenticated',
+			applies: true,
+			ok: Number(row.foreign_writes) === 0
+		},
+		{
+			label: 'reads reach PUBLIC while writes reach only erms_app',
+			applies: true,
+			ok: Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
+		}
 	];
-	for (const [label, passed] of checks) {
-		if (!passed) {
-			console.log(`FAIL ${label}`);
+	const running = checks.filter((c) => c.applies);
+	const notApplicable = checks.filter((c) => !c.applies);
+	for (const check of running) {
+		if (!check.ok) {
+			console.log(`FAIL ${check.label}`);
 			failures += 1;
 		}
 	}
 	console.log(
-		`\nstructural: ${checks.filter(([, ok]) => ok).length}/${checks.length} passed  ` +
+		`\nstructural: ${running.filter((c) => c.ok).length}/${running.length} passed${notApplicable.length ? ` (${notApplicable.length} not applicable: no Supabase roles)` : ''}  ` +
 			`(public reads ${row.public_reads}, scoped writes ${row.scoped_writes}, ` +
 			`foreign writes ${row.foreign_writes})`
 	);
@@ -184,7 +234,10 @@ for (const [status, role, name, outcome] of results) {
 	);
 }
 const failedCases = results.filter((r) => r[0] === 'FAIL').length;
+const skipped = results.filter((r) => r[0].startsWith('skip')).length;
+const ran = results.length - skipped;
 console.log(
-	`\n${results.length} behaviour cases: ${results.length - failedCases} passed, ${failedCases} failed`
+	`\n${ran} behaviour cases ran: ${ran - failedCases} passed, ${failedCases} failed` +
+		(skipped ? `  (${skipped} skipped: engine cannot honour them)` : '')
 );
 process.exit(failures ? 1 : 0);
