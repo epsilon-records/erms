@@ -42,7 +42,10 @@
 	);
 	const ROWS = 6;
 	const rowValue = (i: number, field: 'holder' | 'share') => {
-		if (failedBefore && territory.trim().toUpperCase() === values.territory?.trim().toUpperCase())
+		if (
+			failedBefore &&
+			territory.trim().toUpperCase() === (values.territory || 'WW').trim().toUpperCase()
+		)
 			return values[`${field}_${i}`] ?? '';
 		const h = current[i];
 		return h ? (field === 'holder' ? h.holder : h.share) : '';
