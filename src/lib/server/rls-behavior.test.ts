@@ -1,32 +1,33 @@
+import type postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDb } from './test-db';
 import { RLS_CASES, SEED_SQL, TEARDOWN_SQL, assumeSql } from '../../../scripts/rls-cases.mjs';
 
 /**
- * Executes the shared RLS cases against PGlite — real Postgres, real row-level security, in
- * process, so `pnpm test` covers it without Docker. scripts/rls-behavior.mjs runs the same cases
- * against PostgreSQL 17 in CI, because PGlite's major (18.x) is newer than production's.
+ * Executes the shared RLS cases on the local Supabase stack — production's server build, with
+ * Supabase's own anon / authenticated / service_role and their real grants — so every case runs,
+ * including the ones that need those roles or BYPASSRLS. scripts/rls-behavior.mjs runs the same
+ * cases against the stack's own database in CI, and scripts/rls-postgrest.mjs the HTTP layer.
  *
  * These replace "61 policies exist" with "a cross-org read returns nothing".
  */
 
-let handle: Awaited<ReturnType<typeof createTestDb>>;
+let conn: postgres.ReservedSql;
 
-const exec = (sql: string) => handle.client.exec(sql);
+// One reserved connection, so BEGIN … ROLLBACK and the role switch stay on the same session.
+const exec = (sql: string) => conn.unsafe(sql);
 
 /** First column of the first row; every scalar probe is written to return exactly that. */
 async function scalar(sql: string): Promise<string> {
-	const result = await handle.client.query<Record<string, unknown>>(sql);
-	const first = result.rows[0];
+	const rows = await conn.unsafe<Record<string, unknown>[]>(sql);
+	const first = rows[0];
 	if (!first) throw new Error(`probe returned no rows: ${sql.slice(0, 60)}`);
 	return String(Object.values(first)[0]);
 }
 
 beforeAll(async () => {
-	handle = await createTestDb();
-	// PGlite is not Supabase: no anon/authenticated/service_role, and it does not honour BYPASSRLS.
-	// Those cases run against the Supabase stack (see the CI `rls-supabase` job). Fabricating the
-	// roles here was tried and it produced grants weaker than production's — see rls-cases.mjs.
+	const { client } = await createTestDb();
+	conn = await client.reserve();
 	for (const statement of SEED_SQL) await exec(statement);
 
 	// Fail loudly rather than passing on an empty case list.
@@ -36,20 +37,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	if (!handle) return;
+	if (!conn) return;
 	for (const statement of TEARDOWN_SQL) {
 		await exec(statement).catch(() => undefined);
 	}
-	await handle.client.close();
+	conn.release();
 });
 
 describe('row-level security behaviour', () => {
 	for (const testCase of RLS_CASES) {
-		// Fast loop only: this host proves policy semantics on in-process Postgres, a newer major
-		// than production and without Supabase's roles. Cases needing either go to the Supabase
-		// stack, where BYPASSRLS misbehaving is a finding rather than a fixture.
-		const host = testCase.requiresBypassRls || testCase.requiresSupabaseRoles ? it.skip : it;
-		host(testCase.name, async () => {
+		// No skips: this host is the Supabase stack, so a case needing its roles or BYPASSRLS that
+		// fails here is a finding, not a fixture gap.
+		it(testCase.name, async () => {
 			await exec('BEGIN');
 			try {
 				await exec(assumeSql(testCase.role, testCase.claim));
@@ -66,8 +65,8 @@ describe('row-level security behaviour', () => {
 					if (!refused) {
 						throw new Error(`the probe succeeded; RLS did not refuse it`);
 					}
-					// PGlite surfaces the SQLSTATE inconsistently, so accept the code or the
-					// policy text: the assertion is about the refusal, not the driver shape.
+					// The same rule as scripts/rls-behavior.mjs: the expected SQLSTATE, or a refusal
+					// that names row-level security.
 					expect(
 						detail.includes(testCase.errorCode ?? '') || /row-level security/i.test(detail),
 						`unexpected refusal: ${detail.trim().slice(0, 160)}`
@@ -127,8 +126,29 @@ describe('the mechanisms the cases rely on', () => {
 		).toBe(0);
 	});
 
-	// Privilege-shape assertions belong to the engine that actually has the roles, so they live in
-	// the Supabase stack run. Here we only assert what the cases above rely on.
+	// Supabase's side of the premise. A test database is a copy of a template, so these also prove
+	// the template carries Supabase's grants rather than a weaker set (knowledge erms/decisions/0017).
+	it('service_role bypasses RLS (the one trusted path)', async () => {
+		expect(await bypassOf('service_role')).toBe('true');
+	});
+
+	const holds = (privilege: string) =>
+		scalar(
+			`SELECT count(*) > 0 FROM information_schema.role_table_grants
+			  WHERE grantee = 'authenticated' AND table_schema = 'public'
+			    AND privilege_type = '${privilege}'`
+		);
+
+	it('authenticated holds SELECT, so its filtered reads are RLS at work', async () => {
+		expect(await holds('SELECT')).toBe('true');
+	});
+
+	// Production grants the REST roles write privileges, so only the policies stand between a user
+	// JWT and a catalogue write. If this ever reads false, the write cases above prove nothing.
+	it('authenticated holds INSERT too: RLS, not privileges, is the wall', async () => {
+		expect(await holds('INSERT')).toBe('true');
+	});
+
 	it('write policies are addressed to erms_app', async () => {
 		const scoped = await scalar(
 			`SELECT count(*) FROM pg_policies WHERE schemaname = 'public'

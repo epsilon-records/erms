@@ -338,11 +338,11 @@ describe('tenant isolation', () => {
 	it('role and user settings end with the transaction', async () => {
 		type Row = { u: string; sub: string | null };
 		const who = sql`select current_user as u, nullif(current_setting('request.jwt.claim.sub', true), '') as sub`;
-		// PGlite returns { rows }; the test database is always PGlite.
+		// postgres-js returns the rows as an array, as in production.
 		const inside = await asUser(db, ownerA, async (tx) => (await tx.execute(who)) as unknown);
-		expect((inside as { rows: Row[] }).rows[0]).toEqual({ u: 'erms_app', sub: ownerA });
-		const after = (await db.execute(who)) as unknown as { rows: Row[] };
-		expect(after.rows[0]).toEqual({ u: 'postgres', sub: null });
+		expect((inside as Row[])[0]).toEqual({ u: 'erms_app', sub: ownerA });
+		const after = (await db.execute(who)) as unknown as Row[];
+		expect(after[0]).toEqual({ u: 'postgres', sub: null });
 	});
 });
 

@@ -1,15 +1,12 @@
 /**
- * Row-level security, checked against a real PostgreSQL server.
+ * Row-level security, checked against the database behind DATABASE_URL.
  *
- * Why a second host when `pnpm test` already runs the same cases on PGlite: PGlite bundles a newer
- * major than production (18.x vs 17) and does not honour BYPASSRLS the way a server on disk does,
- * so the in-process suite cannot be the evidence that production RLS behaves. CI runs this against
- * the postgres:17 service it already brings up for the migrations, so the policies are verified on
- * the major that actually serves the catalogue.
+ * `pnpm test` runs the same cases in a fresh copy of the migrated template on the Supabase stack.
+ * This host runs them in the stack's own database — the one `pnpm db:migrate` applied the
+ * migrations to and PostgREST serves — so the grants are the ones Supabase itself put there.
  *
- * Run: pnpm test:rls            (needs DATABASE_URL; CI provides it)
- *      docker compose up -d && DATABASE_URL=postgres://erms:erms@localhost:54329/erms \
- *        pnpm db:migrate && pnpm test:rls
+ * Run: supabase start
+ *      DATABASE_URL=$(supabase status --output json | jq -r .DB_URL) pnpm db:migrate && pnpm test:rls
  */
 import postgres from 'postgres';
 import { RLS_CASES, SEED_SQL, TEARDOWN_SQL, assumeSql } from './rls-cases.mjs';
@@ -19,8 +16,8 @@ if (!url) {
 	console.error(
 		'DATABASE_URL is not set. This host exists to check RLS on the server version production ' +
 			'runs, so it refuses to fall back to anything else.\n' +
-			'Local: docker compose up -d && pnpm db:migrate, then re-run.\n' +
-			'CI: the postgres:17 service in .github/workflows/ci.yml already provides it.'
+			'Local: supabase start, point DATABASE_URL at it, pnpm db:migrate, then re-run.\n' +
+			'CI: the check job in .github/workflows/ci.yml points it at the stack.'
 	);
 	process.exit(2);
 }

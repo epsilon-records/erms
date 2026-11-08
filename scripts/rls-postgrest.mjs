@@ -11,7 +11,7 @@
  *  - a delete matching nothing answers `204`, not an error. Asserting the status code alone would
  *    let a real deletion pass, so the case asserts the row survives.
  *
- * Runs against the local Supabase stack (the CI `rls-supabase` job, or `supabase start` locally).
+ * Runs against the local Supabase stack (the CI `check` job, or `supabase start` locally).
  * Everything comes from env so nothing here is guesswork about versions or keys.
  */
 import { createHmac } from 'node:crypto';

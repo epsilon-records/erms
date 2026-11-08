@@ -18,13 +18,14 @@
  *    `SELECT` only, while a real Supabase grants `anon`/`authenticated` INSERT, UPDATE, DELETE,
  *    REFERENCES, TRIGGER and TRUNCATE on every migrated table. A simulation that hands out fewer
  *    privileges than production can pass a test production would fail, which is the opposite of
- *    what a security fixture is for. The Supabase stack job (`pnpm test:rls:supabase`) asserts the
- *    real roles and real grants; plain Postgres skips these cases rather than imitating them.
- *  - `requiresBypassRls` — needs an engine that honours BYPASSRLS (PGlite does not).
+ *    what a security fixture is for. Both hosts run on the Supabase stack, which has the real roles
+ *    and real grants; scripts/rls-behavior.mjs pointed at plain Postgres skips these cases rather
+ *    than imitating them.
+ *  - `requiresBypassRls` — needs an engine that honours BYPASSRLS (in-process engines do not).
  *
- * Consumed twice:
- *  - src/lib/server/rls-behavior.test.ts  (vitest + PGlite, runs on every `pnpm test`)
- *  - scripts/rls-behavior.mjs             (real PostgreSQL 17 in CI, production's major)
+ * Consumed twice, both on the local Supabase stack:
+ *  - src/lib/server/rls-behavior.test.ts  (vitest, `pnpm test`, in a fresh copy of the migrated template)
+ *  - scripts/rls-behavior.mjs             (the stack's own database, the one PostgREST serves)
  */
 
 export const IDS = {

@@ -2,7 +2,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type * as schema from './db/schema';
 import { auditLog } from './db/schema';
 
-/** Any Drizzle Postgres database on our schema (postgres-js in prod, PGlite in tests). */
+/** Any Drizzle Postgres database on our schema (postgres-js, in production and in tests). */
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 export type Actor = {
