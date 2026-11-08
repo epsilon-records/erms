@@ -50,7 +50,11 @@ export class AudioKitClient implements AudioProvider {
 			const error = data as ApiError | null;
 			const code = (error?.error?.code ?? 'internal') as ApiErrorCode;
 			const message = error?.error?.message ?? `AudioKit returned ${res.status}`;
-			throw new AudioProviderError(code, message);
+			// AudioKit publishes delta seconds (integer >= 1), not an HTTP date.
+			const retryAfter = res.status === 429 ? res.headers.get('Retry-After') : null;
+			const seconds = retryAfter && /^[0-9]+$/.test(retryAfter) ? Number(retryAfter) : NaN;
+			const retryAfterSeconds = Number.isSafeInteger(seconds) && seconds >= 1 ? seconds : undefined;
+			throw new AudioProviderError(code, message, retryAfterSeconds);
 		}
 
 		return { data: data as T, status: res.status };

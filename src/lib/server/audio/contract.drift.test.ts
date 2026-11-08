@@ -285,6 +285,26 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 		expect(missing, 'new components in openapi.yaml need a counterpart in contract.ts').toEqual([]);
 	});
 
+	it.each([
+		['/v1/capabilities', 'get'],
+		['/v1/openapi.yaml', 'get'],
+		['/v1/jobs', 'post'],
+		['/v1/jobs/{provider_job_id}', 'get'],
+		['/v1/jobs/{provider_job_id}/cancel', 'post']
+	])('%s %s publishes the rate-limit error and delay', (path, method) => {
+		const response = resolve(s.paths[path][method].responses['429']);
+		expect(response.content['application/json'].schema).toEqual({
+			$ref: '#/components/schemas/Error'
+		});
+		expect(resolve(response.headers['Retry-After']).schema).toEqual({
+			type: 'integer',
+			minimum: 1
+		});
+		const error = { error: { code: 'rate_limited', message: 'Too much traffic' } };
+		expect(validate('Error', error)).toEqual({ ok: true, errors: 'No errors' });
+		expect(contract.ApiError.parse(error)).toEqual(error);
+	});
+
 	it('has the same enums', () => {
 		const e = (n: string) => [...resolve(schemas[n]).enum].sort();
 		expect([...contract.Operation.options].sort()).toEqual(e('Operation'));

@@ -25,7 +25,9 @@ export interface AudioProvider {
 export class AudioProviderError extends Error {
 	constructor(
 		readonly code: ApiErrorCode,
-		message: string = code
+		message: string = code,
+		/** Retry-After whole seconds from a 429 response; advisory only, never retried here. */
+		readonly retryAfterSeconds?: number
 	) {
 		super(message);
 	}
