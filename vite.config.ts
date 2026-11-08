@@ -5,16 +5,17 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig(async () => ({
 	plugins: [
-		// Creates a Sentry release and uploads source maps when SENTRY_AUTH_TOKEN is set
-		// (CI/production builds only; local builds skip it).
-		...(process.env.SENTRY_AUTH_TOKEN
-			? await sentrySvelteKit({
-					org: 'epsilon-records',
-					project: 'erms',
-					authToken: process.env.SENTRY_AUTH_TOKEN,
-					autoInstrument: false
-				})
-			: []),
+		// Always registered: besides uploads, it resolves `@sentry/sveltekit/browser-tracing-variant`
+		// to the Kit 3 (`$app/state`) tracing module. Without it the import falls back to the
+		// `$app/stores` variant, which throws app_stores_removed on Kit 3 (Sentry ERMS-1).
+		// Releases and source-map uploads still only happen when SENTRY_AUTH_TOKEN is set.
+		...(await sentrySvelteKit({
+			org: 'epsilon-records',
+			project: 'erms',
+			authToken: process.env.SENTRY_AUTH_TOKEN,
+			autoUploadSourceMaps: Boolean(process.env.SENTRY_AUTH_TOKEN),
+			autoInstrument: false
+		})),
 		sveltekit({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
