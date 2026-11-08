@@ -1,3 +1,4 @@
+import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js';
 import { error, redirect } from '@sveltejs/kit';
 import { getRelease, listLabels } from '#lib/server/catalog.js';
 import { addCredit, approveCredit, removeCredit, updateRelease } from '#lib/server/catalog-edit.js';
@@ -44,8 +45,10 @@ export const actions: Actions = {
 	removeCredit: async ({ request, locals }) => {
 		const ctx = ctxFor(locals, 'catalog:write');
 		const f = await formFields(request);
-		return editAction('removeCredit', f, () =>
-			locals.db((tx) => removeCredit(tx, ctx, f.creditId))
+		return editAction(
+			'removeCredit',
+			f,
+			() => (requireRemovalConfirmation(f), locals.db((tx) => removeCredit(tx, ctx, f.creditId)))
 		);
 	},
 	approveCredit: async ({ request, locals }) => {

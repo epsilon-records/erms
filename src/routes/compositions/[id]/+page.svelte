@@ -1,4 +1,9 @@
 <script lang="ts">
+	import {
+		confirmRemoval,
+		removedIdentities,
+		submittedIdentities
+	} from '#lib/removal-confirmation.js';
 	import Ownership from '#lib/components/Ownership.svelte';
 	import type { PageProps } from './$types';
 
@@ -34,6 +39,13 @@
 	const linked = $derived(new Set(data.recordings.map((r) => r.id)));
 </script>
 
+<noscript
+	><p class="soft">
+		JavaScript is required to confirm removals. Removal requests without confirmation leave existing
+		records unchanged.
+	</p></noscript
+>
+
 <svelte:head><title>{comp.title} · ERMS</title></svelte:head>
 
 <div class="container">
@@ -61,7 +73,13 @@
 							<a href="/recordings/{r.id}" class="plain" style="font-weight: 600">{r.title}</a
 							>{#if r.versionTitle}<span class="muted"> · {r.versionTitle}</span>{/if}
 							{#if data.can.write}
-								<form method="POST" action="?/unlink" style="display: inline">
+								<form
+									method="POST"
+									action="?/unlink"
+									use:confirmRemoval={() =>
+										`Unlink ${r.title} from ${comp.title}? This removes their relationship; the recording and composition remain.`}
+									style="display: inline"
+								>
 									<input type="hidden" name="recordingId" value={r.id} />
 									<button class="linkish" aria-label="Unlink {r.title}">Unlink</button>
 								</form>
@@ -146,7 +164,22 @@
 				{/if}
 
 				{#if data.options}
-					<form method="POST" action="?/writers" class="stack" aria-label="Edit writers">
+					<form
+						method="POST"
+						action="?/writers"
+						use:confirmRemoval={(fields) => {
+							const removed = removedIdentities(
+								data.writers,
+								submittedIdentities(fields, 'writer'),
+								(w) => `${w.partyId}:${w.role}`
+							);
+							return removed.length
+								? `Remove writer roles for ${removed.map((w) => `${w.name} (${w.role})`).join(', ')} from ${comp.title}? Saving removes these entries from the composition's writer set.`
+								: null;
+						}}
+						class="stack"
+						aria-label="Edit writers"
+					>
 						<div class="stack" style="gap: 8px">
 							{#each Array.from({ length: WRITER_ROWS }, (_, i) => i) as i (i)}
 								<div class="inline-form">

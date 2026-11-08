@@ -1,3 +1,5 @@
+import { removedIdentities, submittedIdentities } from '#lib/removal-confirmation.js';
+import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js';
 import { error } from '@sveltejs/kit';
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
@@ -48,23 +50,42 @@ export const actions: Actions = {
 		const ctx = ctxFor(locals);
 		const f = await formFields(request);
 		return editAction('writers', f, () =>
-			locals.db((tx) =>
-				setWriters(tx, ctx, { compositionId: params.id, writers: writersFromForm(f) })
-			)
+			locals.db(async (tx) => {
+				const current = await getComposition(tx, ctx.orgId, params.id);
+				requireRemovalConfirmation(
+					f,
+					removedIdentities(
+						current?.writers ?? [],
+						submittedIdentities(f, 'writer'),
+						(w) => `${w.partyId}:${w.role}`
+					).length > 0
+				);
+				return setWriters(tx, ctx, { compositionId: params.id, writers: writersFromForm(f) });
+			})
 		);
 	},
 	setPublishing: async ({ request, locals, params }) => {
 		const ctx = ctxFor(locals);
 		const f = await formFields(request);
 		return editAction('setPublishing', f, () =>
-			locals.db((tx) =>
-				setOwnership(tx, ctx, {
+			locals.db(async (tx) => {
+				const groups = await ownershipFor(tx, ctx.orgId, 'publishing', params.id);
+				const territory = (f.territory || 'WW').trim().toUpperCase();
+				requireRemovalConfirmation(
+					f,
+					removedIdentities(
+						groups.find((g) => g.territory === territory)?.holders ?? [],
+						submittedIdentities(f, 'holder'),
+						(h) => h.holder
+					).length > 0
+				);
+				return setOwnership(tx, ctx, {
 					right: 'publishing',
 					targetId: params.id,
 					territory: f.territory || 'WW',
 					holders: holdersFromForm(f)
-				})
-			)
+				});
+			})
 		);
 	},
 	link: async ({ request, locals, params }) => {
@@ -77,8 +98,13 @@ export const actions: Actions = {
 	unlink: async ({ request, locals, params }) => {
 		const ctx = ctxFor(locals);
 		const f = await formFields(request);
-		return editAction('unlink', f, () =>
-			locals.db((tx) => setRecordingLink(tx, ctx, params.id, f.recordingId, false))
+		return editAction(
+			'unlink',
+			f,
+			() => (
+				requireRemovalConfirmation(f),
+				locals.db((tx) => setRecordingLink(tx, ctx, params.id, f.recordingId, false))
+			)
 		);
 	}
 };

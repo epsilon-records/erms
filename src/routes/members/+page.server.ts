@@ -1,3 +1,4 @@
+import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { authAdmin, InviteRefused, type MemberAccount } from '#lib/server/auth-admin.js';
 import { editAction, formFields } from '#lib/server/form.js';
@@ -136,8 +137,10 @@ export const actions: Actions = {
 				values: f
 			});
 		}
-		const result = await editAction('remove', f, () =>
-			locals.db((tx) => removeMember(tx, ctx, f.userId))
+		const result = await editAction(
+			'remove',
+			f,
+			() => (requireRemovalConfirmation(f), locals.db((tx) => removeMember(tx, ctx, f.userId)))
 		);
 		if (f.userId === ctx.actor.id && 'ok' in result && result.ok) redirect(303, '/');
 		return result;

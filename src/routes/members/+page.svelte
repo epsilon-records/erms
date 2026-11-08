@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmRemoval } from '#lib/removal-confirmation.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -30,6 +31,13 @@
 	};
 	const owners = $derived(data.members.filter((m) => m.role === 'owner').length);
 </script>
+
+<noscript
+	><p class="soft">
+		JavaScript is required to confirm removals. Removal requests without confirmation leave existing
+		records unchanged.
+	</p></noscript
+>
 
 <svelte:head><title>Members · ERMS</title></svelte:head>
 
@@ -76,7 +84,12 @@
 						<td class="mono muted">{m.since}</td>
 						<td class="num">
 							{#if !lastOwner}
-								<form method="POST" action="?/remove">
+								<form
+									method="POST"
+									action="?/remove"
+									use:confirmRemoval={() =>
+										`Remove ${m.email ?? m.userId} from ${data.orgName}? They will lose access to this label. Their shared sign-in account will remain.`}
+								>
 									<input type="hidden" name="userId" value={m.userId} />
 									<button class="btn small danger">Remove</button>
 								</form>
