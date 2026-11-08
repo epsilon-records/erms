@@ -58,6 +58,8 @@ export default defineConfig(async () => ({
 	],
 	test: {
 		include: ['src/**/*.test.ts'],
-		environment: 'node'
+		environment: 'node',
+		// Builds the migrated template on the local Supabase stack that database tests copy from.
+		globalSetup: ['src/lib/server/test-db.global.ts']
 	}
 }));

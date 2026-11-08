@@ -1,14 +1,13 @@
 // PostgreSQL version discipline across the four places ERMS names it.
 //
-// Why: production is Supabase on PostgreSQL 17, and local development uses `postgres:17` via
-// docker-compose — but CI ran no Postgres at all, and the Vitest suites run on in-process PGlite,
-// which currently bundles **18.6**. So the suite that looks like "the database tests" was exercising
-// a major newer than production, and nothing at all proved the migrations apply on 17. Both facts
-// were true at once and no check said so.
+// Why: production is Supabase on PostgreSQL 17, local development uses `postgres:17` via
+// docker-compose, and the tests and CI run on the local Supabase stack, whose major is pinned in
+// supabase/config.toml. The Vitest suites once ran on in-process PGlite at 18.6 while every other
+// place said 17, and no check noticed.
 //
-// The rule: README (the production claim), docker-compose (development), ci.yml (CI), and the
-// server actually answering DATABASE_URL must name the same major. Any one of them moving alone
-// fails this, locally and in CI.
+// The rule: README (the production claim), docker-compose (development), supabase/config.toml
+// (tests and CI), and the server actually answering DATABASE_URL must name the same major. Any one
+// of them moving alone fails this, locally and in CI.
 //
 // Run: DATABASE_URL=postgres://… pnpm db:pgversion   (CI does; see .github/workflows/ci.yml)
 import { readFileSync } from 'node:fs';
@@ -24,8 +23,8 @@ const sources = {
 	'README.md (what production runs)': read('README.md').match(/Database \(PostgreSQL (\d+)\)/)?.[1],
 	'docker-compose.yml (what development runs)':
 		read('docker-compose.yml').match(/image:\s*postgres:(\d+)/)?.[1],
-	'.github/workflows/ci.yml (what CI tests against)': read('.github/workflows/ci.yml').match(
-		/image:\s*postgres:(\d+)/
+	'supabase/config.toml (what the tests and CI run)': read('supabase/config.toml').match(
+		/^major_version\s*=\s*(\d+)/m
 	)?.[1]
 };
 
@@ -36,7 +35,7 @@ if (!url) {
 	console.error(
 		'DATABASE_URL is not set, so the live server cannot be compared with the declared majors.\n' +
 			'Local: start the compose database (`docker compose up -d`) and point DATABASE_URL at it,\n' +
-			'or run `pnpm db:pgversion` inside CI, where the postgres service is always present.'
+			'or run `pnpm db:pgversion` inside CI, where the Supabase stack is always running.'
 	);
 	process.exit(2);
 }

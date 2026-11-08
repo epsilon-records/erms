@@ -6,37 +6,23 @@ on:
   pull_request:
 
 jobs:
+  # Everything that touches a database runs on Supabase's own local stack: production's server
+  # build (PostgreSQL 17, pinned in supabase/config.toml), Supabase's anon / authenticated /
+  # service_role with their real grants, and PostgREST. There is no second engine: the Vitest
+  # database tests used to run on in-process PGlite (18.6, another driver), and migrations on a
+  # separate postgres:17 service; neither was the thing production runs.
+  #
+  # CLI pin: v3 is a prerelease (3.1.0-beta.26) and is the only line that ships a PostgreSQL 17
+  # local image; stable 2.x tops out at 15.8 while production runs 17.11. Move this to the first
+  # stable v3 and delete the pin comment.
   check:
     runs-on: ubuntu-latest
 
-    # Production is Supabase on PostgreSQL 17, and docker-compose pins postgres:17 for development,
-    # so CI must apply the migrations to the same major. Until now CI ran no database at all: the
-    # "database tests" in `pnpm test` run on in-process PGlite, which currently bundles 18.6 — newer
-    # than production — so nothing proved the SQL in drizzle/ works where it actually ships.
-    # scripts/check-pg-version.mjs keeps README, docker-compose, this image and the live server
-    # naming the same major.
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          # Trust auth on a localhost-only port on an ephemeral runner: no credential of any kind,
-          # and this database is thrown away after the job.
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: erms
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d erms"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
+      SUPABASE_CLI_VERSION: 3.1.0-beta.26
       # Placeholders so build-time env validation passes. No real secrets in CI.
       PUBLIC_SUPABASE_URL: https://example.supabase.co
       PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci
-      DATABASE_URL: postgres://postgres@localhost:5432/erms
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -48,6 +34,30 @@ jobs:
       - run: pnpm audit --prod --audit-level high
       - run: pnpm lint
       - run: pnpm check
+      - run: pnpm db:check
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start the Supabase stack
+        run: supabase start
+      # DATABASE_URL is the stack's own database, which PostgREST serves; the Vitest database tests
+      # copy a template they build next to it on the same server (src/lib/server/test-db.global.ts).
+      - name: Point at the stack
+        run: |
+          db=$(supabase status --output json | jq -r .DB_URL)
+          echo "DATABASE_URL=$db" >> "$GITHUB_ENV"
+          echo "TEST_DATABASE_URL=$db" >> "$GITHUB_ENV"
+
+      # Migrate the stack's own database first: the test template is then compared grant for grant
+      # with it, so a template that drifts from Supabase's real privileges stops the run.
+      - name: Apply migrations on the Supabase stack
+        run: pnpm db:migrate
+      - name: Migration ledger matches the repo journal
+        run: pnpm db:drift
+      - name: PostgreSQL major agrees across README, compose, Supabase config and the live server
+        run: pnpm db:pgversion
+
       # The audio contract is checked against AudioKit's openapi.yaml (contract.drift.test.ts).
       # Source: the AUDIOKIT_OPENAPI_URL variable (https://<audiokit host>/v1/openapi.yaml) once
       # AudioKit is hosted, else the audiokit repo with the read-only AUDIOKIT_READ_TOKEN secret.
@@ -68,77 +78,19 @@ jobs:
           fi
           echo "AUDIOKIT_OPENAPI=$out" >> "$GITHUB_ENV"
       - run: pnpm test
-      - run: pnpm db:check
 
-      # The real proof for drizzle/: apply every migration to PostgreSQL 17, the major production
-      # runs, then confirm the ledger the drift checker reads. `pnpm test` cannot substitute for
-      # this: PGlite is 18.6 and in-process.
-      - name: Apply migrations on production's PostgreSQL major
-        run: pnpm db:migrate
-      - name: Migration ledger matches the repo journal
-        run: pnpm db:drift
-      - name: PostgreSQL major agrees across README, compose, CI and the live server
-        run: pnpm db:pgversion
-
-      # RLS behaviour on production's major. `pnpm test` runs the same cases on PGlite, but PGlite
-      # is a newer major and does not honour BYPASSRLS, so this is the authoritative run for the
-      # policies that keep one label's catalogue away from every other label's.
-      - name: Row-level security blocks cross-org access (PostgreSQL 17)
+      # RLS in the stack's own database (SQL) and through PostgREST, the layer a browser uses.
+      # `pnpm test` runs the SQL cases too, in a template copy; this is the database Supabase set up.
+      - name: RLS through SQL
         run: pnpm test:rls
+      - name: RLS through PostgREST
+        run: pnpm test:rls:rest
+
       # Creates a Sentry release and uploads source maps for this commit
       # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build
         env:
           SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
-
-  # The authoritative RLS host: Supabase's own stack, so the roles, their grants and the PostgREST
-  # path are the real ones rather than a simulation of them. An earlier revision fabricated
-  # anon/authenticated with SELECT only; production grants those roles INSERT/UPDATE/DELETE on every
-  # migrated table, so only RLS stands between a user JWT and a catalogue write — a fixture with
-  # weaker grants than reality can pass a test production would fail.
-  #
-  # CLI pin: v3 is a prerelease (3.1.0-beta.26) and is the only line that ships a PostgreSQL 17
-  # local image; stable 2.x tops out at 15.8 while production runs 17.11. Move this to the first
-  # stable v3 and delete the pin comment.
-  rls-supabase:
-    name: Row-level security on the Supabase stack (PostgreSQL 17)
-    runs-on: ubuntu-latest
-    env:
-      SUPABASE_CLI_VERSION: 3.1.0-beta.26
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: ${{ env.SUPABASE_CLI_VERSION }}
-
-      - name: Start the Supabase stack
-        run: supabase start
-
-      # The stack's own Postgres, so the migrations under test are applied by the real tooling.
-      - name: Point at the stack
-        run: |
-          db=$(supabase status --output json | jq -r .DB_URL)
-          echo "DATABASE_URL=$db" >> "$GITHUB_ENV"
-
-      - run: pnpm db:migrate
-
-      # SQL-layer cases (roles, grants, BYPASSRLS all real here) and the HTTP layer a browser uses.
-      - name: RLS through SQL
-        run: pnpm test:rls
-      - name: RLS through PostgREST
-        run: pnpm test:rls:rest
 
       - name: Stop the stack
         if: always()

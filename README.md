@@ -5,7 +5,7 @@ Audio processing is delegated to [AudioKit](https://github.com/epsilon-records/a
 
 ## Stack
 
-SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest + PGlite.
+SvelteKit 3 (Svelte 5 runes) · TypeScript · Drizzle ORM · Zod · Vitest on the local Supabase stack.
 
 | Concern                         | Where it runs                                                                      |
 | ------------------------------- | ---------------------------------------------------------------------------------- |
@@ -38,17 +38,24 @@ drizzle/                    SQL migrations (RLS, append-only audit log, same-org
 ```bash
 pnpm install
 cp .env.example .env        # fill in Supabase URL and publishable key
-docker compose up -d        # local Postgres 17
+docker compose up -d        # local Postgres 17, for pnpm dev
 pnpm db:migrate
 pnpm dev
-pnpm test                   # unit + database tests (PGlite, no Docker needed)
-pnpm db:pgversion           # README, compose, CI and the live server name the same major
+supabase start              # local Supabase stack (CLI 3.1.0-beta.26+), for the tests
+pnpm test                   # unit + database tests
+pnpm db:pgversion           # README, compose, Supabase config and the live server agree
 ```
 
-`pnpm test` uses **PGlite**, an in-process Postgres, which is convenient and fast but currently
-bundles a **newer major than production (18.6 vs 17)**. It is not evidence that the SQL in `drizzle/`
-runs on 17, so CI applies the real migrations to a `postgres:17` service as well — see
-[Migrations and deploy](#migrations-and-deploy).
+The database tests run on the **local Supabase stack**, not on an engine of our own: production's
+server build (PostgreSQL 17), Supabase's `anon` / `authenticated` / `service_role` with their real
+grants, and the app's own driver (`createDb`, postgres-js, `prepare: false`). Once per run,
+`src/lib/server/test-db.global.ts` builds a template database — Supabase's default privileges, then
+every migration — and each test gets a fresh copy of it. `TEST_DATABASE_URL` overrides the stack's
+default URL; it must be local.
+
+Without the stack, the database tests fail with instructions to run `supabase start`; there is no
+fallback engine, because a fallback is how a green run stops meaning anything. Tests that need no
+database run regardless.
 
 ## Migrations and deploy
 
@@ -58,7 +65,7 @@ production is the Supabase project.
 
 **Version discipline.** All four places that name a PostgreSQL major must agree — the stack table
 above (production, stated by Nate on 2026-11-07), `docker-compose.yml` (development),
-`.github/workflows/ci.yml` (CI), and the live server behind `DATABASE_URL`.
+`supabase/config.toml` (tests and CI), and the live server behind `DATABASE_URL`.
 `pnpm db:pgversion` (`scripts/check-pg-version.mjs`) compares them and fails on a split, and CI runs
 it after applying the migrations. Verified on PostgreSQL 17.11: all 17 migrations apply cleanly,
 `pnpm db:drift` reports the ledger up to date, and the `erms_app` role, 61 RLS policies and the
