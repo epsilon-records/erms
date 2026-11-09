@@ -58,7 +58,10 @@ export const KNOWN_API_ERROR_CODES = [
 	'idempotency_conflict',
 	'client_bootstrap',
 	'rate_limited',
-	'unavailable'
+	'unavailable',
+	'stem_allowance_exhausted',
+	'no_active_plan',
+	'entitlement_unavailable'
 ] as const;
 export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});
 
