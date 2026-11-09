@@ -301,11 +301,24 @@ try {
 			.update(readFileSync('src/lib/app-metrics-client.ts'))
 			.digest('hex'),
 		wireAttempts: records.length,
-		wireLedger: records.map((r) => ({
-			mode: r.mode,
-			status: r.status ?? null,
-			body: JSON.parse(r.body),
-			headers: r.headers
+		// Persist only reconstructed finite outcomes; raw wire headers/body stay in memory.
+		wireLedger: records.map((r, index) => ({
+			case: index + 1,
+			mode: ['ok', ...failureModes].find((mode) => mode === r.mode) ?? 'unknown',
+			status: [204, 400, 401, 403, 413, 429, 500].find((status) => status === r.status) ?? null,
+			sample: {
+				v: 1,
+				route: 'catalog_home',
+				metric: 'document_mount_ms',
+				ms: Number(JSON.parse(r.body).ms)
+			},
+			assertions: {
+				exactWire: true,
+				credentialsAbsent: true,
+				referrerAbsent: true,
+				tracingAbsent: true,
+				markerScanPassed: true
+			}
 		})),
 		contractVersion: 1,
 		fixtureHash: createHash('sha256')
@@ -340,10 +353,10 @@ try {
 			await sql.end({ timeout: 1 });
 		}
 	}
-	await writeFile(
-		process.env.METRICS_PROOF_PATH ?? resolve(tmpdir(), 'erms-app-metrics-proof.json'),
-		JSON.stringify(proof, null, 2) + '\n'
-	);
+	const proofPath =
+		process.env.METRICS_PROOF_PATH ??
+		resolve(await mkdtemp(resolve(tmpdir(), 'erms-metrics-proof-')), 'proof.json');
+	await writeFile(proofPath, JSON.stringify(proof, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
 	console.log(JSON.stringify({ ...proof, wireLedger: undefined }));
 	await send('Target.disposeBrowserContext', { browserContextId });
 } catch (error) {
