@@ -374,5 +374,6 @@ try {
 	}, 2000);
 	stop.unref();
 	await wait(250);
-	await rm(profile, { recursive: true, force: true });
+	// Chrome's child processes can briefly finish profile writes after SIGTERM.
+	await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
