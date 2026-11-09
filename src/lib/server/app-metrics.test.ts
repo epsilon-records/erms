@@ -134,3 +134,15 @@ it('discards AWS load-balancer tracing metadata without rejecting a valid sample
 	expect([...response.headers]).toEqual([['cache-control', 'no-store']]);
 	expect(await response.text()).toBe('');
 });
+
+it('uses fixed rejection categories without reflecting untrusted header values', async () => {
+	const response = await createReceiver()(
+		req({ headers: { ...headers, origin: 'https://FAKE_SECRET.invalid' } }),
+		run,
+		true
+	);
+	expect(response.status).toBe(403);
+	expect(response.headers.get('x-app-metrics-rejection')).toBe('origin');
+	expect(await response.text()).toBe('');
+	expect([...response.headers].join(' ')).not.toContain('FAKE_SECRET');
+});
