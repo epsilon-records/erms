@@ -33,6 +33,32 @@ export const ENDPOINTS = [
 	'https://erms.epsilonrecords.com/login'
 ];
 
+/**
+ * Extra URLs from UPTIME_PROBE_EXTRA_URLS (comma or whitespace separated), probed in addition to
+ * ENDPOINTS. It exists so the failure path can be tested live without a code deploy: add one URL
+ * that answers 404, wait one run, check Sentry and the email, then remove the variable. Unset or
+ * empty means no extras. An entry that is not an http(s) URL throws, so a typo fails the run in the
+ * Netlify log instead of silently probing nothing.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string[]}
+ */
+export function extraEndpoints(env) {
+	const raw = (env.UPTIME_PROBE_EXTRA_URLS ?? '').split(/[\s,]+/).filter(Boolean);
+	const extras = raw.map((entry) => {
+		let u;
+		try {
+			u = new URL(entry);
+		} catch {
+			throw new Error('UPTIME_PROBE_EXTRA_URLS holds an entry that is not a URL');
+		}
+		if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+			throw new Error('UPTIME_PROBE_EXTRA_URLS entries must be http(s) URLs');
+		}
+		return u.href;
+	});
+	return [...new Set(extras)].filter((url) => !ENDPOINTS.includes(url));
+}
+
 export const TIMEOUT_MS = 10_000;
 export const ENVIRONMENT = 'production';
 
@@ -192,7 +218,8 @@ export async function run({ fetchImpl = fetch, env = process.env, timeoutMs = TI
 	if (!dsn) throw new Error('SENTRY_DSN is required to report probe failures');
 	parseDsn(dsn);
 
-	const outcomes = await Promise.all(ENDPOINTS.map((url) => probe(url, { timeoutMs, fetchImpl })));
+	const endpoints = [...ENDPOINTS, ...extraEndpoints(env)];
+	const outcomes = await Promise.all(endpoints.map((url) => probe(url, { timeoutMs, fetchImpl })));
 	const reported = [];
 	const unreported = [];
 	for (const o of outcomes) {
