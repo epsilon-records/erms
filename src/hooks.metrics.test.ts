@@ -20,6 +20,7 @@ vi.mock('$app/env/private', () => ({ SENTRY_DSN: 'https://fake@example.invalid/1
 vi.mock('@sentry/sveltekit', () => ({
 	init: vi.fn(),
 	httpIntegration: vi.fn(),
+	suppressTracing: (fn: () => unknown) => fn(),
 	sentryHandle:
 		() =>
 		async ({ event, resolve }: { event: unknown; resolve: (event: unknown) => unknown }) => {

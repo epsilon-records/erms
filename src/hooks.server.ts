@@ -120,7 +120,7 @@ export const handle: Handle = async (input) => {
 			path === '/api/app-metrics' ? 'erms_metrics_ingest' : 'erms_metrics_prune'
 		);
 		try {
-			return await input.resolve(input.event);
+			return await Sentry.suppressTracing(() => input.resolve(input.event));
 		} catch {
 			return empty(503);
 		}
