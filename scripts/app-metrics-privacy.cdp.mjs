@@ -181,7 +181,9 @@ try {
 	await evaluate(`fetch('/fixture-deny-probe').catch(()=>true)`);
 	await evaluate(`fetch('/control').then(()=>true)`);
 	let records = await wire();
-	assert(records.find((r) => r.control)?.headers.cookie.includes('FAKE_METRIC_SECRET'));
+	const cookieControl = records.find((r) => r.control)?.headers.cookie;
+	assert(cookieControl.includes('sb-fake-auth-token=FAKE_METRIC_SECRET_HTTPONLY'));
+	assert(cookieControl.includes('ak_console_session=FAKE_METRIC_SECRET_COOKIE'));
 	assert(
 		records.find((r) => r.control)?.headers['sentry-trace'],
 		'normal control fetch must prove tracing instrumentation is active'
@@ -292,6 +294,7 @@ try {
 	assert.deepEqual(pageErrors, []);
 	const proof = {
 		driver: 'Node CDP',
+		commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
 		node: process.version,
 		browser: version.product,
 		clientHash: createHash('sha256')
