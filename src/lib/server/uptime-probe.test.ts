@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import handler, {
 	config,
 	ENDPOINTS,
+	extraEndpoints,
 	failureEvent,
 	parseDsn,
 	probe,
@@ -60,6 +61,38 @@ describe('uptime prober (shared decision 0010)', () => {
 		]);
 		expect(config.schedule).toBe('*/5 * * * *');
 		expect(TIMEOUT_MS).toBe(10_000);
+	});
+
+	it('probes UPTIME_PROBE_EXTRA_URLS as well, and a failing extra sends one event of its own', async () => {
+		const bad = 'https://erms.epsilonrecords.com/uptime-probe-test-404';
+		const f = fakeFetch({ [bad]: 404 });
+		const out = await run({
+			fetchImpl: f.impl,
+			env: { ...env, UPTIME_PROBE_EXTRA_URLS: ` ${bad} ,${bad}` }
+		});
+		expect(f.probes.map((p) => p.url)).toEqual([...ENDPOINTS, bad]);
+		expect(out.reported).toEqual([bad]);
+		expect(f.events()).toHaveLength(1);
+		expect(f.events()[0]).toMatchObject({
+			environment: 'production',
+			fingerprint: ['uptime-probe', 'erms.epsilonrecords.com/uptime-probe-test-404'],
+			tags: { probe_status: '404', probe_reason: 'status' }
+		});
+	});
+
+	it('ignores an unset or empty override, and refuses one that is not an http(s) URL', async () => {
+		expect(extraEndpoints({})).toEqual([]);
+		expect(extraEndpoints({ UPTIME_PROBE_EXTRA_URLS: ' ,  ' })).toEqual([]);
+		expect(extraEndpoints({ UPTIME_PROBE_EXTRA_URLS: ENDPOINTS[3] })).toEqual([]);
+		expect(() => extraEndpoints({ UPTIME_PROBE_EXTRA_URLS: 'not a url' })).toThrow(/not a URL/);
+		expect(() => extraEndpoints({ UPTIME_PROBE_EXTRA_URLS: 'ftp://example.com/x' })).toThrow(
+			/http\(s\)/
+		);
+		const f = fakeFetch();
+		await expect(
+			run({ fetchImpl: f.impl, env: { ...env, UPTIME_PROBE_EXTRA_URLS: 'oops' } })
+		).rejects.toThrow(/not a URL/);
+		expect(f.probes).toEqual([]);
 	});
 
 	it('sends nothing to Sentry when every endpoint answers 2xx', async () => {

@@ -146,6 +146,11 @@ the `erms` project, with `environment=production`, the tags `probe_endpoint`, `p
 per endpoint, and rule 6309992 emails on its first event. Resolve the issue once the endpoint
 recovers so the next outage emails again as a regression.
 
+`UPTIME_PROBE_EXTRA_URLS` (optional, comma or space separated http(s) URLs) adds endpoints to the
+four above, so the failure path can be tested live with no code deploy: set it to one URL that
+answers 404, wait one run, check Sentry and the email, then delete the variable and resolve the
+test issue. Unset in normal operation.
+
 It reads `SENTRY_DSN` (or, failing that, `PUBLIC_SENTRY_DSN`) at runtime, so the variable must be
 scoped to **Functions**. Without one the run fails, and if Sentry refuses an event the run fails
 too. Either way the failure shows in the function's Netlify log, as does one JSON line per endpoint
