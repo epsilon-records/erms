@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import {
 		confirmRemoval,
 		removedIdentities,
@@ -33,9 +34,12 @@
 	} = $props();
 
 	const failedBefore = $derived(Object.keys(errors).length > 0);
-	let territory = $state('WW');
+	// SSR must restore failed submissions too; effects only run after hydration.
+	let territory = $state(
+		untrack(() => (failedBefore ? (values.territory || 'WW').toUpperCase() : 'WW'))
+	);
 	$effect.pre(() => {
-		if (failedBefore && values.territory) territory = values.territory.toUpperCase();
+		if (failedBefore) territory = (values.territory || 'WW').toUpperCase();
 	});
 	const current = $derived(
 		groups.find((g) => g.territory === territory.trim().toUpperCase())?.holders ?? []
