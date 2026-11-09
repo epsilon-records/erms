@@ -32,19 +32,28 @@ export function createReceiver(now = Date.now) {
 		tokens--;
 		const h = request.headers;
 		if (new URL(request.url).search || request.url.includes('?')) return empty(400);
-		if (
-			h.get('origin') !== origin ||
-			h.get('sec-fetch-site') !== 'same-origin' ||
-			forbidden.some((key) => h.has(key)) ||
-			[...h.keys()].some(
-				(key) =>
-					// AWS load balancers add this transport header; its value is never consumed,
-					// persisted or forwarded. Browser W3C/Sentry tracing still fails closed.
-					key !== 'x-amzn-trace-id' &&
-					/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key)
+		// Fixed categories expose no request values, identifiers or payloads.
+		const rejected = (reason: string) =>
+			new Response(null, {
+				status: 403,
+				headers: { 'Cache-Control': 'no-store', 'X-App-Metrics-Rejection': reason }
+			});
+		if (h.get('origin') !== origin) return rejected('origin');
+		if (h.get('sec-fetch-site') !== 'same-origin') return rejected('fetch-site');
+		for (const key of forbidden) if (h.has(key)) return rejected('forbidden-' + key);
+		for (const key of h.keys()) {
+			if (
+				key !== 'x-amzn-trace-id' &&
+				/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key)
 			)
-		)
-			return empty(403);
+				return rejected(
+					key.startsWith('x-nf-')
+						? 'netlify-custom'
+						: key.startsWith('x-forwarded-')
+							? 'forwarded-custom'
+							: 'custom'
+				);
+		}
 		if (
 			!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(h.get('content-type') ?? '') ||
 			!['identity', null].includes(h.get('content-encoding'))
