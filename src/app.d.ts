@@ -9,6 +9,10 @@ declare global {
 	const __SENTRY_RELEASE__: string | null;
 
 	namespace App {
+		interface Platform {
+			/** Adapter-owned Netlify context; HTTP callers cannot supply this object. */
+			context?: { site?: { id?: string } };
+		}
 		interface Locals {
 			supabase: SupabaseClient;
 			/** Verified with Supabase Auth on every request; null when signed out. */

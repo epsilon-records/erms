@@ -100,3 +100,39 @@ it('catches resolve failures without request/error logging or Sentry forwarding'
 	).toEqual({ message: 'Unavailable' });
 	logger.mockRestore();
 });
+
+it('discards only hosting trace context for the exact server-verified Netlify metrics boundary', async () => {
+	for (const trusted of [true, false]) {
+		const headers = {
+			origin: 'https://erms.epsilonrecords.com',
+			'sec-fetch-site': 'same-origin',
+			traceparent: '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01',
+			tracestate: 'fake=transport',
+			'x-amzn-trace-id': 'FAKE_TRANSPORT',
+			baggage: 'FAKE_MUST_REMAIN_REJECTED',
+			authorization: 'FAKE_MUST_REMAIN_REJECTED'
+		};
+		const e = {
+			url: new URL('https://erms.epsilonrecords.com/api/app-metrics'),
+			request: new Request('https://erms.epsilonrecords.com/api/app-metrics', {
+				method: 'POST',
+				headers,
+				body: '{}'
+			}),
+			locals: {},
+			platform: {
+				context: { site: { id: trusted ? '4d4e8994-934f-4d38-9eb6-5831c09fc6b1' : 'not-the-host' } }
+			}
+		};
+		const resolve = vi.fn(async (received: typeof e) => {
+			for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id'])
+				expect(received.request.headers.has(key)).toBe(!trusted);
+			expect(received.request.headers.get('authorization')).toBe('FAKE_MUST_REMAIN_REJECTED');
+			expect(received.request.headers.get('baggage')).toBe('FAKE_MUST_REMAIN_REJECTED');
+			expect(await received.request.text()).toBe('{}');
+			return new Response(null, { status: 204 });
+		});
+		expect((await handle({ event: e, resolve } as never)).status).toBe(204);
+		expect(resolve).toHaveBeenCalledTimes(1);
+	}
+});

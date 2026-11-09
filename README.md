@@ -267,7 +267,12 @@ At most one request is in flight, at least one second separates sends and at mos
 20 sends are permitted per document. Navigation never awaits collection. The exact
 endpoint bypasses Supabase Auth and Sentry request handling before either runs;
 Sentry browser fetch breadcrumbs, spans and trace propagation exclude the collector.
-Unexpected credential/tracing headers are rejected. The endpoint still necessarily
+Unexpected credential/tracing headers are rejected. Netlify adds W3C transport
+trace context after the browser sends the request; the exact metrics hook discards
+`traceparent`, `tracestate` and AWS transport tracing only when the adapter-owned
+Netlify site context matches this deployment. No trace value is read, persisted or
+forwarded. Other hosts retain strict tracing rejection, and cookie/auth/Sentry
+baggage checks remain enforced on Netlify. The endpoint still necessarily
 receives ordinary network metadata, including addresses, user agents and fetch
 metadata at the host. This code does not log, store or forward that metadata;
 this is **not** a claim about Netlify/CDN/access-log retention or unrelated Sentry traffic.

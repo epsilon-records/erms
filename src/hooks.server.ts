@@ -120,7 +120,19 @@ export const handle: Handle = async (input) => {
 			path === '/api/app-metrics' ? 'erms_metrics_ingest' : 'erms_metrics_prune'
 		);
 		try {
-			return await Sentry.suppressTracing(() => input.resolve(input.event));
+			// Netlify injects W3C trace context after the browser's credential-free fetch.
+			// Discard it only at this exact, server-verified hosting boundary; never
+			// consume its values or pass it to the receiver, Auth or Sentry.
+			let event = input.event;
+			if (
+				path === '/api/app-metrics' &&
+				event.platform?.context?.site?.id === '4d4e8994-934f-4d38-9eb6-5831c09fc6b1'
+			) {
+				const headers = new Headers(event.request.headers);
+				for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id']) headers.delete(key);
+				event = { ...event, request: new Request(event.request, { headers }) };
+			}
+			return await Sentry.suppressTracing(() => input.resolve(event));
 		} catch {
 			return empty(503);
 		}
