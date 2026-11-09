@@ -42,10 +42,7 @@ export function createReceiver(now = Date.now) {
 		if (h.get('sec-fetch-site') !== 'same-origin') return rejected('fetch-site');
 		for (const key of forbidden) if (h.has(key)) return rejected('forbidden-' + key);
 		for (const key of h.keys()) {
-			if (
-				key !== 'x-amzn-trace-id' &&
-				/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key)
-			)
+			if (/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key))
 				return rejected(
 					key.startsWith('x-nf-')
 						? 'netlify-custom'
