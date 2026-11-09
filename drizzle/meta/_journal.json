@@ -134,6 +134,13 @@
       "when": 1794177801333,
       "tag": "0018_membership_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794200000000,
+      "tag": "0019_app_performance_aggregates",
+      "breakpoints": true
     }
   ]
 }

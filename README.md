@@ -243,3 +243,101 @@ Configuration: set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` a
 Phase 0 foundation → 1 catalog core → 2 rights and contracts → 3 AudioKit integration → 4 metadata intelligence → 5 distribution and royalties → 6 consent-gated AI and agents.
 
 Music intelligence (an artist graph from open music data) is out of scope for now and will be planned separately in AudioKit.
+
+### Disabled first-party app performance pilot (EPSILON-107)
+
+Both `APP_METRICS_ENABLED` and `PUBLIC_APP_METRICS_ENABLED` default to **false**.
+Keep both false pending independent review, migration review, merge and enablement approval.
+The browser additionally requires the production build context and exact
+`https://erms.epsilonrecords.com` origin. No deployment configuration is changed by this PR.
+Cloudflare app analytics remain inactive. No new vendor, subscription or database is added.
+
+Only the literal framework route ID `/` maps to `catalog_home`; all other routes are
+excluded before serialization. The wire contract is exactly `v`, `route`, `metric`, `ms`;
+shared golden fixtures are in `tests/fixtures/app-metrics-v1.json`. Initial
+`document_mount_ms` measures performance time origin to the first root client mount,
+not load-event completion, visual readiness or a Core Web Vital. Conservative
+`client_navigation_ms` needs two different allowed route symbols, so this first
+one-route slice emits no client navigation samples. No URL, referrer, performance
+entry name, forms, storage, cookies or identity are inputs to the collector.
+
+Native browser fetch posts to `/api/app-metrics` with credentials omitted, no referrer,
+redirect errors, no cache, a one-second abort deadline and no retry/beacon/flush.
+At most one request is in flight, at least one second separates sends and at most
+20 sends are permitted per document. Navigation never awaits collection. The exact
+endpoint bypasses Supabase Auth and Sentry request handling before either runs;
+Sentry browser fetch breadcrumbs, spans and trace propagation exclude the collector.
+Unexpected credential/tracing headers are rejected. The endpoint still necessarily
+receives ordinary network metadata, including addresses, user agents and fetch
+metadata at the host. This code does not log, store or forward that metadata;
+this is **not** a claim about Netlify/CDN/access-log retention or unrelated Sentry traffic.
+
+Controller-approved **technical defaults**, not a Nate-explicit retention decision:
+current UTC day plus seven previous days, at most 2,000 accepted observations/day
+across replicas, eight finite histogram buckets and two metric codes. Private
+`app_metrics.app_performance_daily` stores only day, route/metric/bucket codes and
+counts; the all-zero code key holds the daily global budget, not an event.
+One route permits at most 136 hot rows. Bucket edges in milliseconds are
+`0,100,250,500,1000,2500,5000,10000,60001`; distributions support coarse percentile
+estimates, never exact p95/mean, visitors, attribution or per-org outcomes.
+Anonymous samples can be forged and saturation biases measurements; Origin screening
+is not authentication. An instance-wide burst of five with 30 attempts/minute and two
+concurrent ingestion calls bounds app work, not all external hosting request costs.
+Existing quota headroom and incremental platform cost remain unmeasured; no paid
+upgrade is authorized.
+
+Migration `0019_app_performance_aggregates` is reviewable code, **not authorization to
+apply it to production**. It creates a private non-PostgREST schema, table with RLS and
+no tenant policies, separate NOLOGIN/NOBYPASSRLS execute-only ingest/prune roles, and
+fixed-search-path security-definer functions with finite input validation. Only the
+request hook/client own privileged connection access; routes execute through
+`locals.db` after a restricted role switch without a user identity. A separate small
+pool has one-second connection/queue deadlines; canceled queued work is removed by
+postgres-js before execution. Transactions use 100ms lock/250ms statement deadlines.
+The atomic budget update and histogram increment commit or roll back together.
+Ordinary label owners, anon, authenticated and erms_app have no metrics access.
+
+Expired rows are deleted on accepted writes and by `app-metrics-prune`, scheduled
+**daily at 00:10 UTC** (`10 0 * * *`) on Netlify. It calls the exact
+`/api/internal/app-metrics-prune` endpoint using the existing `WORKER_SECRET` pattern.
+Deletion remains active while ingestion is disabled; the maintenance role can only
+execute prune. Daily pruning can leave expired rows for about 24 hours, longer during
+scheduler outages. Readback always excludes old days. Disabled ingestion never opens
+a database connection; pruning needs the reviewed migration to exist first.
+
+Operator-only SQL, using existing controlled database access (no HTTP read endpoint):
+
+```sql
+-- Current hot histogram only; never join to business/user tables.
+SELECT day_utc, route_code, metric_code, bucket, sum(count) AS observations
+FROM app_metrics.app_performance_daily
+WHERE day_utc >= (clock_timestamp() AT TIME ZONE 'UTC')::date - 7
+  AND route_code = 1 AND metric_code IN (1,2) AND bucket BETWEEN 1 AND 8
+GROUP BY day_utc, route_code, metric_code, bucket
+ORDER BY day_utc, metric_code, bucket;
+
+-- Emergency full hot-store purge (operator action, not invoked by this PR).
+DELETE FROM app_metrics.app_performance_daily;
+```
+
+There are no identities for individual-user deletion. SQL deletion does not erase
+existing snapshots, backups, WAL or already retained pages. Their existing provider/
+operator recovery retention has not been changed or verified here; final deletion
+must not be promised from this hot window. Exclude this nonbusiness schema from
+logical catalogue backups where possible after review. No production backup policy
+change is included.
+
+Privacy verification: `node scripts/app-metrics-privacy.cdp.mjs` uses Node 22's native
+WebSocket and installed Chrome (`CHROME_BIN` override), with a disposable profile,
+synthetic cookies/Auth redirects/entity IDs and an egress-denied SvelteKit fixture.
+It imports the production collector, navigation component and Sentry browser hook;
+the local wire receiver invokes the actual endpoint and restricted DB runner.
+A disposable fixture-only SSR transform supplies loopback canonical origin and test
+DB configuration; production artifacts have no localhost override. No collector request is fulfilled by
+CDP. Without `METRICS_TEST_DATABASE_URL` this is **transport/filtering proof only**,
+not storage proof; CI supplies an isolated migrated database on its pinned real
+Supabase stack and checks actual aggregate readback. The browser fixture never loads
+production Auth/business services or a developer `.env`. Its synthetic pagehide/
+pageshow tests do not prove physical tab hiding, genuine BFCache or Netlify redirect
+behavior; HTTP-only fake cookies do not establish Secure-cookie behavior over TLS.
+Production platform logging/retention still requires operator review before enabling.

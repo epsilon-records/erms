@@ -52,6 +52,7 @@ jobs:
       # Migrate the stack's own database first: the test template is then compared grant for grant
       # with it, so a template that drifts from Supabase's real privileges stops the run.
       - name: Apply migrations on the Supabase stack
+        id: migrate
         run: pnpm db:migrate
       - name: Migration ledger matches the repo journal
         run: pnpm db:drift
@@ -82,13 +83,29 @@ jobs:
       # RLS in the stack's own database (SQL) and through PostgREST, the layer a browser uses.
       # `pnpm test` runs the SQL cases too, in a template copy; this is the database Supabase set up.
       - name: RLS through SQL
+        if: ${{ !cancelled() && steps.migrate.outcome == 'success' }}
         run: pnpm test:rls
       - name: RLS through PostgREST
+        if: ${{ !cancelled() && steps.migrate.outcome == 'success' }}
         run: pnpm test:rls:rest
+
+      - name: Browser privacy and aggregate readback (real Supabase, installed Chrome)
+        timeout-minutes: 3
+        if: ${{ !cancelled() && steps.migrate.outcome == 'success' }}
+        env:
+          METRICS_PROOF_PATH: ${{ runner.temp }}/app-metrics-proof.json
+        run: node scripts/app-metrics-browser-db.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: app-metrics-proof
+          path: ${{ runner.temp }}/app-metrics-proof.json
+          if-no-files-found: ignore
 
       # Creates a Sentry release and uploads source maps for this commit
       # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build
+        if: ${{ !cancelled() && steps.migrate.outcome == 'success' }}
         env:
           SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
 

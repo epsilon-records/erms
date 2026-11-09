@@ -3,10 +3,31 @@
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
+	import { browser } from '$app/env';
+	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
+	import AppMetrics from '#lib/AppMetrics.svelte';
+	import { createCollector, documentLifetime } from '#lib/app-metrics-client.js';
+	import { METRICS_ORIGIN } from '#lib/app-metrics-contract.js';
 	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
+
+	const collector =
+		browser &&
+		PUBLIC_APP_METRICS_ENABLED &&
+		__SENTRY_ENVIRONMENT__ === 'production' &&
+		window.origin === METRICS_ORIGIN &&
+		typeof performance?.now === 'function'
+			? createCollector({
+					enabled: true,
+					lifetime: documentLifetime,
+					origin: window.origin,
+					fetch: window.fetch.bind(window),
+					now: () => performance.now(),
+					visible: () => document.visibilityState === 'visible'
+				})
+			: null;
 
 	// The login callback lands on /?signed-in (see auth/callback); tidy the address bar.
 	// onMount, not $effect: replaceState updates page.state, and an effect that read it
@@ -36,6 +57,8 @@
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 </script>
+
+{#if collector}<AppMetrics {collector} />{/if}
 
 <svelte:head>
 	<link rel="icon" href={favicon} />

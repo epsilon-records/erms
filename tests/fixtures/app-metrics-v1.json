@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"accepted": [
+		{ "v": 1, "route": "catalog_home", "metric": "document_mount_ms", "ms": 0 },
+		{ "v": 1, "route": "catalog_home", "metric": "client_navigation_ms", "ms": 60000 }
+	],
+	"rejected": [
+		"{\"v\":1,\"v\":1,\"route\":\"catalog_home\",\"metric\":\"document_mount_ms\",\"ms\":1}",
+		"{\"v\":1,\"route\":\"release_list\",\"metric\":\"document_mount_ms\",\"ms\":1}",
+		"{\"v\":1,\"route\":\"catalog_home\",\"metric\":\"document_mount_ms\",\"ms\":1,\"secret\":\"FAKE_ONLY\"}"
+	]
+}
