@@ -37,7 +37,13 @@ const pageErrors = [];
 try {
 	fixture = spawn(process.execPath, ['scripts/app-metrics-fixture.mjs'], {
 		stdio: ['ignore', 'pipe', 'pipe'],
-		env: { ...process.env, SENTRY_AUTH_TOKEN: '', SENTRY_DSN: '', PUBLIC_SENTRY_DSN: '' }
+		env: {
+			PATH: process.env.PATH,
+			NODE_ENV: 'test',
+			...(process.env.METRICS_TEST_DATABASE_URL
+				? { METRICS_TEST_DATABASE_URL: process.env.METRICS_TEST_DATABASE_URL }
+				: {})
+		}
 	});
 	let startup = '';
 	fixture.stdout.on('data', (d) => (startup += d));
@@ -171,7 +177,7 @@ try {
 	const wire = () => fetch(origin + '/fixture-ledger').then((r) => r.json());
 	await navigate('/?token=FAKE_METRIC_SECRET#FAKE_METRIC_SECRET');
 
-	await until(async () => (await wire()).some((r) => r.body));
+	await until(async () => (await wire()).some((r) => r.mode === 'ok' && r.status !== undefined));
 	await evaluate(`fetch('/fixture-deny-probe').catch(()=>true)`);
 	await evaluate(`fetch('/control').then(()=>true)`);
 	let records = await wire();
@@ -243,6 +249,11 @@ try {
 	await wait(1200);
 	assert.equal((await wire()).filter((r) => r.body).length, beforeDisabled);
 	records = (await wire()).filter((r) => r.body);
+	assert.equal(ledger.length, records.length);
+	for (const attempt of ledger) {
+		assert.equal(attempt.url, origin + '/api/app-metrics');
+		assert.equal(attempt.method, 'POST');
+	}
 	for (const r of records) {
 		if (r.mode === 'ok') assert.equal(r.status, 204, 'actual endpoint baseline must accept');
 		for (const name of [

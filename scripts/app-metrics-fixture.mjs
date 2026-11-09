@@ -122,7 +122,8 @@ try {
 		const chunks = [];
 		for await (const chunk of req) chunks.push(chunk);
 		const body = Buffer.concat(chunks);
-		wire.push({ headers: req.headers, body: body.toString(), mode });
+		const entry = { headers: req.headers, body: body.toString(), mode };
+		wire.push(entry);
 		if (mode === 'redirect') {
 			res.writeHead(302, { location: 'http://localhost:1/FAKE_REDIRECT' });
 			res.end();
@@ -148,22 +149,24 @@ try {
 			headers: req.headers,
 			body
 		});
-		if (!endpoint) {
-			endpoint = await server.ssrLoadModule(resolve(repo, 'src/routes/api/app-metrics/+server.ts'));
-			if (process.env.METRICS_TEST_DATABASE_URL) {
-				const { metricsRunner } = await server.ssrLoadModule(
-					resolve(repo, 'src/lib/server/db/client.ts')
-				);
-				run = metricsRunner('erms_metrics_ingest');
-			}
-		}
+
 		const response = await endpoint.POST({ request, locals: { db: run } });
-		wire[wire.length - 1].status = response.status;
+		entry.status = response.status;
 		res.writeHead(response.status, Object.fromEntries(response.headers));
 		res.end();
 	};
 	await server.listen();
 	fixtureOrigin = `http://127.0.0.1:${server.httpServer.address().port}`;
+	// Warm module compilation before the one-second native-fetch transport deadline.
+	{
+		endpoint = await server.ssrLoadModule(resolve(repo, 'src/routes/api/app-metrics/+server.ts'));
+		if (process.env.METRICS_TEST_DATABASE_URL) {
+			const { metricsRunner } = await server.ssrLoadModule(
+				resolve(repo, 'src/lib/server/db/client.ts')
+			);
+			run = metricsRunner('erms_metrics_ingest');
+		}
+	}
 	process.stdout.write(
 		JSON.stringify({
 			origin: `http://127.0.0.1:${server.httpServer.address().port}`,

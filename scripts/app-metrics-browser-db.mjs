@@ -60,7 +60,14 @@ try {
 	database = undefined;
 	const child = spawn(process.execPath, ['scripts/app-metrics-privacy.cdp.mjs'], {
 		stdio: 'inherit',
-		env: { ...process.env, METRICS_TEST_DATABASE_URL: url.toString() }
+		env: Object.fromEntries(
+			Object.entries({
+				PATH: process.env.PATH,
+				CHROME_BIN: process.env.CHROME_BIN,
+				METRICS_PROOF_PATH: process.env.METRICS_PROOF_PATH,
+				METRICS_TEST_DATABASE_URL: url.toString()
+			}).filter(([, value]) => value !== undefined)
+		)
 	});
 	const code = await new Promise((resolve, reject) => {
 		child.on('error', reject);
