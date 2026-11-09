@@ -5,6 +5,10 @@ import * as Sentry from '@sentry/sveltekit';
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
 import { SENTRY_DSN } from '$app/env/private';
 import { asc, eq } from 'drizzle-orm';
+import { metricsRunner } from '#lib/server/db/client.js';
+import { isMetricsRequest } from '#lib/app-metrics-sentry.js';
+import { empty } from '#lib/server/app-metrics.js';
+import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
@@ -27,7 +31,19 @@ Sentry.init({
 	dsn: SENTRY_DSN,
 	environment: __SENTRY_ENVIRONMENT__,
 	release: __SENTRY_RELEASE__ ?? undefined,
-	tracesSampleRate: SENTRY_DSN ? 0.1 : 0
+	tracesSampleRate: SENTRY_DSN ? 0.1 : 0,
+	// Kit creates its root span before calling this hook. Suppress that boundary too.
+	ignoreSpans: [
+		{ attributes: { 'http.route': /^\/api\/(?:app-metrics|internal\/app-metrics-prune)$/ } }
+	],
+	integrations: (defaults) => [
+		...defaults.filter((i) => !['Http', 'Http.Server', 'Http.ServerSpans'].includes(i.name)),
+		Sentry.httpIntegration({
+			ignoreIncomingRequests: (url) => isMetricsRequest(url),
+			ignoreRequestBody: (url) => isMetricsRequest(url)
+		})
+	],
+	beforeSend: (event) => (isMetricsRequest(event.request?.url) ? null : event)
 });
 
 const appHandle: Handle = async ({ event, resolve }) => {
@@ -90,7 +106,27 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) : appHandle;
+const ordinaryHandle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) : appHandle;
+/** Exact anonymous boundary BEFORE Auth, cookies, tenant lookups and Sentry request capture. */
+export const handle: Handle = async (input) => {
+	const path = input.event.url.pathname;
+	if (path === '/api/app-metrics' || path === '/api/internal/app-metrics-prune') {
+		if (
+			path === '/api/internal/app-metrics-prune' &&
+			!isAuthorizedWorkerRequest(input.event.request)
+		)
+			return empty(401);
+		input.event.locals.db = metricsRunner(
+			path === '/api/app-metrics' ? 'erms_metrics_ingest' : 'erms_metrics_prune'
+		);
+		try {
+			return await input.resolve(input.event);
+		} catch {
+			return empty(503);
+		}
+	}
+	return ordinaryHandle(input);
+};
 
 /** Sent with every server response. The CSP itself comes from SvelteKit (vite.config.ts). */
 const SECURITY_HEADERS = {
@@ -106,7 +142,7 @@ const SECURITY_HEADERS = {
  * the browser only sees the reference. Errors raised on purpose with error(), 404s and
  * other framework errors keep their own safe messages.
  */
-export const handleError: HandleServerError = Sentry.handleErrorWithSentry((caught) => {
+const ordinaryError: HandleServerError = Sentry.handleErrorWithSentry((caught) => {
 	if (caught.kind !== 'unknown') return;
 	const { error: err, event } = caught;
 	const ref = crypto.randomUUID().slice(0, 8);
@@ -123,3 +159,9 @@ export const handleError: HandleServerError = Sentry.handleErrorWithSentry((caug
 	);
 	return { message: `Something went wrong (ref ${ref}).` };
 });
+
+export const handleError: HandleServerError = (caught) => {
+	if (['/api/app-metrics', '/api/internal/app-metrics-prune'].includes(caught.event.url.pathname))
+		return { message: 'Unavailable' };
+	return ordinaryError(caught);
+};

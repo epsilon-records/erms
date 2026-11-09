@@ -26,3 +26,11 @@ export function asUser<T>(db: Database, userId: string, fn: (tx: Database) => Pr
 export function scopedTo(db: Database, userId: string): Scoped {
 	return (fn) => asUser(db, userId, fn);
 }
+
+export type MetricsRole = 'erms_metrics_ingest' | 'erms_metrics_prune';
+/** Called only inside a reserved transaction owned by client.ts. No JWT identity is set. */
+export async function setMetricsRole(tx: Database, role: MetricsRole) {
+	await tx.execute(
+		sql`select set_config('role', ${role}, true), set_config('lock_timeout', '100ms', true), set_config('statement_timeout', '250ms', true)`
+	);
+}

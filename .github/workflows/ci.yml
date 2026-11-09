@@ -86,6 +86,17 @@ jobs:
       - name: RLS through PostgREST
         run: pnpm test:rls:rest
 
+      - name: Browser privacy and aggregate readback (real Supabase, installed Chrome)
+        env:
+          METRICS_PROOF_PATH: ${{ runner.temp }}/app-metrics-proof.json
+        run: node scripts/app-metrics-browser-db.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: app-metrics-proof
+          path: ${{ runner.temp }}/app-metrics-proof.json
+          if-no-files-found: ignore
+
       # Creates a Sentry release and uploads source maps for this commit
       # (skipped when the secret is absent, e.g. forks).
       - run: pnpm build

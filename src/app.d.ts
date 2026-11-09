@@ -17,7 +17,7 @@ declare global {
 			membership: Membership | null;
 			/** Every org the user belongs to, oldest first. */
 			memberships: Membership[];
-			/** Run queries in one transaction as this user, under RLS. */
+			/** RLS user transaction, or exact metrics boundary execute-only machine role (no identity). */
 			db: Scoped;
 		}
 		interface PageData {

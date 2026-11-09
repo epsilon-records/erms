@@ -6,6 +6,21 @@ import { z } from 'zod';
  * Public ones come from `$app/env/public`, private ones from `$app/env/private`.
  */
 export const variables = defineEnvVars({
+	APP_METRICS_ENABLED: {
+		schema: z
+			.string()
+			.default('false')
+			.transform((v) => v === 'true'),
+		description: 'First-party performance ingestion; disabled pending review'
+	},
+	PUBLIC_APP_METRICS_ENABLED: {
+		public: true,
+		schema: z
+			.string()
+			.default('false')
+			.transform((v) => v === 'true'),
+		description: 'First-party performance client; disabled pending review'
+	},
 	PUBLIC_SUPABASE_URL: {
 		public: true,
 		schema: z.url(),

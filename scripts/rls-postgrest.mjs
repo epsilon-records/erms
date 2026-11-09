@@ -217,6 +217,45 @@ const cases = [
 	}
 ];
 
+// Private metrics schema must remain unavailable through the actual PostgREST layer.
+for (const [label, key] of [
+	['anon', jwt('anon')],
+	['owner A', jwt('authenticated', IDS.u1)],
+	['owner B', jwt('authenticated', IDS.u2)]
+]) {
+	for (const method of ['GET', 'POST', 'PATCH', 'DELETE'])
+		cases.push({
+			name: `${label} cannot ${method} private metrics through REST`,
+			expect: 'private schema refused',
+			run: async () => {
+				const response = await fetch(`${rest}/app_performance_daily`, {
+					method,
+					headers: {
+						apikey: key,
+						authorization: `Bearer ${key}`,
+						'accept-profile': 'app_metrics',
+						'content-profile': 'app_metrics',
+						'content-type': 'application/json'
+					},
+					...(method === 'POST' || method === 'PATCH'
+						? {
+								body: '{"day_utc":"2026-01-01","route_code":1,"metric_code":1,"bucket":1,"count":1}'
+							}
+						: {})
+				});
+				return response.status === 406 && (await response.json()).code === 'PGRST106';
+			}
+		});
+	cases.push({
+		name: `${label} cannot call private metrics function`,
+		expect: 'no exposed RPC',
+		run: async () => {
+			const response = await call('POST', '/rpc/record', key, { r: 1, m: 1, b: 1 });
+			return response.status === 404;
+		}
+	});
+}
+
 let failed = 0;
 for (const testCase of cases) {
 	let passed = false;

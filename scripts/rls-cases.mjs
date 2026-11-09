@@ -459,3 +459,59 @@ export function assumeSql(role, claim) {
 	}
 	return `SELECT ${sets.join(', ')}`;
 }
+
+// Anonymous metrics is a distinct execute-only role, never erms_app or a pretend user.
+for (const role of [
+	'anon',
+	'authenticated',
+	'erms_app',
+	'erms_metrics_ingest',
+	'erms_metrics_prune'
+]) {
+	for (const claim of [IDS.u1, IDS.u2]) {
+		for (const probe of [
+			'SELECT * FROM app_metrics.app_performance_daily',
+			'INSERT INTO app_metrics.app_performance_daily VALUES (current_date,1,1,1,1)'
+		])
+			RLS_CASES.push({
+				name: `${role}/${claim === IDS.u1 ? 'owner A' : 'owner B'} cannot access metrics table: ${probe.split(' ')[0]}`,
+				role,
+				claim,
+				probe,
+				expect: 'error',
+				errorCode: '42501'
+			});
+		if (!role.startsWith('erms_metrics_'))
+			RLS_CASES.push({
+				name: `${role} cannot execute metrics as tenant owner`,
+				role,
+				claim,
+				probe: 'SELECT app_metrics.record(1::smallint,1::smallint,1::smallint)',
+				expect: 'error',
+				errorCode: '42501'
+			});
+	}
+}
+for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
+	RLS_CASES.push({
+		requiresSupabaseRoles: true,
+		name: `${role} has no catalogue rights`,
+		role,
+		claim: null,
+		probe: 'SELECT * FROM public.labels',
+		expect: 'error',
+		errorCode: '42501'
+	});
+	RLS_CASES.push({
+		requiresSupabaseRoles: true,
+		name: `${role} cannot execute the other machine capability`,
+		role,
+		claim: null,
+		probe:
+			role === 'erms_metrics_ingest'
+				? 'SELECT app_metrics.prune()'
+				: 'SELECT app_metrics.record(1::smallint,1::smallint,1::smallint)',
+		expect: 'error',
+		errorCode: '42501'
+	});
+}
