@@ -90,6 +90,7 @@ jobs:
         run: pnpm test:rls:rest
 
       - name: Browser privacy and aggregate readback (real Supabase, installed Chrome)
+        timeout-minutes: 3
         if: ${{ !cancelled() && steps.migrate.outcome == 'success' }}
         env:
           METRICS_PROOF_PATH: ${{ runner.temp }}/app-metrics-proof.json

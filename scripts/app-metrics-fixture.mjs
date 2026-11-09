@@ -18,6 +18,7 @@ await writeFile(
 			"import { PUBLIC_SENTRY_DSN } from '$app/env/public';",
 			'const PUBLIC_SENTRY_DSN="https://fake@example.invalid/1";'
 		)
+		.replace('tracesSampleRate: PUBLIC_SENTRY_DSN ? 0.1 : 0', 'tracesSampleRate: 1')
 		.replace(
 			'Sentry.init({',
 			'Sentry.init({ transport: () => ({ send: async (envelope) => { (globalThis.fixtureEnvelopes ??= []).push(envelope); return {}; }, flush: async () => true }),'
@@ -53,7 +54,9 @@ try {
 			alias: {
 				'@metrics': resolve(repo, 'src/lib'),
 				'#lib': resolve(repo, 'src/lib'),
-				'@metrics-endpoint': resolve(repo, 'src/routes/api/app-metrics/+server.ts')
+				'@metrics-endpoint': resolve(repo, 'src/routes/api/app-metrics/+server.ts'),
+				'@auth-callback': resolve(repo, 'src/routes/auth/callback/+server.ts'),
+				'@auth-confirm': resolve(repo, 'src/routes/auth/confirm/+server.ts')
 			}
 		},
 		define: { __SENTRY_ENVIRONMENT__: JSON.stringify('production'), __SENTRY_RELEASE__: 'null' },
@@ -97,6 +100,11 @@ try {
 	const wire = [];
 	let mode = 'ok';
 	onRequest = async (req, res, next) => {
+		if (req.url === '/fixture-auth-inputs') {
+			res.setHeader('content-type', 'application/json');
+			res.end(JSON.stringify(globalThis.fixtureAuthInputs ?? []));
+			return;
+		}
 		if (req.url === '/fixture-ledger') {
 			res.setHeader('content-type', 'application/json');
 			res.end(JSON.stringify(wire));
@@ -120,8 +128,12 @@ try {
 			res.end();
 			return;
 		}
-		if (mode === 'failure') {
-			res.writeHead(500);
+		if (mode === 'netfail') {
+			res.destroy();
+			return;
+		}
+		if (/^status-\d+$/.test(mode)) {
+			res.writeHead(Number(mode.slice(7)));
 			res.end();
 			return;
 		}

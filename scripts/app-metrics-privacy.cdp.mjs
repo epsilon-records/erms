@@ -23,6 +23,13 @@ const chrome =
 		: execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).trim());
 const profile = await mkdtemp(resolve(tmpdir(), 'erms-metrics-chrome-'));
 let browser, fixture, socket;
+const hardDeadline = setTimeout(() => {
+	browser?.kill('SIGKILL');
+	fixture?.kill('SIGKILL');
+	console.error('Browser proof exceeded 120s');
+	void rm(profile, { recursive: true, force: true }).finally(() => process.exit(1));
+}, 120000);
+hardDeadline.unref();
 let failureOutput = '';
 const ledger = [];
 const denied = [];
@@ -75,6 +82,7 @@ try {
 		if (m.id) {
 			const p = pending.get(m.id);
 			pending.delete(m.id);
+			clearTimeout(p?.timer);
 			m.error ? p?.reject(new Error(m.error.message)) : p?.resolve(m.result);
 			return;
 		}
@@ -83,7 +91,11 @@ try {
 	const send = (method, params = {}, sessionId) =>
 		new Promise((resolve, reject) => {
 			const n = ++id;
-			pending.set(n, { resolve, reject });
+			const timer = setTimeout(() => {
+				pending.delete(n);
+				reject(new Error('CDP deadline: ' + method));
+			}, 10000);
+			pending.set(n, { resolve, reject, timer });
 			socket.send(JSON.stringify({ id: n, method, params, ...(sessionId ? { sessionId } : {}) }));
 		});
 	const version = await send('Browser.getVersion');
@@ -95,7 +107,15 @@ try {
 	handlers.set('Fetch.requestPaused', [
 		async (p, s) => {
 			const url = p.request.url;
-			if (url.startsWith(origin + '/')) {
+			const path = url.startsWith(origin + '/') ? new URL(url).pathname : '';
+			const allowed =
+				url === origin + '/api/app-metrics' ||
+				['/', '/login', '/control', '/auth/callback', '/auth/confirm'].includes(path) ||
+				/^\/releases\/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa(?:\/__data.json)?$/.test(path) ||
+				['/src/', '/@vite/', '/@fs/', '/node_modules/', '/.svelte-kit/'].some((p) =>
+					path.startsWith(p)
+				);
+			if (url.startsWith(origin + '/') && allowed) {
 				if (url === origin + '/api/app-metrics')
 					ledger.push({
 						url,
@@ -152,14 +172,19 @@ try {
 	await navigate('/?token=FAKE_METRIC_SECRET#FAKE_METRIC_SECRET');
 
 	await until(async () => (await wire()).some((r) => r.body));
+	await evaluate(`fetch('/fixture-deny-probe').catch(()=>true)`);
 	await evaluate(`fetch('/control').then(()=>true)`);
 	let records = await wire();
 	assert(records.find((r) => r.control)?.headers.cookie.includes('FAKE_METRIC_SECRET'));
+	assert(
+		records.find((r) => r.control)?.headers['sentry-trace'],
+		'normal control fetch must prove tracing instrumentation is active'
+	);
 	const initialCount = records.filter((r) => r.body).length;
 	assert.equal(initialCount, 1);
-	await evaluate(
-		`fixtureGoto('/releases/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa?token=FAKE_METRIC_SECRET')`
-	);
+	await evaluate(`document.querySelector('#entity').click()`);
+	await until(() => evaluate('location.pathname.startsWith("/releases/")'));
+	await evaluate(`history.replaceState({...history.state,fake:'FAKE_METRIC_SECRET'},'');`);
 	await evaluate(
 		`window.dispatchEvent(new PageTransitionEvent('pagehide'));window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));`
 	);
@@ -174,13 +199,39 @@ try {
 	await navigate('/auth/callback?code=FAKE_METRIC_SECRET');
 	await until(async () => (await wire()).filter((r) => r.body).length === 2);
 	assert.equal(await evaluate('location.pathname'), '/');
+	// The real callback/confirm handlers consume original fake inputs through fake Auth locals.
+	const authCases = [
+		['/auth/callback?code=FAKE_METRIC_SECRET_BAD', '/login'],
+		['/auth/callback', '/login'],
+		['/auth/confirm?token_hash=FAKE_METRIC_SECRET&type=invite', '/'],
+		['/auth/confirm?token_hash=FAKE_METRIC_SECRET_BAD&type=invite', '/login'],
+		['/auth/confirm?token_hash=FAKE_METRIC_SECRET&type=invalid', '/login']
+	];
+	for (const [path, expected] of authCases) {
+		await navigate(path);
+		assert.equal(await evaluate('location.pathname'), expected);
+	}
+	const inputs = await fetch(origin + '/fixture-auth-inputs').then((r) => r.json());
+	assert(inputs.some((i) => i.code === 'FAKE_METRIC_SECRET'));
+	assert(inputs.some((i) => i.token_hash === 'FAKE_METRIC_SECRET' && i.type === 'invite'));
 	const beforeFailure = (await wire()).filter((r) => r.body).length;
-	for (const mode of ['failure', 'redirect', 'timeout']) {
+	const failureModes = [
+		'status-400',
+		'status-401',
+		'status-403',
+		'status-413',
+		'status-429',
+		'status-500',
+		'redirect',
+		'timeout',
+		'netfail'
+	];
+	for (const mode of failureModes) {
 		await fetch(origin + '/fixture-mode/' + mode);
 		await navigate('/?q=FAKE_METRIC_SECRET');
 		await wait(1500);
 	}
-	assert.equal((await wire()).filter((r) => r.body).length, beforeFailure + 3);
+	assert.equal((await wire()).filter((r) => r.body).length, beforeFailure + failureModes.length);
 	await fetch(origin + '/fixture-mode/ok');
 	// New-document disabled case: constructor receives disabled, with all other state unchanged.
 	await command('Page.addScriptToEvaluateOnNewDocument', {
@@ -193,6 +244,7 @@ try {
 	assert.equal((await wire()).filter((r) => r.body).length, beforeDisabled);
 	records = (await wire()).filter((r) => r.body);
 	for (const r of records) {
+		if (r.mode === 'ok') assert.equal(r.status, 204, 'actual endpoint baseline must accept');
 		for (const name of [
 			'cookie',
 			'authorization',
@@ -218,7 +270,7 @@ try {
 			!/FAKE|aaaaaaaa|example\.invalid/i.test(JSON.stringify({ headers: r.headers, body: r.body }))
 		);
 	}
-	assert.equal(denied.length, 0, 'unexpected browser egress: ' + JSON.stringify(denied));
+	assert.deepEqual(denied, [origin + '/fixture-deny-probe'], 'unexpected browser egress');
 	assert.equal(
 		await evaluate(
 			'JSON.stringify(globalThis.fixtureEnvelopes ?? []).includes("/api/app-metrics")'
@@ -235,6 +287,16 @@ try {
 			.update(readFileSync('src/lib/app-metrics-client.ts'))
 			.digest('hex'),
 		wireAttempts: records.length,
+		wireLedger: records.map((r) => ({
+			mode: r.mode,
+			status: r.status ?? null,
+			body: JSON.parse(r.body),
+			headers: r.headers
+		})),
+		contractVersion: 1,
+		fixtureHash: createHash('sha256')
+			.update(readFileSync('scripts/fixtures/app-metrics/src/routes/+layout.svelte'))
+			.digest('hex'),
 		accepted: records.filter((r) => r.status === 204).length,
 		storage,
 		syntheticLifecycle: ['pagehide', 'pageshow persisted'],
@@ -244,31 +306,46 @@ try {
 			'Secure cookies over TLS',
 			'production Netlify/platform logging'
 		],
-		unknownRequests: denied.length,
+		unknownRequests: denied.length - 1,
+		expectedBlockedProbe: 1,
 		pageErrors: pageErrors.length
 	};
+	if (storage) {
+		const { default: postgres } = await import('postgres');
+		const sql = postgres(process.env.METRICS_TEST_DATABASE_URL, {
+			max: 1,
+			connect_timeout: 3,
+			queue_timeout: 3
+		});
+		try {
+			const totals =
+				await sql`select sum(count)::int as n from app_metrics.app_performance_daily where route_code=1`;
+			assert.equal(totals[0].n, proof.accepted);
+			proof.storageReadback = { histogramCount: totals[0].n, matchedAccepted: true };
+		} finally {
+			await sql.end({ timeout: 1 });
+		}
+	}
 	await writeFile(
 		process.env.METRICS_PROOF_PATH ?? resolve(tmpdir(), 'erms-app-metrics-proof.json'),
 		JSON.stringify(proof, null, 2) + '\n'
 	);
-	console.log(JSON.stringify(proof));
-	if (storage) {
-		const { default: postgres } = await import('postgres');
-		const sql = postgres(process.env.METRICS_TEST_DATABASE_URL, { max: 1 });
-		const totals =
-			await sql`select sum(count)::int as n from app_metrics.app_performance_daily where route_code=1`;
-		assert.equal(totals[0].n, proof.accepted);
-		await sql.end();
-	}
+	console.log(JSON.stringify({ ...proof, wireLedger: undefined }));
 	await send('Target.disposeBrowserContext', { browserContextId });
 } catch (error) {
 	console.error(error);
 	if (failureOutput) console.error(failureOutput);
 	process.exitCode = 1;
 } finally {
+	clearTimeout(hardDeadline);
 	socket?.close();
 	browser?.kill('SIGTERM');
 	fixture?.kill('SIGTERM');
+	const stop = setTimeout(() => {
+		browser?.kill('SIGKILL');
+		fixture?.kill('SIGKILL');
+	}, 2000);
+	stop.unref();
 	await wait(250);
 	await rm(profile, { recursive: true, force: true });
 }
