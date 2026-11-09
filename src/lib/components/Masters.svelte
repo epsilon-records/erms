@@ -55,15 +55,22 @@
 		} else file = f;
 	}
 
-	/** Delete a master after the browser's confirm. The DELETE route removes the R2 object
-	 * and the row in one audited transaction. */
+	/** The master whose delete is waiting for confirmation (decision 0023). */
+	let confirming = $state<string | null>(null);
+
+	/** Delete a master once the person has confirmed it inline. The DELETE route refuses a
+	 * request without `removalConfirmed`, then removes the R2 object and the row in one audited
+	 * transaction. */
 	async function remove(m: Master) {
-		if (!confirm(`Delete the master ${m.fileName}? The file and its record are removed for good.`))
-			return;
+		confirming = null;
 		message = null;
 		deleting = m.id;
 		try {
-			const res = await fetch(`/recordings/${recordingId}/masters/${m.id}`, { method: 'DELETE' });
+			const res = await fetch(`/recordings/${recordingId}/masters/${m.id}`, {
+				method: 'DELETE',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ removalConfirmed: 'yes' })
+			});
 			if (!res.ok) {
 				const body = await res.json().catch(() => null);
 				throw new Error(body?.message ?? `Delete failed (${res.status}).`);
@@ -75,6 +82,11 @@
 		} finally {
 			deleting = null;
 		}
+	}
+
+	/** Move focus into the confirmation when it opens, so keyboard users land on it. */
+	function focusOnMount(node: HTMLElement) {
+		node.focus();
 	}
 
 	async function upload(e: SubmitEvent) {
@@ -127,14 +139,37 @@
 						</td>
 						{#if canDelete}
 							<td>
-								<button
-									class="btn small"
-									type="button"
-									disabled={deleting === m.id}
-									onclick={() => remove(m)}
-								>
-									{deleting === m.id ? 'Deleting…' : 'Delete'}
-								</button>
+								{#if confirming === m.id}
+									<div
+										class="confirm"
+										role="group"
+										aria-labelledby="confirm-{m.id}"
+										tabindex="-1"
+										use:focusOnMount
+									>
+										<span id="confirm-{m.id}" class="confirm-text"
+											>Delete {m.fileName}? The file and its record are removed for good.</span
+										>
+										<span class="inline-form">
+											<button class="btn small danger" type="button" onclick={() => remove(m)}
+												>Delete master</button
+											>
+											<button class="btn small" type="button" onclick={() => (confirming = null)}
+												>Keep</button
+											>
+										</span>
+									</div>
+								{:else}
+									<button
+										class="btn small danger"
+										type="button"
+										disabled={deleting === m.id}
+										aria-label="Delete {m.fileName}"
+										onclick={() => (confirming = m.id)}
+									>
+										{deleting === m.id ? 'Deleting…' : 'Delete'}
+									</button>
+								{/if}
 							</td>
 						{/if}
 					</tr>
@@ -182,3 +217,16 @@
 		{message.text}
 	</div>
 {/if}
+
+<style>
+	.confirm {
+		display: grid;
+		gap: 8px;
+		padding: 8px 10px;
+		border-left: 2px solid var(--danger);
+		outline-offset: 2px;
+	}
+	.confirm-text {
+		font-size: 13px;
+	}
+</style>

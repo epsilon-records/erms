@@ -75,10 +75,25 @@
 							<td><span class="tag {state(c) === 'active' ? '' : 'outline'}">{state(c)}</span></td>
 							<td class="num">
 								{#if data.options && !c.revokedAt}
-									<form method="POST" action="?/revoke">
-										<input type="hidden" name="consentId" value={c.id} />
-										<button class="btn small danger">Revoke</button>
-									</form>
+									<!-- Decision 0023: a native disclosure, so the confirm step works without JS. -->
+									<details class="confirm">
+										<summary class="btn small danger" aria-label="Revoke {c.party}’s consent"
+											>Revoke</summary
+										>
+										<form method="POST" action="?/revoke" class="confirm-panel">
+											<input type="hidden" name="consentId" value={c.id} />
+											<p>
+												Revoke {c.party}’s consent for {label(c.purpose).toLowerCase()}? Jobs that
+												need it are refused from now on. Recording it again makes a new consent.
+											</p>
+											<button
+												class="btn small danger"
+												name="removalConfirmed"
+												value="yes"
+												aria-label="Confirm: revoke {c.party}’s consent">Revoke consent</button
+											>
+										</form>
+									</details>
 								{/if}
 							</td>
 						</tr>
@@ -86,6 +101,9 @@
 				</tbody>
 			</table>
 		</div>
+		{#if failed && form?.action === 'revoke'}
+			<div class="alert error" role="alert">{Object.values(errors).join('\n')}</div>
+		{/if}
 	{:else}
 		<p class="soft">No consents recorded.</p>
 	{/if}
@@ -131,7 +149,7 @@
 				<span></span>
 				<div><button class="btn primary">Record consent</button></div>
 			</div>
-			{#if failed}
+			{#if failed && form?.action !== 'revoke'}
 				<div class="alert error" role="alert">
 					{Object.entries(errors)
 						.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
@@ -145,3 +163,33 @@
 		</form>
 	{/if}
 </div>
+
+<style>
+	.confirm {
+		display: inline-block;
+		text-align: left;
+	}
+	.confirm > summary {
+		list-style: none;
+	}
+	.confirm > summary::-webkit-details-marker {
+		display: none;
+	}
+	.confirm[open] > summary {
+		border-color: var(--danger);
+	}
+	.confirm-panel {
+		display: grid;
+		gap: 8px;
+		justify-items: start;
+		max-width: 300px;
+		margin-top: 8px;
+		padding: 10px 12px;
+		border-left: 2px solid var(--danger);
+		background: var(--surface);
+		font-size: 13px;
+	}
+	.confirm-panel p {
+		margin: 0;
+	}
+</style>

@@ -1,3 +1,4 @@
+import { fail } from '@sveltejs/kit';
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
 import { hasScope } from '#lib/server/rbac.js';
@@ -35,6 +36,16 @@ export const actions: Actions = {
 	revoke: async ({ request, locals }) => {
 		const ctx = ctxFor(locals);
 		const f = await formFields(request);
+		// Decision 0023: only the confirm step's button sends removalConfirmed=yes. A bare request
+		// is refused before the database is touched, so nothing changes and nothing is audited.
+		if (f.removalConfirmed !== 'yes') {
+			return fail(400, {
+				action: 'revoke',
+				ok: false as const,
+				errors: { form: 'Revoking a consent needs confirmation; nothing was changed.' },
+				values: f
+			});
+		}
 		return editAction('revoke', f, () => locals.db((tx) => revokeConsent(tx, ctx, f.consentId)));
 	}
 };
