@@ -8,7 +8,8 @@
 	import { page } from '$app/state';
 	import type { createCollector } from './app-metrics-client';
 	let { collector }: { collector: ReturnType<typeof createCollector> } = $props();
-	if (!mounted.has(collector)) {
+	function register() {
+		if (mounted.has(collector)) return;
 		mounted.add(collector);
 		beforeNavigate((n) =>
 			collector.before({
@@ -35,4 +36,5 @@
 			window.removeEventListener('pageshow', invalidate);
 		});
 	}
+	register();
 </script>
