@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { confirmRemoval } from '#lib/removal-confirmation.js';
 	type Credit = {
 		id: string;
 		role: string;
@@ -24,6 +25,13 @@
 		values?: Record<string, string>;
 	} = $props();
 </script>
+
+<noscript
+	><p class="soft">
+		JavaScript is required to confirm removals. Removal requests without confirmation leave existing
+		records unchanged.
+	</p></noscript
+>
 
 <div class="table-wrap">
 	<table class="data">
@@ -57,7 +65,12 @@
 										<button class="btn small">Approve</button>
 									</form>
 								{/if}
-								<form method="POST" action="?/removeCredit">
+								<form
+									method="POST"
+									action="?/removeCredit"
+									use:confirmRemoval={() =>
+										`Remove the ${c.role} credit for ${c.name}? This removes the credit, while keeping the artist and catalog item.`}
+								>
 									<input type="hidden" name="creditId" value={c.id} />
 									<button class="btn small danger" aria-label="Remove {c.role} credit for {c.name}"
 										>Remove</button

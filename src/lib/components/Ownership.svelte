@@ -1,4 +1,10 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import {
+		confirmRemoval,
+		removedIdentities,
+		submittedIdentities
+	} from '#lib/removal-confirmation.js';
 	/**
 	 * Shows ownership by territory and, for rights roles, edits one territory's set of
 	 * shares. Rows are holder_N / share_N fields; blank rows are ignored.
@@ -28,19 +34,35 @@
 	} = $props();
 
 	const failedBefore = $derived(Object.keys(errors).length > 0);
-	let territory = $state('WW');
+	// SSR must restore failed submissions too; effects only run after hydration.
+	let territory = $state(
+		untrack(() => (failedBefore ? (values.territory || 'WW').toUpperCase() : 'WW'))
+	);
 	$effect.pre(() => {
-		if (failedBefore && values.territory) territory = values.territory.toUpperCase();
+		if (failedBefore) territory = (values.territory || 'WW').toUpperCase();
 	});
-	const current = $derived(groups.find((g) => g.territory === territory)?.holders ?? []);
+	const current = $derived(
+		groups.find((g) => g.territory === territory.trim().toUpperCase())?.holders ?? []
+	);
 	const ROWS = 6;
 	const rowValue = (i: number, field: 'holder' | 'share') => {
-		if (failedBefore) return values[`${field}_${i}`] ?? '';
+		if (
+			failedBefore &&
+			territory.trim().toUpperCase() === (values.territory || 'WW').trim().toUpperCase()
+		)
+			return values[`${field}_${i}`] ?? '';
 		const h = current[i];
 		return h ? (field === 'holder' ? h.holder : h.share) : '';
 	};
 	const total = (g: Group) => g.holders.reduce((a, h) => a + Number(h.share), 0);
 </script>
+
+<noscript
+	><p class="soft">
+		JavaScript is required to confirm removals. Removal requests without confirmation leave existing
+		records unchanged.
+	</p></noscript
+>
 
 {#if groups.length === 0}
 	<p class="soft">{emptyText}</p>
@@ -75,7 +97,23 @@
 {/if}
 
 {#if options}
-	<form method="POST" action="?/{action}" class="stack" aria-label="Edit ownership">
+	<form
+		method="POST"
+		action="?/{action}"
+		use:confirmRemoval={(fields) => {
+			const selected = (fields.territory || 'WW').trim().toUpperCase();
+			const removed = removedIdentities(
+				groups.find((g) => g.territory === selected)?.holders ?? [],
+				submittedIdentities(fields, 'holder'),
+				(h) => h.holder
+			);
+			return removed.length
+				? `Remove ownership for ${removed.map((h) => h.name).join(', ')} in ${selected}? Saving removes these holders from this territory's ownership set.`
+				: null;
+		}}
+		class="stack"
+		aria-label="Edit ownership"
+	>
 		<div class="form-grid">
 			<label for="own-territory">Territory</label>
 			<div>

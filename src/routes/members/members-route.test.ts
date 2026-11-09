@@ -46,6 +46,22 @@ describe('members page: invite action', () => {
 		]);
 	});
 
+	it('requires acknowledgement before removal and still refuses removing the last owner', async () => {
+		await db.insert(memberships).values({ orgId: orgA, userId: newcomer, role: 'viewer' });
+		const event = (fields: Record<string, string>) =>
+			({ request: form(fields), locals: locals(ownerA, orgA, 'Label A') }) as never;
+		expect(await actions.remove(event({ userId: newcomer }))).toMatchObject({ status: 400 });
+		expect((await db.select().from(memberships)).some((r) => r.userId === newcomer)).toBe(true);
+		expect(
+			await actions.remove(event({ userId: newcomer, removalConfirmed: 'yes' }))
+		).toMatchObject({ ok: true });
+		expect((await db.select().from(memberships)).some((r) => r.userId === newcomer)).toBe(false);
+		expect(await actions.remove(event({ userId: ownerA, removalConfirmed: 'yes' }))).toMatchObject({
+			status: 400
+		});
+		expect((await db.select().from(memberships)).some((r) => r.userId === ownerA)).toBe(true);
+	});
+
 	it('invites into the owner’s own label, naming that label', async () => {
 		invite.mockResolvedValue({ userId: newcomer, emailed: true });
 		const out = await actions.invite({

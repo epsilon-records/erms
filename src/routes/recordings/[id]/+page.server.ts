@@ -1,3 +1,5 @@
+import { removedIdentities, submittedIdentities } from '#lib/removal-confirmation.js';
+import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js';
 import { error, fail } from '@sveltejs/kit';
 import { latestReadyMasterId, recordingAnalysis } from '#lib/server/analysis.js';
 import { canSubmitJobs, JobError, queueAudioKitJob } from '#lib/server/audiokit-jobs.js';
@@ -18,6 +20,7 @@ import {
 	holdersFromForm,
 	listCompositions,
 	recordingOwnership,
+	ownershipFor,
 	setOwnership,
 	setRecordingLink
 } from '#lib/server/rights.js';
@@ -90,14 +93,24 @@ export const actions: Actions = {
 		const ctx = ctxFor(locals, 'rights:write');
 		const f = await formFields(request);
 		return editAction('setMaster', f, () =>
-			locals.db((tx) =>
-				setOwnership(tx, ctx, {
+			locals.db(async (tx) => {
+				const groups = await ownershipFor(tx, ctx.orgId, 'master', params.id);
+				const territory = (f.territory || 'WW').trim().toUpperCase();
+				requireRemovalConfirmation(
+					f,
+					removedIdentities(
+						groups.find((g) => g.territory === territory)?.holders ?? [],
+						submittedIdentities(f, 'holder'),
+						(h) => h.holder
+					).length > 0
+				);
+				return setOwnership(tx, ctx, {
 					right: 'master',
 					targetId: params.id,
 					territory: f.territory || 'WW',
 					holders: holdersFromForm(f)
-				})
-			)
+				});
+			})
 		);
 	},
 	save: async ({ request, locals, params }) => {
@@ -117,8 +130,10 @@ export const actions: Actions = {
 	removeCredit: async ({ request, locals }) => {
 		const ctx = ctxFor(locals, 'catalog:write');
 		const f = await formFields(request);
-		return editAction('removeCredit', f, () =>
-			locals.db((tx) => removeCredit(tx, ctx, f.creditId))
+		return editAction(
+			'removeCredit',
+			f,
+			() => (requireRemovalConfirmation(f), locals.db((tx) => removeCredit(tx, ctx, f.creditId)))
 		);
 	},
 	approveCredit: async ({ request, locals }) => {
