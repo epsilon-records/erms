@@ -109,6 +109,7 @@ it('discards only hosting trace context for the exact server-verified Netlify me
 			traceparent: '00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01',
 			tracestate: 'fake=transport',
 			'x-amzn-trace-id': 'FAKE_TRANSPORT',
+			'x-nf-trace-span-id': 'FAKE_PLATFORM_SPAN',
 			baggage: 'FAKE_MUST_REMAIN_REJECTED',
 			authorization: 'FAKE_MUST_REMAIN_REJECTED'
 		};
@@ -125,7 +126,7 @@ it('discards only hosting trace context for the exact server-verified Netlify me
 			}
 		};
 		const resolve = vi.fn(async (received: typeof e) => {
-			for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id'])
+			for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id', 'x-nf-trace-span-id'])
 				expect(received.request.headers.has(key)).toBe(!trusted);
 			expect(received.request.headers.get('authorization')).toBe('FAKE_MUST_REMAIN_REJECTED');
 			expect(received.request.headers.get('baggage')).toBe('FAKE_MUST_REMAIN_REJECTED');
