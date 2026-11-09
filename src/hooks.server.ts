@@ -129,7 +129,8 @@ export const handle: Handle = async (input) => {
 				event.platform?.context?.site?.id === '4d4e8994-934f-4d38-9eb6-5831c09fc6b1'
 			) {
 				const headers = new Headers(event.request.headers);
-				for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id']) headers.delete(key);
+				for (const key of ['traceparent', 'tracestate', 'x-amzn-trace-id', 'x-nf-trace-span-id'])
+					headers.delete(key);
 				event = { ...event, request: new Request(event.request, { headers }) };
 			}
 			return await Sentry.suppressTracing(() => input.resolve(event));

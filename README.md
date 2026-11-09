@@ -269,7 +269,7 @@ endpoint bypasses Supabase Auth and Sentry request handling before either runs;
 Sentry browser fetch breadcrumbs, spans and trace propagation exclude the collector.
 Unexpected credential/tracing headers are rejected. Netlify adds W3C transport
 trace context after the browser sends the request; the exact metrics hook discards
-`traceparent`, `tracestate` and AWS transport tracing only when the adapter-owned
+`traceparent`, `tracestate`, `x-nf-trace-span-id` and AWS transport tracing only when the adapter-owned
 Netlify site context matches this deployment. No trace value is read, persisted or
 forwarded. Other hosts retain strict tracing rejection, and cookie/auth/Sentry
 baggage checks remain enforced on Netlify. The endpoint still necessarily

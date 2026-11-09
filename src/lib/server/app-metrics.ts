@@ -44,11 +44,18 @@ export function createReceiver(now = Date.now) {
 		for (const key of h.keys()) {
 			if (/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key))
 				return rejected(
-					key.startsWith('x-nf-')
-						? 'netlify-custom'
-						: key.startsWith('x-forwarded-')
-							? 'forwarded-custom'
-							: 'custom'
+					[
+						'x-nf-pc-token',
+						'x-nf-purge-api-token',
+						'x-nf-skew-protection-token',
+						'x-nf-trace-span-id'
+					].includes(key)
+						? 'platform-' + key
+						: key.startsWith('x-nf-')
+							? 'netlify-custom'
+							: key.startsWith('x-forwarded-')
+								? 'forwarded-custom'
+								: 'custom'
 				);
 		}
 		if (
