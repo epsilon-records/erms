@@ -126,3 +126,11 @@ it('cancels slow and truly oversized streamed bodies, without opening SQL', asyn
 		vi.useRealTimers();
 	}
 });
+
+it('discards AWS load-balancer tracing metadata without rejecting a valid sample', async () => {
+	const request = req({ headers: { ...headers, 'x-amzn-trace-id': 'Root=FAKE_TRANSPORT_ONLY' } });
+	const response = await createReceiver()(request, run, true);
+	expect(response.status).toBe(204);
+	expect([...response.headers]).toEqual([['cache-control', 'no-store']]);
+	expect(await response.text()).toBe('');
+});

@@ -36,8 +36,12 @@ export function createReceiver(now = Date.now) {
 			h.get('origin') !== origin ||
 			h.get('sec-fetch-site') !== 'same-origin' ||
 			forbidden.some((key) => h.has(key)) ||
-			[...h.keys()].some((key) =>
-				/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key)
+			[...h.keys()].some(
+				(key) =>
+					// AWS load balancers add this transport header; its value is never consumed,
+					// persisted or forwarded. Browser W3C/Sentry tracing still fails closed.
+					key !== 'x-amzn-trace-id' &&
+					/^x-.*(?:auth|token|session|user|org|tenant|trace|baggage|api-key)/i.test(key)
 			)
 		)
 			return empty(403);
