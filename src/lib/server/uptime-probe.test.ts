@@ -6,7 +6,10 @@ import handler, {
 	failureEvent,
 	parseDsn,
 	probe,
+	probeWithRetry,
+	RETRY_DELAY_MS,
 	run,
+	SEND_TIMEOUT_MS,
 	TIMEOUT_MS
 } from '../../../netlify/functions/uptime-probe.mjs';
 
@@ -15,12 +18,14 @@ const DSN = 'https://publickey123@o1.ingest.us.sentry.io/42';
 const ENVELOPE_URL = 'https://o1.ingest.us.sentry.io/api/42/envelope/';
 
 type Answer = number | 'timeout' | 'network';
+/** One answer for every request, or one per attempt (the last repeats). */
+type Answers = Record<string, Answer | Answer[]>;
 
 /**
  * A fetch stand-in: probe URLs answer as `answers` says (200 by default), and Sentry
  * envelopes are recorded and answered with `sentryStatus`.
  */
-function fakeFetch(answers: Record<string, Answer> = {}, sentryStatus = 200) {
+function fakeFetch(answers: Answers = {}, sentryStatus = 200) {
 	const envelopes: { headers: Record<string, string>; items: unknown[] }[] = [];
 	const probes: { url: string; init?: RequestInit }[] = [];
 	const impl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -34,7 +39,11 @@ function fakeFetch(answers: Record<string, Answer> = {}, sentryStatus = 200) {
 			return new Response('{}', { status: sentryStatus });
 		}
 		probes.push({ url, init });
-		const answer = answers[url] ?? 200;
+		const planned = answers[url] ?? 200;
+		const attempt = probes.filter((p) => p.url === url).length - 1;
+		const answer = Array.isArray(planned)
+			? planned[Math.min(attempt, planned.length - 1)]
+			: planned;
 		if (answer === 'timeout') throw new DOMException('The operation timed out.', 'TimeoutError');
 		if (answer === 'network') throw new TypeError('fetch failed', { cause: { code: 'ENOTFOUND' } });
 		return new Response(answer === 204 ? null : 'page', { status: answer });
@@ -44,6 +53,8 @@ function fakeFetch(answers: Record<string, Answer> = {}, sentryStatus = 200) {
 }
 
 const env = { SENTRY_DSN: DSN };
+// Tests skip the pause before a retry.
+const fast = { retryDelayMs: 0 };
 
 describe('uptime prober (shared decision 0010)', () => {
 	beforeEach(() => {
@@ -68,9 +79,11 @@ describe('uptime prober (shared decision 0010)', () => {
 		const f = fakeFetch({ [bad]: 404 });
 		const out = await run({
 			fetchImpl: f.impl,
-			env: { ...env, UPTIME_PROBE_EXTRA_URLS: ` ${bad} ,${bad}` }
+			env: { ...env, UPTIME_PROBE_EXTRA_URLS: ` ${bad} ,${bad}` },
+			...fast
 		});
-		expect(f.probes.map((p) => p.url)).toEqual([...ENDPOINTS, bad]);
+		// Probed once per endpoint, and the failing one once more before it is reported.
+		expect(f.probes.map((p) => p.url)).toEqual([...ENDPOINTS, bad, bad]);
 		expect(out.reported).toEqual([bad]);
 		expect(f.events()).toHaveLength(1);
 		expect(f.events()[0]).toMatchObject({
@@ -97,7 +110,7 @@ describe('uptime prober (shared decision 0010)', () => {
 
 	it('sends nothing to Sentry when every endpoint answers 2xx', async () => {
 		const f = fakeFetch({ 'https://audiokit.ai': 204 });
-		const out = await run({ fetchImpl: f.impl, env });
+		const out = await run({ fetchImpl: f.impl, env, ...fast });
 		expect(f.probes.map((p) => p.url)).toEqual(ENDPOINTS);
 		expect(f.probes.every((p) => p.init?.method === 'GET')).toBe(true);
 		expect(out.reported).toEqual([]);
@@ -106,7 +119,7 @@ describe('uptime prober (shared decision 0010)', () => {
 
 	it('follows redirects and judges the final answer', async () => {
 		const f = fakeFetch();
-		await run({ fetchImpl: f.impl, env });
+		await run({ fetchImpl: f.impl, env, ...fast });
 		expect(f.probes.every((p) => p.init?.redirect === 'follow')).toBe(true);
 		expect(f.probes.every((p) => p.init?.signal instanceof AbortSignal)).toBe(true);
 	});
@@ -116,7 +129,7 @@ describe('uptime prober (shared decision 0010)', () => {
 			'https://billing.audiokit.ai/ready': 503,
 			'https://console.audiokit.ai': 'timeout'
 		});
-		const out = await run({ fetchImpl: f.impl, env });
+		const out = await run({ fetchImpl: f.impl, env, ...fast });
 		expect(out.reported).toEqual([
 			'https://billing.audiokit.ai/ready',
 			'https://console.audiokit.ai'
@@ -153,7 +166,7 @@ describe('uptime prober (shared decision 0010)', () => {
 			'https://audiokit.ai': 'network',
 			'https://erms.epsilonrecords.com/login': 302
 		});
-		await run({ fetchImpl: f.impl, env });
+		await run({ fetchImpl: f.impl, env, ...fast });
 		expect(f.events().map((e) => [e.tags.probe_endpoint, e.tags.probe_reason])).toEqual([
 			['billing.audiokit.ai/ready', 'status'],
 			['audiokit.ai', 'network'],
@@ -165,8 +178,8 @@ describe('uptime prober (shared decision 0010)', () => {
 	it('groups a long outage into one issue: same fingerprint every run, whatever the status', async () => {
 		const first = fakeFetch({ 'https://audiokit.ai': 502 });
 		const later = fakeFetch({ 'https://audiokit.ai': 'timeout' });
-		await run({ fetchImpl: first.impl, env });
-		await run({ fetchImpl: later.impl, env });
+		await run({ fetchImpl: first.impl, env, ...fast });
+		await run({ fetchImpl: later.impl, env, ...fast });
 		const [a] = first.events();
 		const [b] = later.events();
 		expect(a.fingerprint).toEqual(b.fingerprint);
@@ -176,7 +189,7 @@ describe('uptime prober (shared decision 0010)', () => {
 
 	it('posts a well-formed envelope authenticated with the DSN’s public key', async () => {
 		const f = fakeFetch({ 'https://audiokit.ai': 500 });
-		await run({ fetchImpl: f.impl, env });
+		await run({ fetchImpl: f.impl, env, ...fast });
 		const [{ headers, items }] = f.envelopes;
 		expect(headers['content-type']).toBe('application/x-sentry-envelope');
 		expect(headers['x-sentry-auth']).toContain('sentry_key=publickey123');
@@ -193,7 +206,7 @@ describe('uptime prober (shared decision 0010)', () => {
 
 	it('fails the run loudly when Sentry refuses an event', async () => {
 		const f = fakeFetch({ 'https://audiokit.ai': 500 }, 429);
-		await expect(run({ fetchImpl: f.impl, env })).rejects.toThrow(
+		await expect(run({ fetchImpl: f.impl, env, ...fast })).rejects.toThrow(
 			/Could not report to Sentry: https:\/\/audiokit.ai/
 		);
 	});
@@ -207,7 +220,7 @@ describe('uptime prober (shared decision 0010)', () => {
 
 	it('falls back to the public DSN of the same project', async () => {
 		const f = fakeFetch({ 'https://audiokit.ai': 500 });
-		await run({ fetchImpl: f.impl, env: { PUBLIC_SENTRY_DSN: DSN } });
+		await run({ fetchImpl: f.impl, env: { PUBLIC_SENTRY_DSN: DSN }, ...fast });
 		expect(f.envelopes).toHaveLength(1);
 	});
 
@@ -230,6 +243,56 @@ describe('uptime prober (shared decision 0010)', () => {
 		vi.stubEnv('PUBLIC_SENTRY_DSN', '');
 		await expect(handler()).rejects.toThrow(/SENTRY_DSN/);
 		vi.unstubAllEnvs();
+	});
+
+	it('retries a failed probe once and stays quiet when the retry succeeds', async () => {
+		const f = fakeFetch({
+			'https://billing.audiokit.ai/ready': ['network', 200],
+			'https://erms.epsilonrecords.com/login': ['timeout', 200]
+		});
+		const { outcomes } = await run({ fetchImpl: f.impl, env, ...fast });
+		expect(f.envelopes).toHaveLength(0);
+		expect(f.probes.filter((p) => p.url === 'https://billing.audiokit.ai/ready')).toHaveLength(2);
+		expect(outcomes.every((o) => o.up)).toBe(true);
+	});
+
+	it('reports an endpoint only when both attempts fail, and never retries a healthy one', async () => {
+		const f = fakeFetch({ 'https://audiokit.ai': ['network', 503] });
+		await run({ fetchImpl: f.impl, env, ...fast });
+		expect(f.events().map((e) => [e.tags.probe_endpoint, e.tags.probe_status])).toEqual([
+			['audiokit.ai', '503']
+		]);
+		expect(f.probes.filter((p) => p.url === 'https://console.audiokit.ai')).toHaveLength(1);
+	});
+
+	it('waits before the retry, and fits two timeouts and the pause inside 30 s', async () => {
+		const started = Date.now();
+		const f = fakeFetch({ 'https://audiokit.ai': ['network', 200] });
+		const out = await probeWithRetry('https://audiokit.ai', {
+			fetchImpl: f.impl,
+			retryDelayMs: 50
+		});
+		expect(out).toMatchObject({ up: true, attempts: 2 });
+		expect(Date.now() - started).toBeGreaterThanOrEqual(45);
+		// Two probe timeouts, the pause, and one round of concurrent sends to Sentry.
+		expect(2 * TIMEOUT_MS + RETRY_DELAY_MS + SEND_TIMEOUT_MS).toBeLessThan(30_000);
+	});
+
+	it('sends the events for several failing endpoints at the same time', async () => {
+		let inFlight = 0;
+		let peak = 0;
+		const f = fakeFetch({ 'https://audiokit.ai': 503, 'https://console.audiokit.ai': 503 });
+		const slowSentry = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) !== ENVELOPE_URL) return f.impl(input, init);
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			await new Promise((r) => setTimeout(r, 20));
+			inFlight -= 1;
+			return f.impl(input, init);
+		}) as unknown as typeof fetch;
+		const out = await run({ fetchImpl: slowSentry, env, ...fast });
+		expect(peak).toBe(2);
+		expect(out.reported).toEqual(['https://console.audiokit.ai', 'https://audiokit.ai']);
 	});
 
 	it('parses the DSN into the envelope endpoint', () => {

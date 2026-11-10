@@ -26,6 +26,12 @@
  * "production" is the only environment this can report from.
  */
 
+/** Pause before the one retry of a failed probe. */
+export const RETRY_DELAY_MS = 2000;
+
+/** Timeout for sending one event to Sentry, which normally answers in well under a second. */
+export const SEND_TIMEOUT_MS = 5000;
+
 export const ENDPOINTS = [
 	'https://billing.audiokit.ai/ready',
 	'https://console.audiokit.ai',
@@ -205,48 +211,85 @@ export async function sendEvent(event, dsn, { fetchImpl = fetch } = {}) {
 			'x-sentry-auth': `Sentry sentry_version=7, sentry_key=${publicKey}, sentry_client=erms-uptime-probe/1`
 		},
 		body,
-		signal: AbortSignal.timeout(TIMEOUT_MS)
+		signal: AbortSignal.timeout(SEND_TIMEOUT_MS)
 	});
 	if (!res.ok) throw new Error(`Sentry refused the event: HTTP ${res.status}`);
 	return event.event_id;
 }
 
+/**
+ * Probe once and, if that fails, once more after a short pause. Only a second failure counts as
+ * down: a single run can fail in milliseconds on a transient network error inside the function's
+ * own environment (seen on 2026-11-09 and 2026-11-10 as ~20 ms ETIMEDOUTs on two hosts at once),
+ * and that should not email anyone. A real outage fails both attempts. The worst case, two 10 s
+ * timeouts, the pause and one concurrent 5 s send to Sentry, stays inside Netlify's 30 s limit.
+ * @param {string} url
+ * @param {{ timeoutMs?: number, fetchImpl?: typeof fetch, retryDelayMs?: number }} [options]
+ */
+export async function probeWithRetry(
+	url,
+	{ timeoutMs = TIMEOUT_MS, fetchImpl = fetch, retryDelayMs = RETRY_DELAY_MS } = {}
+) {
+	const first = await probe(url, { timeoutMs, fetchImpl });
+	if (first.up) return { ...first, attempts: 1 };
+	if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	const second = await probe(url, { timeoutMs, fetchImpl });
+	return { ...second, attempts: 2 };
+}
+
 /** One run: probe every endpoint, report each failure once. */
-export async function run({ fetchImpl = fetch, env = process.env, timeoutMs = TIMEOUT_MS } = {}) {
+export async function run({
+	fetchImpl = fetch,
+	env = process.env,
+	timeoutMs = TIMEOUT_MS,
+	retryDelayMs = RETRY_DELAY_MS
+} = {}) {
 	// SENTRY_DSN is the ERMS project's server DSN; the public one is the same project's.
 	const dsn = env.SENTRY_DSN || env.PUBLIC_SENTRY_DSN;
 	if (!dsn) throw new Error('SENTRY_DSN is required to report probe failures');
 	parseDsn(dsn);
 
 	const endpoints = [...ENDPOINTS, ...extraEndpoints(env)];
-	const outcomes = await Promise.all(endpoints.map((url) => probe(url, { timeoutMs, fetchImpl })));
+	const outcomes = await Promise.all(
+		endpoints.map((url) => probeWithRetry(url, { timeoutMs, fetchImpl, retryDelayMs }))
+	);
+	/** @type {string[]} */
 	const reported = [];
+	/** @type {string[]} */
 	const unreported = [];
-	for (const o of outcomes) {
-		const line = { msg: 'uptime probe', endpoint: endpointName(o.url), up: o.up, ms: o.ms };
-		if (o.up) {
-			console.log(JSON.stringify({ level: 'info', ...line, status: o.status }));
-			continue;
-		}
-		try {
-			const eventId = await sendEvent(failureEvent(o), dsn, { fetchImpl });
-			reported.push(o.url);
-			console.error(
-				JSON.stringify({ level: 'error', ...line, reason: o.reason, detail: o.detail, eventId })
-			);
-		} catch (e) {
-			unreported.push(o.url);
-			console.error(
-				JSON.stringify({
-					level: 'error',
-					...line,
-					reason: o.reason,
-					detail: o.detail,
-					sentry: String(e)
-				})
-			);
-		}
-	}
+	// Events go out concurrently with a short timeout, so that after two probe timeouts and the
+	// pause there is still time to send and log them inside Netlify's 30 s limit.
+	await Promise.all(
+		outcomes.map(async (o) => {
+			const line = { msg: 'uptime probe', endpoint: endpointName(o.url), up: o.up, ms: o.ms };
+			if (o.up) {
+				console.log(JSON.stringify({ level: 'info', ...line, status: o.status }));
+				return;
+			}
+			try {
+				const eventId = await sendEvent(failureEvent(o), dsn, { fetchImpl });
+				reported.push(o.url);
+				console.error(
+					JSON.stringify({ level: 'error', ...line, reason: o.reason, detail: o.detail, eventId })
+				);
+			} catch (e) {
+				unreported.push(o.url);
+				console.error(
+					JSON.stringify({
+						level: 'error',
+						...line,
+						reason: o.reason,
+						detail: o.detail,
+						sentry: String(e)
+					})
+				);
+			}
+		})
+	);
+	// Promise.all keeps completion order, not endpoint order: report in endpoint order.
+	const order = (/** @type {string} */ url) => endpoints.indexOf(url);
+	reported.sort((a, b) => order(a) - order(b));
+	unreported.sort((a, b) => order(a) - order(b));
 	// A failure Sentry never heard about must not pass quietly: fail the run so Netlify logs it.
 	if (unreported.length) throw new Error(`Could not report to Sentry: ${unreported.join(', ')}`);
 	return { outcomes, reported };

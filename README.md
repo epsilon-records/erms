@@ -140,7 +140,9 @@ has neither, so the schedule silently 403s without it.
 uptime monitor does not: `billing.audiokit.ai/ready`, `console.audiokit.ai`, `audiokit.ai` and
 `erms.epsilonrecords.com/login`. Every 5 minutes it GETs each one with a 10 s timeout, following
 redirects (`console.audiokit.ai/` answers 303 to `/login`; the final answer is what counts). A
-non-2xx final answer, a timeout or a network error sends one Sentry error event for that endpoint to
+failed probe is retried once after 2 s, so a one-off network error inside the function does not
+alert. If the retry also fails, a non-2xx final answer, a timeout or a network error sends one
+Sentry error event for that endpoint to
 the `erms` project, with `environment=production`, the tags `probe_endpoint`, `probe_reason` and
 `probe_status`, and the fingerprint `uptime-probe` + endpoint. A long outage is therefore one issue
 per endpoint, and rule 6309992 emails on its first event. Resolve the issue once the endpoint
