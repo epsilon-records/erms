@@ -188,6 +188,31 @@ const cases = [
 		}
 	},
 	{
+		name: 'anon and user JWTs cannot touch webhook_events over REST',
+		expect: 'every verb refused, nothing written',
+		run: async () => {
+			const id = '99999999-9999-4999-8999-999999999999';
+			for (const key of [ANON_KEY, userJwt]) {
+				const read = await call('GET', '/webhook_events?select=event_id', key);
+				if (read.status < 400) return false;
+				const write = await call('POST', '/webhook_events', key, {
+					event_id: id,
+					event_type: 'job.succeeded',
+					job_id: id
+				});
+				if (write.status < 400) return false;
+				const del = await call('DELETE', '/webhook_events?event_id=not.is.null', key);
+				if (del.status < 400) return false;
+			}
+			const rows = await call(
+				'GET',
+				`/webhook_events?select=event_id&event_id=eq.${id}`,
+				SERVICE_KEY
+			);
+			return rows.status === 200 && rows.body.length === 0;
+		}
+	},
+	{
 		name: 'the org survived every attempt above',
 		expect: 'Alpha Sound and Beta Sound both intact',
 		run: async () => {

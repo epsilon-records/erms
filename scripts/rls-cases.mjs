@@ -515,3 +515,39 @@ for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
 		errorCode: '42501'
 	});
 }
+
+// webhook_events is written only by the AudioKit webhook route on the owner connection. It once
+// shipped without RLS while anon and authenticated held every privilege on it. RLS does not
+// govern TRUNCATE, so the migration revokes the grants too; these cases pin both.
+const WEBHOOK_EVENT_ID = '99999999-9999-4999-8999-999999999999';
+for (const role of ['anon', 'authenticated']) {
+	const claim = role === 'anon' ? null : IDS.u1;
+	for (const [what, probe] of [
+		['read', 'SELECT count(*) FROM public.webhook_events'],
+		[
+			'insert',
+			`INSERT INTO public.webhook_events (event_id, event_type, job_id)
+				VALUES ('${WEBHOOK_EVENT_ID}', 'job.succeeded', '${WEBHOOK_EVENT_ID}')`
+		],
+		['update', "UPDATE public.webhook_events SET event_type = 'x'"],
+		['delete', 'DELETE FROM public.webhook_events'],
+		['truncate', 'TRUNCATE public.webhook_events']
+	]) {
+		RLS_CASES.push({
+			requiresSupabaseRoles: true,
+			name: `${role} cannot ${what} webhook_events`,
+			role,
+			claim,
+			probe,
+			expect: 'error',
+			errorCode: '42501'
+		});
+	}
+}
+RLS_CASES.push({
+	name: 'webhook_events has row-level security enabled',
+	role: 'postgres',
+	claim: null,
+	probe: "SELECT relrowsecurity::text FROM pg_class WHERE oid = 'public.webhook_events'::regclass",
+	expect: 'true'
+});
