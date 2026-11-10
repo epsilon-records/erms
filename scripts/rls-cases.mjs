@@ -551,3 +551,45 @@ RLS_CASES.push({
 	probe: "SELECT relrowsecurity::text FROM pg_class WHERE oid = 'public.webhook_events'::regclass",
 	expect: 'true'
 });
+
+// audiokit_label_clients holds each label's sealed AudioKit key and webhook secret (EPSILON-102).
+// Only the AudioKit routes read it, on the owner connection. No member of any label, owner or not,
+// and no Data API role may read or change it, and RLS does not govern TRUNCATE, so the migration
+// revokes the grants as well; these cases pin both.
+const LABEL_CLIENT_ID = '88888888-8888-4888-8888-888888888888';
+for (const [role, claim] of /** @type {[string, string | null][]} */ ([
+	['anon', null],
+	['authenticated', IDS.u1],
+	['erms_app', IDS.u1],
+	['erms_app', IDS.u4]
+])) {
+	for (const [what, probe] of [
+		['read', 'SELECT count(*) FROM public.audiokit_label_clients'],
+		[
+			'insert',
+			`INSERT INTO public.audiokit_label_clients (org_id, client_id, api_key_sealed, webhook_secret_sealed, status, sync_state)
+				VALUES ('${IDS.orgA}', '${LABEL_CLIENT_ID}', 'x', 'x', 'active', 'synced')`
+		],
+		['update', "UPDATE public.audiokit_label_clients SET sync_state = 'x'"],
+		['delete', 'DELETE FROM public.audiokit_label_clients'],
+		['truncate', 'TRUNCATE public.audiokit_label_clients']
+	]) {
+		RLS_CASES.push({
+			requiresSupabaseRoles: role === 'anon' || role === 'authenticated',
+			name: `${role} (${claim ?? 'no session'}) cannot ${what} audiokit_label_clients`,
+			role,
+			claim,
+			probe,
+			expect: 'error',
+			errorCode: '42501'
+		});
+	}
+}
+RLS_CASES.push({
+	name: 'audiokit_label_clients has row-level security enabled',
+	role: 'postgres',
+	claim: null,
+	probe:
+		"SELECT relrowsecurity::text FROM pg_class WHERE oid = 'public.audiokit_label_clients'::regclass",
+	expect: 'true'
+});

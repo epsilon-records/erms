@@ -52,11 +52,28 @@ export const variables = defineEnvVars({
 	},
 	AUDIOKIT_API_KEY: {
 		schema: (value) => value || undefined,
-		description: 'AudioKit API key for authentication'
+		description:
+			'Deployment-wide AudioKit API key: the fallback for an org that has no client of its own yet (EPSILON-102)'
 	},
 	AUDIOKIT_WEBHOOK_SECRET: {
 		schema: (value) => value || undefined,
-		description: 'HMAC secret for AudioKit webhooks (required once AUDIO_PROVIDER=audiokit)'
+		description:
+			"HMAC secret for the deployment-wide key's webhooks (required once AUDIO_PROVIDER=audiokit)"
+	},
+	// Per-label AudioKit clients (EPSILON-102). Read by the AudioKit routes only.
+	AUDIOKIT_CREDENTIALS_KEY: {
+		schema: (value) => value || undefined,
+		description:
+			'Seals each label\'s AudioKit key and webhook secret in the database: "<id>:<base64 of 32 bytes>", comma-separated, first entry seals. Required once any label has its own client'
+	},
+	AUDIOKIT_BILLING_URL: {
+		schema: (value) => value || undefined,
+		description: 'AudioKit billing service base URL (e.g., https://billing.audiokit.ai)'
+	},
+	LABEL_CLIENTS_ADMIN_TOKEN: {
+		schema: (value) => value || undefined,
+		description:
+			"Bearer token for billing's /v1/admin/label-clients routes; server only, never logged"
 	},
 	WORKER_SECRET: {
 		schema: (value) => value || undefined,

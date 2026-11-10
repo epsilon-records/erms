@@ -134,6 +134,32 @@ neither a same-origin `origin` header nor a JSON `content-type` with 403 _Cross-
 submissions are forbidden_, before the route's own bearer check runs; a bare scheduled-function POST
 has neither, so the schedule silently 403s without it.
 
+### Per-label AudioKit clients
+
+Each label (org) uses its own AudioKit client, with its own key and webhook secret, issued by the
+billing service (EPSILON-102; the contract is in knowledge#69). Until an org has one, its jobs use
+the deployment-wide `AUDIOKIT_API_KEY` / `AUDIOKIT_WEBHOOK_SECRET`; once it has had one, that
+fallback is closed to it for good, so a label whose client is revoked fails closed.
+
+- **Where the secrets live.** In `audiokit_label_clients`, sealed with AES-256-GCM
+  (`src/lib/server/audiokit-credentials.ts`). The sealing key is `AUDIOKIT_CREDENTIALS_KEY`, held in
+  the environment and not in the database, so a dump or the nightly backup holds nothing usable.
+  Supabase Vault was not used: it was not available to verify on the local stack the database tests
+  run on, and a sealing key outside the database also keeps the nightly backups unreadable. No role but the owner has any privilege on the
+  table (migration `0021`), so members read nothing through RLS, PostgREST or the app role. The
+  `rls-cases` suite pins this.
+- **Setup.** Set `AUDIOKIT_CREDENTIALS_KEY` (`<id>:<base64 of 32 random bytes>`, e.g.
+  `openssl rand -base64 32`; comma-separate entries to rotate the key itself, first one seals),
+  `AUDIOKIT_BILLING_URL` and `LABEL_CLIENTS_ADMIN_TOKEN`, all server-side and Functions/Runtime
+  scoped on Netlify. The token never goes in the repo, a log or a response.
+- **Issuing.** An owner posts `action=issue` (or `rotate`) to `/org/audiokit-client`. The org is the
+  signed-in member's own. Billing returns the key and secret once and they are sealed as they
+  arrive. The reconcile schedule then activates a client once billing reports it `synced`, and
+  revokes a replaced client when none of its jobs is unfinished.
+- **Webhooks.** A label's jobs carry `webhook.url` = `/api/audiokit/webhook/{client_id}`. The route
+  picks the secret by client id before parsing the body, and only touches jobs submitted under that
+  client. The original `/api/audiokit/webhook` stays for fallback jobs only.
+
 ### Uptime prober
 
 `netlify/functions/uptime-probe.mjs` (shared decision 0010) covers the endpoints Sentry's single
@@ -173,7 +199,7 @@ DATABASE_URL=postgres://... pnpm db:drift --warn  # report only
 - Every write goes through `withAudit()`. A write with no audit entry is rejected.
 - `audit_log` is append-only, enforced by a database trigger.
 - Every org-scoped table gets RLS with `app.is_member(org_id)` for reads and role-based write policies; see `drizzle/0001_rls.sql`, `0004` and `0006`.
-- App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `erms_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection.
+- App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `erms_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection; the machine routes and the owner-only `/org/audiokit-client` route are its allowlisted exceptions.
 - Links between catalog rows carry `org_id` in their foreign keys, so the database refuses links across orgs.
 - `src/lib/server/tenancy.test.ts` proves one org cannot read, write or link into another.
 - Security headers: SvelteKit sets a nonce-based CSP (`vite.config.ts`); `hooks.server.ts` and `netlify.toml` add HSTS, frame, referrer and permissions headers. Unexpected errors are logged server-side as JSON with a short reference; the browser sees only the reference.

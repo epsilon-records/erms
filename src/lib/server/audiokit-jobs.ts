@@ -2,7 +2,7 @@ import { and, desc, eq, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
-import type { AudioProvider } from './audio/provider';
+import type { providerResolver } from './audiokit-clients';
 import { type Actor, type Database, recordSystemAudit, withAudit } from './audit';
 import { audiokitJobs, masters, recordings, type Role } from './db/schema';
 import { uuidv7 } from './db/uuidv7';
@@ -142,14 +142,15 @@ export async function queueAudioKitJob(
 export async function submitQueuedJob(
 	db: Database,
 	storage: MasterStorage,
-	audiokit: AudioProvider,
+	providers: Pick<ReturnType<typeof providerResolver>, 'forSubmission' | 'forClient'>,
 	jobId: string,
-	webhookUrl: string
+	webhookBase: string
 ): Promise<void> {
 	const [job] = await db
 		.select({
 			id: audiokitJobs.id,
 			orgId: audiokitJobs.orgId,
+			clientId: audiokitJobs.clientId,
 			recordingId: audiokitJobs.recordingId,
 			masterId: audiokitJobs.masterId,
 			operation: audiokitJobs.operation,
@@ -168,6 +169,18 @@ export async function submitQueuedJob(
 	if (!job) throw new Error(`Job ${jobId} not found`);
 	if (job.status !== 'queued') throw new Error(`Job ${jobId} is ${job.status}, not queued`);
 	if (!job.masterSha256) throw new Error(`Master ${job.masterId} has no sha256`);
+
+	// The org comes from the job row, which was written from the signed-in member's membership; it
+	// is never read from a request. A retry stays under the client the job was first tried with
+	// (AudioKit's idempotency is per client), unless that client is gone.
+	const stamped = job.clientId ? await providers.forClient(job.clientId) : null;
+	const { provider: audiokit, clientId } = stamped
+		? { provider: stamped, clientId: job.clientId }
+		: await providers.forSubmission(job.orgId);
+	if (clientId !== job.clientId) {
+		await db.update(audiokitJobs).set({ clientId }).where(eq(audiokitJobs.id, job.id));
+	}
+	const webhookUrl = webhookUrlFor(webhookBase, clientId);
 
 	const operation = job.operation as Operation;
 	const opDef = OPERATIONS[operation];
@@ -222,6 +235,16 @@ export async function submitQueuedJob(
 }
 
 /**
+ * Where AudioKit posts a job's webhook: a per-client URL for a label's own client, so the secret is
+ * picked by the URL before the body is parsed; the original URL for the deployment-wide fallback.
+ */
+export function webhookUrlFor(base: string, clientId: string | null) {
+	const url = new URL('/api/audiokit/webhook', base);
+	if (clientId) url.pathname += `/${clientId}`;
+	return url.toString();
+}
+
+/**
  * List jobs for a recording, newest first.
  */
 export function listJobs(db: Database, orgId: string, recordingId: string) {
@@ -249,7 +272,7 @@ export function listJobs(db: Database, orgId: string, recordingId: string) {
  */
 export async function reconcileJobs(
 	db: Database,
-	audiokit: AudioProvider
+	providers: Pick<ReturnType<typeof providerResolver>, 'forClient'>
 ): Promise<{ checked: number; updated: number }> {
 	// Find jobs that are submitted but not finished, and were submitted >5 minutes ago.
 	// Newer jobs still have time to receive their webhook without a poll (EPSILON-67).
@@ -262,7 +285,8 @@ export async function reconcileJobs(
 			id: audiokitJobs.id,
 			providerJobId: audiokitJobs.providerJobId,
 			status: audiokitJobs.status,
-			orgId: audiokitJobs.orgId
+			orgId: audiokitJobs.orgId,
+			clientId: audiokitJobs.clientId
 		})
 		.from(audiokitJobs)
 		.where(
@@ -275,9 +299,12 @@ export async function reconcileJobs(
 	for (const job of jobs) {
 		if (!job.providerJobId) continue;
 
-		checked++;
-
 		try {
+			// Poll with the key of the client the job was submitted under. A revoked client's key is
+			// gone (and would answer 401), so its jobs are left alone rather than retried in a loop.
+			const audiokit = await providers.forClient(job.clientId);
+			if (!audiokit) continue;
+			checked++;
 			// Poll AudioKit for the current job status
 			const audiokitJob = await audiokit.status(job.providerJobId);
 

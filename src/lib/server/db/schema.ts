@@ -696,6 +696,69 @@ export const audiokitJobStatusEnum = pgEnum('audiokit_job_status', [
 ]);
 
 /**
+ * Lifecycle of a label's AudioKit client (shared 0021/0022, contract in knowledge#69).
+ * pending: issued, but billing has not confirmed the API accepts it yet; never used.
+ * active: the client new jobs are submitted under (at most one per org).
+ * draining: replaced by a newer client; no new jobs, but its webhooks still verify and its
+ *   unfinished jobs are still polled with its key, until none are left and it is revoked.
+ * revoked: revoked at billing; the stored key and secret are wiped.
+ */
+export const labelClientStatusEnum = pgEnum('audiokit_label_client_status', [
+	'pending',
+	'active',
+	'draining',
+	'revoked'
+]);
+
+/**
+ * One AudioKit client per label (org), plus a second only while rotating. The key and the
+ * webhook secret are sealed with AES-256-GCM before they reach this table (audiokit-credentials.ts)
+ * and the key that seals them is not in the database, so a dump or backup of this table holds no
+ * usable secret. No database role other than the owner holds any privilege on it (migration
+ * 0021): members read nothing here through RLS, PostgREST or the app role.
+ */
+export const audiokitLabelClients = pgTable(
+	'audiokit_label_clients',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id),
+		/** Billing's client id; also the AudioKit client id, and the webhook URL's path segment. */
+		clientId: uuid('client_id').notNull(),
+		/** Sealed API key. Null once revoked. */
+		apiKeySealed: text('api_key_sealed'),
+		/** Sealed webhook secret. Null once revoked. */
+		webhookSecretSealed: text('webhook_secret_sealed'),
+		/** First characters of the key, for telling clients apart in a human-readable record. */
+		keyPrefix: text('key_prefix'),
+		status: labelClientStatusEnum('status').notNull(),
+		/** The sync_state billing last reported: pending_sync, synced, pending_revoke or revoked. */
+		syncState: text('sync_state').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		revokedAt: timestamp('revoked_at', { withTimezone: true })
+	},
+	(t) => [
+		uniqueIndex('audiokit_label_clients_client_key').on(t.clientId),
+		index('audiokit_label_clients_org_idx').on(t.orgId),
+		// One client takes new jobs, and at most one is waiting to become that client.
+		uniqueIndex('audiokit_label_clients_one_active')
+			.on(t.orgId)
+			.where(sql`${t.status} = 'active'`),
+		uniqueIndex('audiokit_label_clients_one_pending')
+			.on(t.orgId)
+			.where(sql`${t.status} = 'pending'`),
+		check(
+			'audiokit_label_clients_secrets_while_live',
+			sql`(${t.status} = 'revoked') = (${t.apiKeySealed} IS NULL) AND (${t.status} = 'revoked') = (${t.webhookSecretSealed} IS NULL)`
+		)
+	]
+);
+
+export type AudiokitLabelClient = typeof audiokitLabelClients.$inferSelect;
+export type LabelClientStatus = (typeof labelClientStatusEnum.enumValues)[number];
+
+/**
  * Jobs submitted to AudioKit for audio processing. One row per job; the worker polls for
  * queued jobs, issues presigned URLs, submits to AudioKit, and stores the provider_job_id.
  * Webhooks from AudioKit update the row with results or errors.
@@ -716,6 +779,11 @@ export const audiokitJobs = pgTable(
 		params: jsonb('params'),
 		/** AudioKit's provider_job_id, returned when the job is submitted. */
 		providerJobId: uuid('provider_job_id'),
+		/**
+		 * The AudioKit client the job was (or is about to be) submitted under; its key polls the job
+		 * and its secret verifies the job's webhook. Null means the deployment-wide fallback key.
+		 */
+		clientId: uuid('client_id').references(() => audiokitLabelClients.clientId),
 		status: audiokitJobStatusEnum('status').notNull().default('queued'),
 		/** The result from AudioKit (for succeeded jobs). */
 		result: jsonb('result'),

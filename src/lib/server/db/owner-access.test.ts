@@ -11,7 +11,10 @@ const ALLOWED = new Set([
 	'src/lib/server/db/client.ts',
 	'src/routes/api/audiokit/worker/+server.ts',
 	'src/routes/api/audiokit/reconcile/+server.ts',
-	'src/routes/api/audiokit/webhook/+server.ts'
+	'src/routes/api/audiokit/webhook/+server.ts',
+	'src/routes/api/audiokit/webhook/[client_id]/+server.ts',
+	// Issues a label's AudioKit client; no other role can touch the credentials table.
+	'src/routes/org/audiokit-client/+server.ts'
 ]);
 
 function* files(dir: string): Generator<string> {
