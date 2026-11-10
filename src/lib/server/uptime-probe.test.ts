@@ -9,6 +9,7 @@ import handler, {
 	probeWithRetry,
 	RETRY_DELAY_MS,
 	run,
+	SEND_TIMEOUT_MS,
 	TIMEOUT_MS
 } from '../../../netlify/functions/uptime-probe.mjs';
 
@@ -273,7 +274,25 @@ describe('uptime prober (shared decision 0010)', () => {
 		});
 		expect(out).toMatchObject({ up: true, attempts: 2 });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(45);
-		expect(2 * TIMEOUT_MS + RETRY_DELAY_MS).toBeLessThan(30_000);
+		// Two probe timeouts, the pause, and one round of concurrent sends to Sentry.
+		expect(2 * TIMEOUT_MS + RETRY_DELAY_MS + SEND_TIMEOUT_MS).toBeLessThan(30_000);
+	});
+
+	it('sends the events for several failing endpoints at the same time', async () => {
+		let inFlight = 0;
+		let peak = 0;
+		const f = fakeFetch({ 'https://audiokit.ai': 503, 'https://console.audiokit.ai': 503 });
+		const slowSentry = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) !== ENVELOPE_URL) return f.impl(input, init);
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			await new Promise((r) => setTimeout(r, 20));
+			inFlight -= 1;
+			return f.impl(input, init);
+		}) as unknown as typeof fetch;
+		const out = await run({ fetchImpl: slowSentry, env, ...fast });
+		expect(peak).toBe(2);
+		expect(out.reported).toEqual(['https://console.audiokit.ai', 'https://audiokit.ai']);
 	});
 
 	it('parses the DSN into the envelope endpoint', () => {
