@@ -1,9 +1,17 @@
 import { json, error } from '@sveltejs/kit';
-import { createAudioKitClient } from '#lib/server/audio/client.js';
+import { advanceLabelClients, providerResolver } from '#lib/server/audiokit-clients.js';
+import { LabelClientsBilling } from '#lib/server/audio/billing.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { reconcileJobs } from '#lib/server/audiokit-jobs.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
-import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
+import {
+	AUDIOKIT_API_KEY,
+	AUDIOKIT_BASE_URL,
+	AUDIOKIT_BILLING_URL,
+	AUDIOKIT_CREDENTIALS_KEY,
+	AUDIOKIT_WEBHOOK_SECRET,
+	LABEL_CLIENTS_ADMIN_TOKEN
+} from '$app/env/private';
 import type { RequestHandler } from './$types';
 
 /**
@@ -16,21 +24,33 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(401, 'Unauthorized');
 	}
 
-	const audiokit = createAudioKitClient(
-		AUDIOKIT_BASE_URL,
-		AUDIOKIT_API_KEY,
-		AUDIOKIT_WEBHOOK_SECRET
-	);
-	if (!audiokit) {
+	if (!AUDIOKIT_BASE_URL) {
 		throw error(503, 'AudioKit client not configured');
 	}
 
 	const db = adminDb();
-	const result = await reconcileJobs(db, audiokit);
+	// Each submitted job is polled with the key of the client it was submitted under.
+	const providers = providerResolver(db, {
+		baseUrl: AUDIOKIT_BASE_URL,
+		fallback: { apiKey: AUDIOKIT_API_KEY, webhookSecret: AUDIOKIT_WEBHOOK_SECRET },
+		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
+	});
+	const result = await reconcileJobs(db, providers);
+
+	// Move label clients along: activate a synced replacement, retire a drained client. Needs
+	// billing; without it the clients simply stay as they are.
+	const clients =
+		AUDIOKIT_BILLING_URL && LABEL_CLIENTS_ADMIN_TOKEN
+			? await advanceLabelClients(
+					db,
+					new LabelClientsBilling(AUDIOKIT_BILLING_URL, LABEL_CLIENTS_ADMIN_TOKEN)
+				)
+			: null;
 
 	return json({
 		checked: result.checked,
 		updated: result.updated,
+		clients,
 		timestamp: new Date().toISOString()
 	});
 };

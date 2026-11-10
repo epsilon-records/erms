@@ -1,13 +1,18 @@
 import { json, error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import { createAudioKitClient } from '#lib/server/audio/client.js';
+import { providerResolver } from '#lib/server/audiokit-clients.js';
 import { submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { recordSystemAudit } from '#lib/server/audit.js';
 import { audiokitJobs } from '#lib/server/db/schema.js';
 import { masterStorage } from '#lib/server/storage/env.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
-import { AUDIOKIT_API_KEY, AUDIOKIT_BASE_URL, AUDIOKIT_WEBHOOK_SECRET } from '$app/env/private';
+import {
+	AUDIOKIT_API_KEY,
+	AUDIOKIT_BASE_URL,
+	AUDIOKIT_CREDENTIALS_KEY,
+	AUDIOKIT_WEBHOOK_SECRET
+} from '$app/env/private';
 import type { RequestHandler } from './$types';
 
 /**
@@ -33,16 +38,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(503, 'Storage not configured');
 	}
 
-	const audiokit = createAudioKitClient(
-		AUDIOKIT_BASE_URL,
-		AUDIOKIT_API_KEY,
-		AUDIOKIT_WEBHOOK_SECRET
-	);
-	if (!audiokit) {
+	if (!AUDIOKIT_BASE_URL) {
 		throw error(503, 'AudioKit client not configured');
 	}
 
 	const db = adminDb();
+	// Each job is submitted with its own org's AudioKit client (EPSILON-102); an org without one
+	// yet falls back to the deployment-wide key.
+	const providers = providerResolver(db, {
+		baseUrl: AUDIOKIT_BASE_URL,
+		fallback: { apiKey: AUDIOKIT_API_KEY, webhookSecret: AUDIOKIT_WEBHOOK_SECRET },
+		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
+	});
 	const now = new Date();
 	const minRetryTime = new Date(now.getTime() - MIN_RETRY_DELAY_MS);
 
@@ -55,7 +62,6 @@ export const POST: RequestHandler = async ({ request }) => {
 		.limit(MAX_JOBS_PER_RUN);
 
 	const results = [];
-	const webhookUrl = new URL('/api/audiokit/webhook', request.url).toString();
 	for (const job of queuedJobs) {
 		// Skip if too many attempts
 		if (job.attempts >= MAX_ATTEMPTS) {
@@ -92,7 +98,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		try {
-			await submitQueuedJob(db, storage, audiokit, job.id, webhookUrl);
+			await submitQueuedJob(db, storage, providers, job.id, request.url);
 			results.push({ jobId: job.id, status: 'submitted' });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
