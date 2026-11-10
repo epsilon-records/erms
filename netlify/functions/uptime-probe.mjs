@@ -26,6 +26,9 @@
  * "production" is the only environment this can report from.
  */
 
+/** Pause before the one retry of a failed probe. */
+export const RETRY_DELAY_MS = 2000;
+
 export const ENDPOINTS = [
 	'https://billing.audiokit.ai/ready',
 	'https://console.audiokit.ai',
@@ -211,15 +214,42 @@ export async function sendEvent(event, dsn, { fetchImpl = fetch } = {}) {
 	return event.event_id;
 }
 
+/**
+ * Probe once and, if that fails, once more after a short pause. Only a second failure counts as
+ * down: a single run can fail in milliseconds on a transient network error inside the function's
+ * own environment (seen on 2026-11-09 and 2026-11-10 as ~20 ms ETIMEDOUTs on two hosts at once),
+ * and that should not email anyone. A real outage fails both attempts. The worst case,
+ * two 10 s timeouts plus the pause, stays inside Netlify's 30 s limit for scheduled functions.
+ * @param {string} url
+ * @param {{ timeoutMs?: number, fetchImpl?: typeof fetch, retryDelayMs?: number }} [options]
+ */
+export async function probeWithRetry(
+	url,
+	{ timeoutMs = TIMEOUT_MS, fetchImpl = fetch, retryDelayMs = RETRY_DELAY_MS } = {}
+) {
+	const first = await probe(url, { timeoutMs, fetchImpl });
+	if (first.up) return { ...first, attempts: 1 };
+	if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+	const second = await probe(url, { timeoutMs, fetchImpl });
+	return { ...second, attempts: 2 };
+}
+
 /** One run: probe every endpoint, report each failure once. */
-export async function run({ fetchImpl = fetch, env = process.env, timeoutMs = TIMEOUT_MS } = {}) {
+export async function run({
+	fetchImpl = fetch,
+	env = process.env,
+	timeoutMs = TIMEOUT_MS,
+	retryDelayMs = RETRY_DELAY_MS
+} = {}) {
 	// SENTRY_DSN is the ERMS project's server DSN; the public one is the same project's.
 	const dsn = env.SENTRY_DSN || env.PUBLIC_SENTRY_DSN;
 	if (!dsn) throw new Error('SENTRY_DSN is required to report probe failures');
 	parseDsn(dsn);
 
 	const endpoints = [...ENDPOINTS, ...extraEndpoints(env)];
-	const outcomes = await Promise.all(endpoints.map((url) => probe(url, { timeoutMs, fetchImpl })));
+	const outcomes = await Promise.all(
+		endpoints.map((url) => probeWithRetry(url, { timeoutMs, fetchImpl, retryDelayMs }))
+	);
 	const reported = [];
 	const unreported = [];
 	for (const o of outcomes) {
