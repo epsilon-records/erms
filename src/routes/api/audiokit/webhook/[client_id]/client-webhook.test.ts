@@ -7,9 +7,16 @@ import {
 	rotateLabelClient
 } from '#lib/server/audiokit-clients.js';
 import { applyWebhook } from '#lib/server/audiokit-webhook.js';
-import { parseKeyRing } from '#lib/server/audiokit-credentials.js';
+import { open, parseKeyRing } from '#lib/server/audiokit-credentials.js';
 import { sign } from '#lib/server/audio/webhook.js';
-import { audiokitJobs, masters, memberships, orgs, recordings } from '#lib/server/db/schema.js';
+import {
+	audiokitJobs,
+	audiokitLabelClients,
+	masters,
+	memberships,
+	orgs,
+	recordings
+} from '#lib/server/db/schema.js';
 import { createTestDb } from '#lib/server/test-db.js';
 import type { LabelClientsBilling } from '#lib/server/audio/billing.js';
 
@@ -185,6 +192,35 @@ describe('per-label webhook route', () => {
 		// Even a body signed with the right secret, at an id nobody owns.
 		expect((await deliver(randomUUID(), body, await secretOf(clientId))).status).toBe(404);
 		expect((await deliver('not-a-uuid', body, null)).status).toBe(404);
+		// A client billing has not synced yet has never been used, so its URL is closed too.
+		const pendingOrg = await seedOrg('hook-pending');
+		const syncing = async (id: string) => {
+			const issued = await billing.issue(id);
+			return {
+				...issued,
+				httpStatus: 202 as const,
+				label_client: { ...issued.label_client, sync_state: 'pending_sync' as const }
+			};
+		};
+		const pending = await issueLabelClient(
+			db,
+			{ issue: syncing } as unknown as LabelClientsBilling,
+			ring,
+			{ orgId: pendingOrg, actor: { id: owner, kind: 'user' } }
+		);
+		expect(pending.status).toBe('pending');
+		const pendingJob = await seedJob(pendingOrg, pending.clientId, 9);
+		const [row] = await db
+			.select()
+			.from(audiokitLabelClients)
+			.where(eq(audiokitLabelClients.clientId, pending.clientId));
+		const secret = open(ring, row.webhookSecretSealed as string, {
+			orgId: pendingOrg,
+			clientId: pending.clientId,
+			field: 'webhook_secret'
+		});
+		const pendingBody = eventFor(pendingJob.job.id, pendingJob.providerJobId);
+		expect((await deliver(pending.clientId, pendingBody, secret)).status).toBe(404);
 		expect(await status(job.id)).toBe('submitted');
 	});
 
@@ -213,14 +249,12 @@ describe('per-label webhook route', () => {
 		const ca = (
 			await issueLabelClient(db, billing, ring, { orgId: a, actor: { id: owner, kind: 'user' } })
 		).clientId;
-		await issueLabelClient(db, billing, ring, { orgId: b, actor: { id: owner, kind: 'user' } });
-		const { job, providerJobId } = await seedJob(
-			b,
-			(await db.select().from(audiokitJobs).where(eq(audiokitJobs.orgId, b))).at(0)?.clientId ??
-				null,
-			4
-		);
-		// A job of org B, named by a webhook that A's own client signed correctly.
+		const cb = (
+			await issueLabelClient(db, billing, ring, { orgId: b, actor: { id: owner, kind: 'user' } })
+		).clientId;
+		// A job of org B, submitted under B's own client, named by a webhook that A's client signed
+		// correctly at A's URL: the signature is good, the job is not A's.
+		const { job, providerJobId } = await seedJob(b, cb, 4);
 		const res = await deliver(ca, eventFor(job.id, providerJobId), await secretOf(ca));
 		expect(res.status).toBe(404);
 		expect(await status(job.id)).toBe('submitted');

@@ -40,7 +40,8 @@ export class LabelClientsBilling {
 	constructor(
 		private readonly baseUrl: string,
 		private readonly adminToken: string,
-		private readonly fetchImpl: typeof fetch = fetch
+		private readonly fetchImpl: typeof fetch = fetch,
+		private readonly timeoutMs = 10_000
 	) {
 		if (!baseUrl || !adminToken) throw new Error('billing base URL and admin token are required');
 	}
@@ -52,7 +53,9 @@ export class LabelClientsBilling {
 				Authorization: `Bearer ${this.adminToken}`,
 				'Content-Type': 'application/json'
 			},
-			body: body === undefined ? undefined : JSON.stringify(body)
+			body: body === undefined ? undefined : JSON.stringify(body),
+			// A stalled billing call must not hold the scheduled reconcile run, or an admin request.
+			signal: AbortSignal.timeout(this.timeoutMs)
 		});
 		const text = await res.text();
 		let data: unknown = null;

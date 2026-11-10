@@ -76,4 +76,10 @@ describe('billing label-client calls', () => {
 		expect((await del.b.revoke(CLIENT)).sync_state).toBe('pending_revoke');
 		expect(del.fetchImpl.mock.calls[0][1]?.method).toBe('DELETE');
 	});
+
+	it('gives every call a timeout so a stalled billing cannot hold a run', async () => {
+		const { b, fetchImpl } = billing(Response.json({ label_client: label() }));
+		await b.get(CLIENT);
+		expect(fetchImpl.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+	});
 });

@@ -289,6 +289,49 @@ describe('per-label AudioKit clients', () => {
 		expect(old).toMatchObject({ status: 'revoked', apiKeySealed: null, webhookSecretSealed: null });
 	});
 
+	it('serializes issue per org: two at once call billing once', async () => {
+		const orgId = await newOrg('race');
+		const billing = fakeBilling();
+		const admin = { orgId, actor: { id: ownerA, kind: 'user' as const } };
+		const results = await Promise.allSettled([
+			issueLabelClient(db, billing, ring, admin),
+			issueLabelClient(db, billing, ring, admin)
+		]);
+		expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+		expect(billing.issue).toHaveBeenCalledTimes(1);
+		const rows = await db
+			.select()
+			.from(audiokitLabelClients)
+			.where(eq(audiokitLabelClients.orgId, orgId));
+		expect(rows).toHaveLength(1);
+	});
+
+	it('revokes the client again when its credentials could not be stored, and surfaces the original failure', async () => {
+		const orgId = await newOrg('lost');
+		const taken = await issueLabelClient(db, fakeBilling(), ring, {
+			orgId: await newOrg('lost-other'),
+			actor: { id: ownerA, kind: 'user' }
+		});
+		// Billing answers with a client id ERMS already holds, so the write is refused.
+		const clash = fakeBilling();
+		const real = clash.issue.getMockImplementation() as (
+			o: string
+		) => ReturnType<typeof clash.issue>;
+		clash.issue.mockImplementation(async (o: string) => {
+			const issued = await real(o);
+			return { ...issued, label_client: { ...issued.label_client, client_id: taken.clientId } };
+		});
+		await expect(
+			issueLabelClient(db, clash, ring, { orgId, actor: { id: ownerA, kind: 'user' } })
+		).rejects.not.toBeInstanceOf(LabelClientError);
+		expect(clash.revoke).toHaveBeenCalledWith(taken.clientId);
+		const rows = await db
+			.select()
+			.from(audiokitLabelClients)
+			.where(eq(audiokitLabelClients.orgId, orgId));
+		expect(rows).toHaveLength(0);
+	});
+
 	it('refuses a row where the secrets and the status disagree', async () => {
 		const orgId = await newOrg('check');
 		await expect(

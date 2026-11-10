@@ -188,48 +188,87 @@ async function promote(tx: Tx, orgId: string, clientId: string) {
 type AdminCtx = { orgId: string; actor: Actor };
 
 /**
+ * One issue or rotate at a time per org, held until the credentials are stored: the check, the
+ * billing call and the write run in one transaction under an advisory lock, so two requests cannot
+ * both pass the check and both call billing.
+ */
+function exclusivelyFor<T>(db: Database, orgId: string, fn: (tx: Database) => Promise<T>) {
+	return db.transaction(async (tx) => {
+		await tx.execute(
+			sql`select pg_advisory_xact_lock(hashtextextended(${`audiokit-label-client:${orgId}`}, 0))`
+		);
+		return fn(tx as unknown as Database);
+	});
+}
+
+/**
+ * If the credentials could not be stored after billing issued them, they are lost (billing shows
+ * them once), and the org would be stuck: billing would answer 409 to another issue while ERMS has
+ * no client to rotate. So the client is revoked again, and the original failure is what surfaces.
+ */
+async function storeOrRevoke(
+	db: Database,
+	billing: LabelClientsBilling,
+	ring: KeyRing,
+	admin: AdminCtx,
+	issued: Issued,
+	action: 'issue_client' | 'rotate_client'
+) {
+	try {
+		return await storeIssued(db, ring, admin, issued, action);
+	} catch (err) {
+		await billing.revoke(issued.label_client.client_id).catch(() => undefined);
+		throw err;
+	}
+}
+
+/**
  * Issue an org's first client and store its credentials, in the same step: billing shows them only
  * once. Throws LabelClientError(409) when the org already has a live client (rotate instead).
  */
-export async function issueLabelClient(
+export function issueLabelClient(
 	db: Database,
 	billing: LabelClientsBilling,
 	ring: KeyRing,
 	admin: AdminCtx
 ) {
-	const live = await db
-		.select({ id: audiokitLabelClients.id })
-		.from(audiokitLabelClients)
-		.where(
-			and(eq(audiokitLabelClients.orgId, admin.orgId), ne(audiokitLabelClients.status, 'revoked'))
-		);
-	if (live.length) throw new LabelClientError(409, 'This label already has an AudioKit client.');
+	return exclusivelyFor(db, admin.orgId, async (tx) => {
+		const live = await tx
+			.select({ id: audiokitLabelClients.id })
+			.from(audiokitLabelClients)
+			.where(
+				and(eq(audiokitLabelClients.orgId, admin.orgId), ne(audiokitLabelClients.status, 'revoked'))
+			);
+		if (live.length) throw new LabelClientError(409, 'This label already has an AudioKit client.');
 
-	const issued = await billing.issue(admin.orgId);
-	return storeIssued(db, ring, admin, issued, 'issue_client');
+		const issued = await billing.issue(admin.orgId);
+		return storeOrRevoke(tx, billing, ring, admin, issued, 'issue_client');
+	});
 }
 
 /** Issue a second client alongside the active one. Needs an active client and no pending one. */
-export async function rotateLabelClient(
+export function rotateLabelClient(
 	db: Database,
 	billing: LabelClientsBilling,
 	ring: KeyRing,
 	admin: AdminCtx
 ) {
-	const live = await db
-		.select({ status: audiokitLabelClients.status })
-		.from(audiokitLabelClients)
-		.where(
-			and(eq(audiokitLabelClients.orgId, admin.orgId), ne(audiokitLabelClients.status, 'revoked'))
-		);
-	if (!live.some((r) => r.status === 'active')) {
-		throw new LabelClientError(409, 'This label has no active AudioKit client to rotate.');
-	}
-	if (live.length > 1) {
-		throw new LabelClientError(409, 'A rotation is already in progress for this label.');
-	}
-	const issued = await billing.rotate(admin.orgId);
-	return storeIssued(db, ring, admin, issued, 'rotate_client');
+	return exclusivelyFor(db, admin.orgId, async (tx) => {
+		const live = await tx
+			.select({ status: audiokitLabelClients.status })
+			.from(audiokitLabelClients)
+			.where(
+				and(eq(audiokitLabelClients.orgId, admin.orgId), ne(audiokitLabelClients.status, 'revoked'))
+			);
+		if (!live.some((r) => r.status === 'active')) {
+			throw new LabelClientError(409, 'This label has no active AudioKit client to rotate.');
+		}
+		if (live.length > 1) {
+			throw new LabelClientError(409, 'A rotation is already in progress for this label.');
+		}
+		const issued = await billing.rotate(admin.orgId);
+		return storeOrRevoke(tx, billing, ring, admin, issued, 'rotate_client');
+	});
 }
 
 async function storeIssued(
