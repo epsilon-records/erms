@@ -317,10 +317,10 @@ describe('per-label AudioKit clients', () => {
 		const real = clash.issue.getMockImplementation() as (
 			o: string
 		) => ReturnType<typeof clash.issue>;
-		clash.issue.mockImplementation(async (o: string) => {
+		clash.issue.mockImplementation((async (o: string) => {
 			const issued = await real(o);
 			return { ...issued, label_client: { ...issued.label_client, client_id: taken.clientId } };
-		});
+		}) as never);
 		await expect(
 			issueLabelClient(db, clash, ring, { orgId, actor: { id: ownerA, kind: 'user' } })
 		).rejects.not.toBeInstanceOf(LabelClientError);
