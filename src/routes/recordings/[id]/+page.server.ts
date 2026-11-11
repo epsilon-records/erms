@@ -1,8 +1,8 @@
 import { removedIdentities, submittedIdentities } from '#lib/removal-confirmation.js';
 import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js';
 import { error, fail } from '@sveltejs/kit';
-import { latestReadyMasterId, recordingAnalysis } from '#lib/server/analysis.js';
-import { canSubmitJobs, JobError, queueAudioKitJob } from '#lib/server/audiokit-jobs.js';
+import { recordingAnalysis } from '#lib/server/analysis.js';
+import { canSubmitJobs, JobError, queueJobForLatestMaster } from '#lib/server/audiokit-jobs.js';
 import { getRecording } from '#lib/server/catalog.js';
 import {
 	addCredit,
@@ -31,24 +31,30 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, params }) => {
 	const m = requireScope(locals, 'catalog:read');
 	if (!/^[0-9a-f-]{36}$/.test(params.id)) error(404, 'Recording not found');
-	const data = await locals.db((tx) => getRecording(tx, m.orgId, params.id));
-	if (!data) error(404, 'Recording not found');
 	const rights = {
 		read: hasScope(m.role, 'rights:read'),
 		write: hasScope(m.role, 'rights:write')
 	};
-	const masters = await locals.db((tx) => listMasters(tx, m.orgId, params.id));
-	const analysis = await locals.db((tx) => recordingAnalysis(tx, m.orgId, params.id));
+	// Independent reads, each its own RLS transaction, run side by side: production pays ~100 ms
+	// a database round trip, and run one after another they were most of the wait after a Run
+	// (EPSILON-145), because the page reloads its data once the action returns.
+	const [data, masters, analysis, ownership, holders, compositions, compositionChoices] =
+		await Promise.all([
+			locals.db((tx) => getRecording(tx, m.orgId, params.id)),
+			locals.db((tx) => listMasters(tx, m.orgId, params.id)),
+			locals.db((tx) => recordingAnalysis(tx, m.orgId, params.id)),
+			rights.read ? locals.db((tx) => recordingOwnership(tx, m.orgId, params.id)) : null,
+			rights.write ? locals.db((tx) => holderOptions(tx, m.orgId)) : null,
+			locals.db((tx) => compositionsForRecording(tx, m.orgId, params.id)),
+			rights.write ? locals.db((tx) => listCompositions(tx, m.orgId)) : null
+		]);
+	if (!data) error(404, 'Recording not found');
 	return {
 		...data,
-		ownership: rights.read
-			? await locals.db((tx) => recordingOwnership(tx, m.orgId, params.id))
-			: null,
-		holders: rights.write ? await locals.db((tx) => holderOptions(tx, m.orgId)) : null,
-		compositions: await locals.db((tx) => compositionsForRecording(tx, m.orgId, params.id)),
-		compositionChoices: rights.write
-			? await locals.db((tx) => listCompositions(tx, m.orgId))
-			: null,
+		ownership,
+		holders,
+		compositions,
+		compositionChoices,
 		masters,
 		analysis,
 		previewPlayable: masterStorage() !== null && analysis.preview.status === 'done',
@@ -152,17 +158,10 @@ export const actions: Actions = {
 			actor: { id: locals.user!.id, kind: 'user' as const }
 		};
 		try {
-			const masterId = await locals.db((tx) => latestReadyMasterId(tx, m.orgId, params.id));
-			if (!masterId) {
-				return fail(409, {
-					action: 'runAnalysis',
-					ok: false as const,
-					errors: { form: 'Upload a ready master before running analysis.' },
-					values: f
-				});
-			}
+			// Only queues: one RLS transaction, no AudioKit or R2 call. The per-minute worker submits
+			// the job (decision 0013, EPSILON-145).
 			const result = await locals.db((tx) =>
-				queueAudioKitJob(tx, ctx, params.id, masterId, { operation: f.operation })
+				queueJobForLatestMaster(tx, ctx, params.id, { operation: f.operation })
 			);
 			return { action: 'runAnalysis', ok: true as const, result };
 		} catch (e) {

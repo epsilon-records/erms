@@ -3,7 +3,8 @@ import type { SubmitFunction } from '$app/forms';
 /**
  * Client-side pending state for the Analysis Run / Re-run buttons (EPSILON-144).
  *
- * The server action waits on AudioKit, so without this the page looks frozen until it returns.
+ * The action only queues the job (the worker submits it, EPSILON-145), but it and the page data
+ * reload that follows still take a moment, so without this the page looks frozen until they finish.
  * The logic lives here, apart from the component, so it can be tested without a DOM. It only
  * enhances: without JavaScript the form still posts normally.
  */
