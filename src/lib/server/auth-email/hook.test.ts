@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleSendEmailHook, type HookConfig } from './hook';
+import { handleSendEmailHook, HOOK_BUDGET_MS, type HookConfig } from './hook';
 import { hookKey, signHook } from './signature';
 import { randomHookSecret } from './test-secrets';
 
@@ -9,7 +9,12 @@ const OTHER = '019a0000-0000-7000-8000-0000000000b2';
 const USER = '6f1c2b8e-1c1a-4d55-9a57-0b1f1b0a5c11';
 const NOW = 1_794_400_000_000;
 
-function payload(type = 'magiclink', metadata: Record<string, unknown> = {}) {
+function payload(
+	type = 'magiclink',
+	metadata: Record<string, unknown> = {},
+	data: Record<string, unknown> = {},
+	userOver: Record<string, unknown> = {}
+) {
 	return JSON.stringify({
 		user: {
 			id: USER,
@@ -22,7 +27,8 @@ function payload(type = 'magiclink', metadata: Record<string, unknown> = {}) {
 			identities: [],
 			created_at: '2026-11-11T00:00:00Z',
 			updated_at: '2026-11-11T00:00:00Z',
-			is_anonymous: false
+			is_anonymous: false,
+			...userOver
 		},
 		email_data: {
 			token: '123456',
@@ -31,7 +37,8 @@ function payload(type = 'magiclink', metadata: Record<string, unknown> = {}) {
 			email_action_type: type,
 			site_url: 'https://efalpthvvmvpaikuxymd.supabase.co/auth/v1',
 			token_new: '',
-			token_hash_new: ''
+			token_hash_new: '',
+			...data
 		}
 	});
 }
@@ -56,16 +63,22 @@ const CONFIG: HookConfig = {
 	hookSecret: SECRET,
 	keys: { epsilon: 'fake-key-epsilon', labelkit: 'fake-key-labelkit' },
 	epsilonOrgId: EPSILON,
-	supabaseUrl: 'https://efalpthvvmvpaikuxymd.supabase.co'
+	supabaseUrl: 'https://efalpthvvmvpaikuxymd.supabase.co',
+	siteUrl: 'https://labelkit.co'
 };
 
 function setup(
 	orgs: string[] | Error = [],
 	config: Partial<HookConfig> = {},
-	resend?: () => Response
+	resend?: (url: string, init: RequestInit) => Response | Promise<Response>,
+	opts: { clock?: () => number; lookup?: () => Promise<string[]> } = {}
 ) {
-	const fetcher = vi.fn(async () => resend?.() ?? Response.json({ id: 'email_1' }));
+	const fetcher = vi.fn(
+		async (url: string, init: RequestInit) =>
+			(await resend?.(url, init)) ?? Response.json({ id: 'email_1' })
+	);
 	const memberOrgIds = vi.fn(async () => {
+		if (opts.lookup) return opts.lookup();
 		if (orgs instanceof Error) throw orgs;
 		return orgs;
 	});
@@ -73,10 +86,9 @@ function setup(
 	const run = (req: Request) =>
 		handleSendEmailHook(req, {
 			config: { ...CONFIG, ...config },
-			appOrigin: 'https://labelkit.co',
 			memberOrgIds,
 			fetcher: fetcher as unknown as typeof fetch,
-			now: () => NOW,
+			now: opts.clock ?? (() => NOW),
 			log: (l) => logs.push(l)
 		});
 	const sent = () =>
@@ -129,10 +141,124 @@ describe('Send Email hook', () => {
 		);
 	});
 
-	it('Epsilon and another org: a sign-in link comes from auth.labelkit.co', async () => {
-		const t = setup([EPSILON, OTHER]);
+	it('Epsilon and another org: a sign-in link comes from auth.epsilonrecords.com', async () => {
+		const t = setup([OTHER, EPSILON]);
 		await t.run(signed(payload()));
-		expect(t.sent()[0].body.from).toContain('auth.labelkit.co');
+		expect(t.sent()[0].auth).toBe('Bearer fake-key-epsilon');
+		expect(t.sent()[0].body.from).toContain('auth.epsilonrecords.com');
+	});
+
+	it('email changed notice: sent to old_email, never to the new address', async () => {
+		const t = setup([OTHER]);
+		const body = payload(
+			'email_changed_notification',
+			{},
+			{ old_email: 'old@example.test' },
+			{ email: 'new@example.test' }
+		);
+		expect((await t.run(signed(body))).status).toBe(200);
+		expect(t.sent().map((m) => m.body.to)).toEqual([['old@example.test']]);
+	});
+
+	it('email changed notice without old_email: refused, nothing sent', async () => {
+		const t = setup([OTHER]);
+		const body = payload('email_changed_notification', {}, {}, { email: 'new@example.test' });
+		expect((await t.run(signed(body))).status).toBe(500);
+		expect(t.fetcher).not.toHaveBeenCalled();
+		expect(t.logs.at(-1)).toMatchObject({ outcome: 'unsupported' });
+	});
+
+	const secureChange = () =>
+		payload(
+			'email_change',
+			{},
+			{ token_hash: 'hash-for-new', token_hash_new: 'hash-for-current' },
+			{ new_email: 'new@example.test' }
+		);
+
+	it('secure email change: both emails go out at once, each with its own idempotency key', async () => {
+		let started = 0;
+		let bothStarted!: () => void;
+		const both = new Promise<void>((resolve) => (bothStarted = resolve));
+		const t = setup([OTHER], {}, async () => {
+			if (++started === 2) bothStarted();
+			// One after the other, the first call would wait here until the test times out.
+			await both;
+			return Response.json({ id: `email_${started}` });
+		});
+		const res = await t.run(signed(secureChange()));
+		expect(res.status).toBe(200);
+		const sent = t.sent();
+		expect(sent.map((m) => m.idem)).toEqual(['msg_1:0', 'msg_1:1']);
+		expect(sent.map((m) => m.body.to)).toEqual([['staff@example.test'], ['new@example.test']]);
+	});
+
+	it('secure email change: fails closed if either email is refused', async () => {
+		const t = setup([OTHER], {}, (_url, init) =>
+			JSON.parse(init.body as string).to[0] === 'new@example.test'
+				? Response.json({ name: 'validation_error' }, { status: 422 })
+				: Response.json({ id: 'email_1' })
+		);
+		const res = await t.run(signed(secureChange()));
+		expect(res.status).toBe(502);
+		expect(t.fetcher).toHaveBeenCalledTimes(2);
+		expect(t.logs.at(-1)).toMatchObject({ outcome: 'send_failed', sent: 1, of: 2 });
+	});
+
+	it('sends share one deadline with the lookup: a slow lookup leaves the sends only the rest', async () => {
+		let now = NOW;
+		const t = setup(
+			[OTHER],
+			{},
+			(_url, init) =>
+				new Promise<Response>((_, reject) => {
+					const signal = init.signal as AbortSignal;
+					signal.addEventListener('abort', () => reject(signal.reason));
+				}),
+			{
+				clock: () => now,
+				lookup: async () => {
+					now += HOOK_BUDGET_MS - 50; // the lookup took all but 50 ms of the budget
+					return [OTHER];
+				}
+			}
+		);
+		const started = Date.now();
+		const res = await t.run(signed(secureChange()));
+		expect(Date.now() - started).toBeLessThan(1500);
+		expect(res.status).toBe(502);
+		expect(t.fetcher).toHaveBeenCalledTimes(2);
+		expect(t.logs.at(-1)).toMatchObject({ outcome: 'send_failed', reason: 'timeout', sent: 0 });
+	});
+
+	it('a lookup that outlasts the budget fails closed without sending', async () => {
+		let now = NOW;
+		const t = setup([OTHER], {}, undefined, {
+			clock: () => now,
+			lookup: () => {
+				now += HOOK_BUDGET_MS - 30;
+				return new Promise<string[]>(() => {}); // never answers
+			}
+		});
+		const res = await t.run(signed(payload()));
+		expect(res.status).toBe(500);
+		expect(t.fetcher).not.toHaveBeenCalled();
+		expect(t.logs.at(-1)).toMatchObject({ outcome: 'lookup_failed' });
+	});
+
+	it('no budget left after the lookup: nothing is sent', async () => {
+		let now = NOW;
+		const t = setup([OTHER], {}, undefined, {
+			clock: () => now,
+			lookup: async () => {
+				now += HOOK_BUDGET_MS + 1;
+				return [OTHER];
+			}
+		});
+		// The lookup's own answer arrives, but past the deadline.
+		const res = await t.run(signed(payload()));
+		expect(res.status).toBeGreaterThanOrEqual(500);
+		expect(t.fetcher).not.toHaveBeenCalled();
 	});
 
 	it('rejects a bad signature before any lookup or send', async () => {

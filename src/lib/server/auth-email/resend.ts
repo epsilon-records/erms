@@ -4,12 +4,16 @@ import type { Message } from './templates';
  * One email through Resend's API (POST /emails). Each sender has its own key, limited in Resend to
  * that sender's domain, so a key can never send as the other domain.
  *
- * `idempotencyKey` is derived from the hook's `webhook-id`: if Supabase retries a delivery that
- * Resend already accepted, Resend returns the first result instead of sending the email twice.
+ * `idempotencyKey` is `${webhook-id}:${index}`. It only dedupes a replay of the same hook call
+ * (the same `webhook-id`, e.g. a request delivered twice). It does **not** dedupe Supabase's own
+ * retries: Supabase makes a new `webhook-id` for every attempt (supabase/auth
+ * `internal/hooks/hookshttp/hookshttp.go`), so if a connection drops after Resend accepted the
+ * email and Supabase retries, the email goes out again. That is harmless for these emails (a
+ * second copy of the same link or notice).
  */
 
 export const RESEND_URL = 'https://api.resend.com/emails';
-/** Supabase gives an HTTP hook 5 s; leave room for the lookup and the function's own start. */
+/** Most one Resend call may take; the hook also caps it at what is left of its own budget. */
 export const RESEND_TIMEOUT_MS = 3500;
 
 export class ResendFailed extends Error {
@@ -26,7 +30,8 @@ export async function sendWithResend(
 	key: string,
 	from: string,
 	message: Message,
-	idempotencyKey: string
+	idempotencyKey: string,
+	timeoutMs: number = RESEND_TIMEOUT_MS
 ): Promise<string> {
 	let res: Response;
 	try {
@@ -44,7 +49,7 @@ export async function sendWithResend(
 				html: message.html,
 				text: message.text
 			}),
-			signal: AbortSignal.timeout(RESEND_TIMEOUT_MS)
+			signal: AbortSignal.timeout(Math.max(1, Math.min(timeoutMs, RESEND_TIMEOUT_MS)))
 		});
 	} catch (e) {
 		throw new ResendFailed(

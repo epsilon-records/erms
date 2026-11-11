@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { verifyHook } from './signature';
 import { chooseSender, SENDERS, type SenderId } from './sender';
 import { render, UnsupportedEmailType, type HookEmailData, type HookUser } from './templates';
-import { ResendFailed, sendWithResend } from './resend';
+import { RESEND_TIMEOUT_MS, ResendFailed, sendWithResend } from './resend';
 
 /**
  * Supabase Auth's "Send Email" hook (EPSILON-147, decision 0027): Supabase POSTs every auth email
@@ -12,21 +12,47 @@ import { ResendFailed, sendWithResend } from './resend';
  * database read, as erms_auth_email), choose the sender, render, send. **It fails closed**: any
  * missing setting, unknown email type, failed lookup or refused send answers an error, Supabase
  * reports the sign-in as failed, and no email goes out from the other domain instead.
+ *
+ * What Supabase does with an error answer (supabase/auth `internal/hooks/hookshttp/hookshttp.go`):
+ * it reads `{"error":{"http_code","message"}}` only from a 200/202 answer. Any other status is
+ * reported to the caller of Auth as a generic 500 ("Invalid payload sent to hook" for 400, "Hook
+ * requires authorization token" for 401, "Unexpected status code returned from hook: 502", ...),
+ * so the `message` strings below reach this app's logs and tests, not the person signing in. That
+ * is still failing closed: no status but 200/202/204 counts as sent. The non-2xx statuses are kept
+ * on purpose; a 200 carrying an error would only count as one while `message` is non-empty.
  */
 
 export const AUTH_EMAIL_HOOK_PATH = '/api/auth/send-email';
+
+/**
+ * Supabase Auth's Site URL in production. `scripts/auth-redirects.mjs` (AUTH_SITE_URL) keeps
+ * Supabase set to it, and a test holds the two equal. Kept here rather than imported, so the
+ * script's command-line part is not bundled into the function.
+ */
+export const AUTH_SITE_URL = 'https://labelkit.co';
+
+/**
+ * Supabase waits 5 s for the whole hook call, then gives up with `hook_timeout` and rolls the
+ * email's tokens back. This handler's own budget, from the start of the call across the lookup and
+ * every send, leaves the rest for the function's start and the network.
+ */
+export const HOOK_BUDGET_MS = 4000;
 
 export type HookConfig = {
 	hookSecret: string | undefined;
 	keys: Record<SenderId, string | undefined>;
 	epsilonOrgId: string | undefined;
 	supabaseUrl: string;
+	/**
+	 * Supabase Auth's Site URL, which its own invite template linked as `{{ .SiteURL }}`. Not the
+	 * payload's `email_data.site_url`: Supabase fills that with the Auth API's external URL
+	 * (`<project>.supabase.co/auth/v1`), not the Site URL (supabase/auth `internal/api/mail.go`).
+	 */
+	siteUrl: string;
 };
 
 export type HookDeps = {
 	config: HookConfig;
-	/** Origin of this app, for invite links to /auth/confirm. */
-	appOrigin: string;
 	/** Every org id the account belongs to. */
 	memberOrgIds: (userId: string) => Promise<string[]>;
 	fetcher: typeof fetch;
@@ -74,6 +100,9 @@ function defaultLog(line: Record<string, unknown>) {
 export async function handleSendEmailHook(request: Request, deps: HookDeps): Promise<Response> {
 	const log = deps.log ?? defaultLog;
 	const { config } = deps;
+	const clock = deps.now ?? Date.now;
+	const deadline = clock() + HOOK_BUDGET_MS;
+	const remaining = () => deadline - clock();
 
 	if (!config.hookSecret) {
 		log({ level: 'error', outcome: 'not_configured', reason: 'SEND_EMAIL_HOOK_SECRET' });
@@ -81,7 +110,7 @@ export async function handleSendEmailHook(request: Request, deps: HookDeps): Pro
 	}
 
 	const rawBody = await request.text();
-	const nowSeconds = Math.floor((deps.now?.() ?? Date.now()) / 1000);
+	const nowSeconds = Math.floor(clock() / 1000);
 	const verified = verifyHook(config.hookSecret, request.headers, rawBody, nowSeconds);
 	if (!verified.ok) {
 		log({ level: 'error', outcome: 'rejected', reason: verified.reason });
@@ -118,7 +147,7 @@ export async function handleSendEmailHook(request: Request, deps: HookDeps): Pro
 
 	let memberOrgIds: string[];
 	try {
-		memberOrgIds = await deps.memberOrgIds(user.id);
+		memberOrgIds = await withinBudget(deps.memberOrgIds(user.id), remaining());
 	} catch {
 		log({ ...base, level: 'error', outcome: 'lookup_failed' });
 		return hookError(500, 'Could not prepare the sign-in email. Try again shortly.');
@@ -146,7 +175,7 @@ export async function handleSendEmailHook(request: Request, deps: HookDeps): Pro
 			user,
 			email,
 			supabaseUrl: config.supabaseUrl,
-			appOrigin: deps.appOrigin
+			siteUrl: config.siteUrl
 		});
 	} catch (e) {
 		if (!(e instanceof UnsupportedEmailType)) throw e;
@@ -160,30 +189,47 @@ export async function handleSendEmailHook(request: Request, deps: HookDeps): Pro
 		return hookError(500, `This kind of email (${type}) is not supported.`);
 	}
 
-	const ids: string[] = [];
-	for (const [i, message] of messages.entries()) {
-		try {
-			ids.push(
-				await sendWithResend(deps.fetcher, key, sender.from, message, `${verified.id}:${i}`)
-			);
-		} catch (e) {
-			const status = e instanceof ResendFailed ? e.status : 0;
-			const reason = e instanceof Error ? e.message : 'unknown';
-			log({
-				...base,
-				level: 'error',
-				outcome: 'send_failed',
-				sender: sender.domain,
-				status,
-				reason,
-				sent: i
-			});
-			return status === 429
-				? hookError(502, 'Too many emails were sent recently. Wait a while, then try again.', 429)
-				: hookError(502, 'The sign-in email could not be sent. Try again shortly.', 500);
-		}
+	// A secure email change is two messages. They go out at once, each with its own idempotency key,
+	// and share what is left of the budget: one after the other could outlast Supabase's 5 s.
+	const results = await Promise.allSettled(
+		messages.map((message, i) => {
+			const left = Math.min(RESEND_TIMEOUT_MS, remaining());
+			return left > 0
+				? sendWithResend(deps.fetcher, key, sender.from, message, `${verified.id}:${i}`, left)
+				: Promise.reject(new ResendFailed(0, 'timeout'));
+		})
+	);
+	const failures = results.flatMap((r) => (r.status === 'rejected' ? [r.reason as unknown] : []));
+	if (failures.length) {
+		const statuses = failures.map((e) => (e instanceof ResendFailed ? e.status : 0));
+		const status = statuses.includes(429) ? 429 : statuses[0];
+		const first = failures[0];
+		log({
+			...base,
+			level: 'error',
+			outcome: 'send_failed',
+			sender: sender.domain,
+			status,
+			reason: first instanceof Error ? first.message : 'unknown',
+			sent: results.length - failures.length,
+			of: results.length
+		});
+		return status === 429
+			? hookError(502, 'Too many emails were sent recently. Wait a while, then try again.', 429)
+			: hookError(502, 'The sign-in email could not be sent. Try again shortly.', 500);
 	}
+	const ids = results.map((r) => (r.status === 'fulfilled' ? r.value : ''));
 
 	log({ ...base, level: 'info', outcome: 'sent', sender: sender.domain, resend_ids: ids });
 	return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+/** `work`, or a rejection once `ms` have passed (the work itself is not cancelled). */
+function withinBudget<T>(work: Promise<T>, ms: number): Promise<T> {
+	if (ms <= 0) return Promise.reject(new Error('deadline'));
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error('deadline')), ms);
+	});
+	return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
