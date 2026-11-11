@@ -97,8 +97,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		try {
-			await submitQueuedJob(db, storage, providers, job.id, request.url);
-			results.push({ jobId: job.id, status: 'submitted' });
+			const outcome = await submitQueuedJob(db, storage, providers, job.id, request.url);
+			// A plan refusal (402) has already failed the job; it is not retried.
+			results.push(
+				outcome.status === 'submitted'
+					? { jobId: job.id, status: 'submitted' }
+					: { jobId: job.id, status: 'failed', reason: outcome.code }
+			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			// Update attempt count
