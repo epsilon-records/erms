@@ -14,7 +14,7 @@
 
 	{#if form && 'sent' in form}
 		<div class="alert ok" role="status">
-			Login link sent to {form.sent}. Check your inbox.
+			If {form.sent} has an account, a login link is on its way. Check your inbox.
 		</div>
 	{:else}
 		{#if badLink && !form}

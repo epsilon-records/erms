@@ -31,7 +31,12 @@ export const actions: Actions = {
 			});
 		}
 		if (error) {
-			return fail(400, { error: 'Could not send a login link. Check the address and try again.' });
+			// Answer exactly as for a known address: with shouldCreateUser off, Supabase errors for an
+			// address with no account, so reporting the failure would say which addresses have one.
+			// Log the status only, never the address.
+			console.warn(
+				JSON.stringify({ level: 'warn', msg: 'login link not sent', status: error.status ?? null })
+			);
 		}
 		return { sent: parsed.data };
 	}
