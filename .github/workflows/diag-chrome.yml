@@ -3,29 +3,17 @@ on:
   push:
     branches: ['diag/epsilon-148-chrome']
 jobs:
-  cold:
+  first:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: { n: [1, 2, 3] }
+      matrix:
+        variant: [baseline, fullenv, homeenv]
+        n: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with: { node-version: 22 }
-      - run: node scripts/diag-chrome.mjs baseline 8
-      - run: node scripts/diag-chrome.mjs fullenv 4
-      - run: node scripts/diag-chrome.mjs pwbasic 4
-  loaded:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: { n: [1, 2, 3] }
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with: { node-version: 22 }
-      - uses: supabase/setup-cli@v1
-        with: { version: 3.1.0-beta.26 }
-      - run: supabase start
-      - run: node scripts/diag-chrome.mjs baseline 8
-      - run: node scripts/diag-chrome.mjs fullenv 4
+      - run: |
+          cat /etc/os-release | head -2; ls -la /var/cache/fontconfig | head -5; du -sh /usr/share/fonts; fc-list | wc -l
+      - run: node scripts/diag-chrome.mjs ${{ matrix.variant }} 3

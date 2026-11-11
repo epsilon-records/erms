@@ -8,11 +8,11 @@ const chrome = execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).tr
 console.log('chrome', chrome, execFileSync(chrome, ['--version'], { encoding: 'utf8' }).trim());
 const variant = process.argv[2] ?? 'baseline';
 const runs = Number(process.argv[3] ?? 10);
-const env =
-	variant.includes('fullenv') ? process.env : { PATH: process.env.PATH };
+const env = variant.includes('fullenv') ? process.env : { PATH: process.env.PATH };
 for (let i = 0; i < runs; i++) {
 	const profile = await mkdtemp(resolve(tmpdir(), 'diag-chrome-'));
 	const extra = variant.includes('pwbasic') ? ['--password-store=basic'] : [];
+	const runEnv = variant.includes('homeenv') ? { ...env, HOME: profile } : env;
 	const t0 = Date.now();
 	const b = spawn(
 		chrome,
@@ -28,7 +28,7 @@ for (let i = 0; i < runs; i++) {
 			'--remote-debugging-port=0',
 			`--user-data-dir=${profile}`
 		],
-		{ stdio: ['ignore', 'pipe', 'pipe'], env }
+		{ stdio: ['ignore', 'pipe', 'pipe'], env: runEnv }
 	);
 	const lines = [];
 	let found = null;
