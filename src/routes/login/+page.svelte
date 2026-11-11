@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
-	let { form }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 	const badLink = $derived(page.url.searchParams.get('link') === 'invalid');
 </script>
 
@@ -30,5 +30,8 @@
 				<div class="alert error" role="alert">{form.error}</div>
 			{/if}
 		</form>
+		{#if data.signupOpen}
+			<p class="soft">New label? <a href="/signup">Create an account</a></p>
+		{/if}
 	{/if}
 </div>
