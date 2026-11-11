@@ -412,6 +412,28 @@ describe('per-label AudioKit clients', () => {
 		expect(polled.sort()).toEqual(seen.map((s) => s.key).sort());
 	});
 
+	it('lets a job that never reached AudioKit fail terminally (EPSILON-135)', async () => {
+		const orgId = await newOrg('never-submitted');
+		const job = await newJob(orgId, 30);
+		// The worker's max_attempts update for a job with no provider id.
+		await db
+			.update(audiokitJobs)
+			.set({
+				status: 'failed',
+				error: { code: 'max_attempts', message: 'Job failed after maximum retry attempts' },
+				finishedAt: new Date()
+			})
+			.where(eq(audiokitJobs.id, job.id));
+		const [row] = await db.select().from(audiokitJobs).where(eq(audiokitJobs.id, job.id));
+		expect(row.status).toBe('failed');
+
+		// Any other non-queued state still needs the provider fields.
+		const other = await newJob(orgId, 31);
+		await expect(
+			db.update(audiokitJobs).set({ status: 'submitted' }).where(eq(audiokitJobs.id, other.id))
+		).rejects.toThrow();
+	});
+
 	it("leaves a revoked client's jobs unpolled instead of retrying a dead key", async () => {
 		// Earlier tests leave submitted jobs behind; this one is about exactly one.
 		await db.delete(audiokitJobs);
