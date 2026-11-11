@@ -124,11 +124,11 @@ async function supabaseRoleGrants(sql: postgres.Sql): Promise<string[]> {
 	const rows = await sql<{ g: string }[]>`
 		SELECT grantee || ' ' || privilege_type || ' ' || table_schema || '.' || table_name AS g
 		  FROM information_schema.role_table_grants
-		 WHERE grantee IN ('anon', 'authenticated', 'service_role') AND table_schema IN ('public', 'app', 'app_metrics')
+		 WHERE grantee IN ('anon', 'authenticated', 'service_role') AND table_schema IN ('public', 'app', 'app_metrics', 'app_auth_email')
 		UNION
 		SELECT grantee || ' ' || privilege_type || ' ' || routine_schema || '.' || routine_name
 		  FROM information_schema.role_routine_grants
-		 WHERE grantee IN ('anon', 'authenticated', 'service_role') AND routine_schema IN ('public', 'app', 'app_metrics')
+		 WHERE grantee IN ('anon', 'authenticated', 'service_role') AND routine_schema IN ('public', 'app', 'app_metrics', 'app_auth_email')
 		ORDER BY 1`;
 	return rows.map((r) => r.g);
 }

@@ -4,6 +4,9 @@
 -- owner connection. It runs as erms_auth_email instead: a role that can log in nowhere, bypasses
 -- no RLS and holds one privilege, EXECUTE on the function below. The function returns the org ids
 -- of one account and nothing else: no names, roles, addresses or rows of any table.
+-- Its time limit is the caller's: the route's transaction sets statement_timeout to 1000ms
+-- (src/lib/server/db/scoped.ts). A SET clause on the function would not bound the statement
+-- that is already running, so there is none.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erms_auth_email') THEN
   CREATE ROLE erms_auth_email NOLOGIN NOBYPASSRLS NOINHERIT;
@@ -13,7 +16,7 @@ GRANT erms_auth_email TO postgres;--> statement-breakpoint
 CREATE SCHEMA app_auth_email;--> statement-breakpoint
 REVOKE ALL ON SCHEMA app_auth_email FROM PUBLIC, anon, authenticated, service_role, erms_app;--> statement-breakpoint
 CREATE FUNCTION app_auth_email.member_org_ids(p_user uuid) RETURNS uuid[]
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' SET statement_timeout = '1s' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  SELECT coalesce(pg_catalog.array_agg(m.org_id ORDER BY m.org_id), '{}'::uuid[])
  FROM public.memberships m
  WHERE m.user_id = p_user;
