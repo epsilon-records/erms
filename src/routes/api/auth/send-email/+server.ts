@@ -6,7 +6,7 @@ import {
 	RESEND_KEY_LABELKIT,
 	SEND_EMAIL_HOOK_SECRET
 } from '$app/env/private';
-import { handleSendEmailHook } from '#lib/server/auth-email/hook.js';
+import { AUTH_SITE_URL, handleSendEmailHook } from '#lib/server/auth-email/hook.js';
 import type { RequestHandler } from './$types';
 
 /**
@@ -14,15 +14,17 @@ import type { RequestHandler } from './$types';
  * path the erms_auth_email runner and nothing else, and the handler verifies the Standard Webhooks
  * signature before it reads the database. See README, "Sign-in email".
  */
-export const POST: RequestHandler = ({ request, locals, url }) =>
+export const POST: RequestHandler = ({ request, locals }) =>
 	handleSendEmailHook(request, {
 		config: {
 			hookSecret: SEND_EMAIL_HOOK_SECRET,
 			keys: { epsilon: RESEND_KEY_EPSILON, labelkit: RESEND_KEY_LABELKIT },
 			epsilonOrgId: AUTH_EMAIL_EPSILON_ORG_ID,
-			supabaseUrl: PUBLIC_SUPABASE_URL
+			supabaseUrl: PUBLIC_SUPABASE_URL,
+			// Supabase Auth's Site URL. Invites link there, as the hosted template's `{{ .SiteURL }}`
+			// did, whichever host the hook's URL names.
+			siteUrl: AUTH_SITE_URL
 		},
-		appOrigin: url.origin,
 		memberOrgIds: (userId) =>
 			locals.db(async (tx) => {
 				const rows = (await tx.execute(

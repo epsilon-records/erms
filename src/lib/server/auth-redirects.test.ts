@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { authRedirectPatch } from '../../../scripts/auth-redirects.mjs';
+import { AUTH_SITE_URL, authRedirectPatch } from '../../../scripts/auth-redirects.mjs';
+import { AUTH_SITE_URL as HOOK_SITE_URL } from './auth-email/hook';
 
 const LABELKIT = 'https://labelkit.co/auth/callback';
 const ERMS = 'https://erms.epsilonrecords.com/auth/callback';
 
 describe('published-site Auth configuration', () => {
+	it('the Send Email hook links invites to the Site URL this script keeps Supabase on', () => {
+		expect(HOOK_SITE_URL).toBe(AUTH_SITE_URL);
+	});
+
 	it('repairs the observed old-host config without dropping preview or legacy URLs', () => {
 		const uri_allow_list =
 			'https://epsilon-erms.netlify.app/auth/callback,https://epsilon-erms.netlify.app/**,https://*--epsilon-erms.netlify.app/**';
