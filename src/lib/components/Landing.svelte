@@ -200,7 +200,11 @@
 
 	<footer class="wrap">
 		<span>© 2015–2026 Epsilon Records · Amsterdam</span>
-		<a href="https://epsilonrecords.com">Epsilon Records</a>
+		<span class="links">
+			<a href="/privacy">Privacy</a>
+			<a href="/terms">Terms</a>
+			<a href="https://epsilonrecords.com">Epsilon Records</a>
+		</span>
 	</footer>
 </div>
 
@@ -547,6 +551,10 @@
 	.landing .dark {
 		background: var(--bg);
 		color: #fff;
+	}
+	.links {
+		display: flex;
+		gap: 20px;
 	}
 	footer {
 		display: flex;

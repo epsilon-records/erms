@@ -48,6 +48,11 @@ describe('auth hook allowlist', () => {
 		expect(resolved).toBe(true);
 	});
 
+	it.each(['/privacy', '/terms'])('serves %s without a Supabase user', async (pathname) => {
+		const { resolved } = await runHook(pathname);
+		expect(resolved).toBe(true);
+	});
+
 	it.each(['/dashboard', '/api/recordings', '/api/audiokit'])(
 		'still redirects the unauthenticated app path %s to /login',
 		async (pathname) => {

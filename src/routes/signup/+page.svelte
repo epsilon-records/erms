@@ -25,6 +25,10 @@
 			<label for="email" class="eyebrow">Email</label>
 			<input id="email" name="email" type="email" autocomplete="email" required />
 			<div><button class="btn primary">Send sign-up link</button></div>
+			<p class="soft">
+				By signing up you agree to the <a href="/terms">Terms</a> on behalf of your label. The
+				<a href="/privacy">Privacy notice</a> explains how we handle your data.
+			</p>
 			{#if form && 'error' in form}
 				<div class="alert error" role="alert">{form.error}</div>
 			{/if}
