@@ -80,7 +80,6 @@ describe('R2 storage', () => {
 	});
 });
 
-
 describe('parseListPage', () => {
 	it('reads keys and the continuation token of a truncated page', () => {
 		const xml =
