@@ -9,6 +9,7 @@ import { masterStorage } from '#lib/server/storage/env.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import {
 	AUDIOKIT_API_KEY,
+	AUDIOKIT_FALLBACK_ORG_IDS,
 	AUDIOKIT_BASE_URL,
 	AUDIOKIT_CREDENTIALS_KEY,
 	AUDIOKIT_WEBHOOK_SECRET
@@ -44,10 +45,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const db = adminDb();
 	// Each job is submitted with its own org's AudioKit client (EPSILON-102); an org without one
-	// yet falls back to the deployment-wide key.
+	// yet fails closed unless it is listed in AUDIOKIT_FALLBACK_ORG_IDS (EPSILON-135).
 	const providers = providerResolver(db, {
 		baseUrl: AUDIOKIT_BASE_URL,
-		fallback: { apiKey: AUDIOKIT_API_KEY, webhookSecret: AUDIOKIT_WEBHOOK_SECRET },
+		fallback: {
+			apiKey: AUDIOKIT_API_KEY,
+			webhookSecret: AUDIOKIT_WEBHOOK_SECRET,
+			orgIds: AUDIOKIT_FALLBACK_ORG_IDS
+		},
 		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
 	});
 	const now = new Date();
