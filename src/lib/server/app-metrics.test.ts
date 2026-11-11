@@ -1,15 +1,15 @@
 import { it, expect, vi } from 'vitest';
 import { createReceiver } from './app-metrics';
-import { METRICS_ORIGIN } from '#lib/app-metrics-contract.js';
+import { METRICS_ORIGINS } from '#lib/app-metrics-contract.js';
 import type { Scoped } from './db/scoped';
 const body = JSON.stringify({ v: 1, route: 'catalog_home', metric: 'document_mount_ms', ms: 420 });
 const headers = {
-	origin: METRICS_ORIGIN,
+	origin: METRICS_ORIGINS[0],
 	'sec-fetch-site': 'same-origin',
 	'content-type': 'application/json'
 };
 function req(options: RequestInit = {}) {
-	return new Request(METRICS_ORIGIN + '/api/app-metrics', {
+	return new Request(METRICS_ORIGINS[0] + '/api/app-metrics', {
 		method: 'POST',
 		body,
 		headers,
@@ -20,6 +20,24 @@ const runSpy = vi.fn<Scoped>(async (fn) =>
 	fn({ execute: vi.fn().mockResolvedValue([{ accepted: true }]) } as never)
 );
 const run = runSpy as Scoped;
+it('accepts both production origins and rejects preview and lookalike origins', async () => {
+	for (const origin of METRICS_ORIGINS) {
+		const response = await createReceiver()(req({ headers: { ...headers, origin } }), run, true);
+		expect(response.status).toBe(204);
+	}
+	for (const origin of [
+		'https://deploy-preview-1--epsilon-erms.netlify.app',
+		'https://epsilon-erms.netlify.app',
+		'https://www.labelkit.co',
+		'https://labelkit.co.evil.example',
+		'http://labelkit.co',
+		'https://labelkit.co/'
+	]) {
+		const response = await createReceiver()(req({ headers: { ...headers, origin } }), run, true);
+		expect(response.status).toBe(403);
+		expect(response.headers.get('x-app-metrics-rejection')).toBe('origin');
+	}
+});
 it('disabled does not read body or run SQL', async () => {
 	runSpy.mockClear();
 	expect((await createReceiver()(req(), run, false)).status).toBe(204);
@@ -43,7 +61,10 @@ it('rejects unknown fields/UTF8/streaming overflow, headers/origins/media/method
 		[req({ headers: { ...headers, 'content-length': '257' } }), 413],
 		[req({ headers: { ...headers, 'content-type': 'text/plain' } }), 415],
 		[req({ headers: { ...headers, 'content-encoding': 'gzip' } }), 415],
-		[new Request(METRICS_ORIGIN + '/api/app-metrics?FAKE', { method: 'POST', body, headers }), 400]
+		[
+			new Request(METRICS_ORIGINS[0] + '/api/app-metrics?FAKE', { method: 'POST', body, headers }),
+			400
+		]
 	];
 	for (const key of [
 		'cookie',

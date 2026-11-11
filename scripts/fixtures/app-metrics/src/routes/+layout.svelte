@@ -3,14 +3,14 @@
 	import { goto } from '$app/navigation';
 	import AppMetrics from '@metrics/AppMetrics.svelte';
 	import { createCollector, documentLifetime } from '@metrics/app-metrics-client';
-	import { METRICS_ORIGIN } from '@metrics/app-metrics-contract';
+	import { METRICS_ORIGINS } from '@metrics/app-metrics-contract';
 	let { children } = $props();
 	// Isolated fixture constructor seam, never included in the production build.
 	const collector = browser
 		? createCollector({
 				enabled: globalThis.fixtureEnabled !== false,
 				lifetime: documentLifetime,
-				origin: METRICS_ORIGIN,
+				origin: METRICS_ORIGINS[0],
 				fetch: window.fetch.bind(window),
 				now: () => performance.now(),
 				visible: () => document.visibilityState === 'visible'

@@ -1,6 +1,10 @@
 /** Versioned wire contract. Only the first route is activated in this slice. */
 export const METRICS_PATH = '/api/app-metrics';
-export const METRICS_ORIGIN = 'https://erms.epsilonrecords.com';
+/** Exact production origins only: never previews, deploy previews or other hosts. */
+export const METRICS_ORIGINS = ['https://labelkit.co', 'https://erms.epsilonrecords.com'] as const;
+export function isMetricsOrigin(origin: string | null | undefined): boolean {
+	return typeof origin === 'string' && (METRICS_ORIGINS as readonly string[]).includes(origin);
+}
 export type Metric = 'document_mount_ms' | 'client_navigation_ms';
 export type Sample = { v: 1; route: 'catalog_home'; metric: Metric; ms: number };
 export function routeCode(id: string | null | undefined): 'catalog_home' | null {

@@ -7,7 +7,7 @@
 	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
 	import AppMetrics from '#lib/AppMetrics.svelte';
 	import { createCollector, documentLifetime } from '#lib/app-metrics-client.js';
-	import { METRICS_ORIGIN } from '#lib/app-metrics-contract.js';
+	import { isMetricsOrigin } from '#lib/app-metrics-contract.js';
 	import favicon from '#lib/assets/favicon.svg';
 	import type { LayoutProps } from './$types';
 
@@ -17,7 +17,7 @@
 		browser &&
 		PUBLIC_APP_METRICS_ENABLED &&
 		__SENTRY_ENVIRONMENT__ === 'production' &&
-		window.origin === METRICS_ORIGIN &&
+		isMetricsOrigin(window.origin) &&
 		typeof performance?.now === 'function'
 			? createCollector({
 					enabled: true,
