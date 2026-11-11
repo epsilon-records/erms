@@ -1,4 +1,4 @@
-import { and, desc, eq, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
@@ -50,25 +50,12 @@ export type QueueJobResult = {
 	operation: Operation;
 };
 
-/**
- * Queue an AudioKit job for a recording's master. The background worker will submit it to
- * AudioKit with presigned URLs.
- */
-export async function queueAudioKitJob(
-	db: Database,
-	ctx: JobsCtx,
-	recordingId: string,
-	masterId: string,
-	input: unknown
-): Promise<QueueJobResult> {
+/** Role, request shape and params, checked before any database work. */
+function parseQueueInput(ctx: JobsCtx, input: unknown) {
 	assertCanSubmit(ctx);
 	const parsed = QueueJobRequest.safeParse(input);
 	if (!parsed.success) throw new JobError(400, 'Invalid job request.');
 	const { operation, params } = parsed.data;
-
-	if (!UUID.test(recordingId) || !UUID.test(masterId)) {
-		throw new JobError(404, 'Recording or master not found');
-	}
 
 	// Validate params against the operation's schema
 	const opDef = OPERATIONS[operation];
@@ -83,6 +70,25 @@ export async function queueAudioKitJob(
 				`Invalid params: ${validated.error.issues.map((i) => i.message).join(', ')}`
 			);
 		}
+	}
+	return { operation, params: params ?? null };
+}
+
+/**
+ * Queue an AudioKit job for a recording's master. The background worker will submit it to
+ * AudioKit with presigned URLs.
+ */
+export async function queueAudioKitJob(
+	db: Database,
+	ctx: JobsCtx,
+	recordingId: string,
+	masterId: string,
+	input: unknown
+): Promise<QueueJobResult> {
+	const { operation, params } = parseQueueInput(ctx, input);
+
+	if (!UUID.test(recordingId) || !UUID.test(masterId)) {
+		throw new JobError(404, 'Recording or master not found');
 	}
 
 	return withAudit(db, ctx, async (tx, audit) => {
@@ -113,7 +119,7 @@ export async function queueAudioKitJob(
 				recordingId,
 				masterId,
 				operation,
-				params: params ?? null,
+				params,
 				status: 'queued',
 				requestedBy: ctx.actor.id
 			})
@@ -132,6 +138,73 @@ export async function queueAudioKitJob(
 			operation
 		};
 	});
+}
+
+export const NO_READY_MASTER = 'Upload a ready master before running analysis.';
+
+/**
+ * The recording page's Run / Re-run (EPSILON-145): queue a job on the recording's newest ready
+ * master and return. It never calls AudioKit or R2: the per-minute worker submits the job
+ * (decision 0013), so the request costs only database round trips.
+ *
+ * Production reaches the database across the Atlantic (~100 ms a round trip, and two for each
+ * parameterised statement), so the work is kept to one statement that picks the master and
+ * writes the job, plus the audit row, in the caller's transaction. Run it under `locals.db`:
+ * RLS checks the master read and the job insert as the signed-in member.
+ */
+export async function queueJobForLatestMaster(
+	db: Database,
+	ctx: JobsCtx,
+	recordingId: string,
+	input: unknown
+): Promise<QueueJobResult> {
+	const { operation, params } = parseQueueInput(ctx, input);
+	// Any recording without a ready master answers the same, whether or not it exists.
+	if (!UUID.test(recordingId)) throw new JobError(409, NO_READY_MASTER);
+
+	return withAudit(db, ctx, async (tx, audit) => {
+		const id = uuidv7();
+		const rows = (await tx.execute(sql`
+			insert into audiokit_jobs (id, org_id, recording_id, master_id, operation, params, requested_by)
+			select ${id}::uuid, m.org_id, m.recording_id, m.id, ${operation}, ${
+				params === null ? null : JSON.stringify(params)
+			}::jsonb, ${ctx.actor.id}
+			from masters m
+			where m.org_id = ${ctx.orgId}::uuid and m.recording_id = ${recordingId}::uuid
+				and m.status = 'ready'
+			order by m.created_at desc
+			limit 1
+			returning id`)) as unknown as { id: string }[];
+		if (rows.length === 0) throw new JobError(409, NO_READY_MASTER);
+
+		await audit({
+			entity: 'audiokit_job',
+			entityId: id,
+			action: 'queue',
+			after: { operation, status: 'queued' }
+		});
+		return { jobId: id, status: 'queued' as const, operation };
+	});
+}
+
+/**
+ * Queued jobs the worker should try now: never tried, or last tried at least `retryDelayMs` ago.
+ * Fewest attempts first, so jobs that keep failing (a label with no AudioKit client,
+ * EPSILON-135) cannot fill every batch ahead of jobs that can run.
+ */
+export function dueQueuedJobs(db: Database, now: Date, retryDelayMs: number, limit: number) {
+	const minRetryTime = new Date(now.getTime() - retryDelayMs);
+	return db
+		.select({ id: audiokitJobs.id, attempts: audiokitJobs.attempts, orgId: audiokitJobs.orgId })
+		.from(audiokitJobs)
+		.where(
+			and(
+				eq(audiokitJobs.status, 'queued'),
+				or(isNull(audiokitJobs.lastAttemptAt), lte(audiokitJobs.lastAttemptAt, minRetryTime))
+			)
+		)
+		.orderBy(asc(audiokitJobs.attempts), asc(audiokitJobs.requestedAt))
+		.limit(limit);
 }
 
 /**
