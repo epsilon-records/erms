@@ -3,7 +3,7 @@ import { requireRemovalConfirmation } from '#lib/server/removal-confirmation.js'
 import { error, fail } from '@sveltejs/kit';
 import { recordingAnalysis } from '#lib/server/analysis.js';
 import { canSubmitJobs, JobError, queueJobForLatestMaster } from '#lib/server/audiokit-jobs.js';
-import { countAnalysesThisMonth, LIMIT_MESSAGES, limitsFor } from '#lib/server/plans.js';
+import { countAnalysesThisMonth, LIMIT_MESSAGES, limitsFor, lockLimit } from '#lib/server/plans.js';
 import { plansConfig } from '#lib/server/plans-env.js';
 import { getRecording } from '#lib/server/catalog.js';
 import {
@@ -164,6 +164,7 @@ export const actions: Actions = {
 			// the job (decision 0013, EPSILON-145).
 			const limits = await limitsFor(plansConfig(), m.orgId);
 			const result = await locals.db(async (tx) => {
+				if (limits) await lockLimit(tx, m.orgId, 'analysis');
 				if (limits && (await countAnalysesThisMonth(tx, m.orgId)) >= limits.analysisJobsPerMonth)
 					throw new JobError(402, LIMIT_MESSAGES.analysis(limits.analysisJobsPerMonth));
 				return queueJobForLatestMaster(tx, ctx, params.id, { operation: f.operation });

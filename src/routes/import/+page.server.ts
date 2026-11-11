@@ -3,7 +3,7 @@ import { fail } from '@sveltejs/kit';
 import { recentImports } from '#lib/server/catalog.js';
 import { requireScope } from '#lib/server/guard.js';
 import { applyImport } from '#lib/server/import/apply.js';
-import { countRecordings, LIMIT_MESSAGES, limitsFor } from '#lib/server/plans.js';
+import { countRecordings, LIMIT_MESSAGES, limitsFor, lockLimit } from '#lib/server/plans.js';
 import { plansConfig } from '#lib/server/plans-env.js';
 
 /** Thrown inside the import transaction to roll back an import that goes over the plan. */
@@ -66,6 +66,7 @@ async function run(request: Request, locals: App.Locals, dryRun: boolean) {
 	let result;
 	try {
 		result = await locals.db(async (tx) => {
+			if (limits) await lockLimit(tx, m.orgId, 'tracks');
 			const applied = await applyImport(tx, plan, {
 				orgId: m.orgId,
 				actor: { id: locals.user!.id, kind: 'user' },

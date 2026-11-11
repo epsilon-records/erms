@@ -48,6 +48,14 @@ function billingFail(e: unknown) {
 						: 'Billing is unavailable right now. Try again in a minute.';
 		return fail(e.status >= 500 ? 503 : 400, { error: message });
 	}
+	// A timeout or a refused connection to billing: fetch rejects with these, not a PlansError.
+	if (
+		e instanceof Error &&
+		(e.name === 'TimeoutError' || e.name === 'AbortError' || e instanceof TypeError)
+	) {
+		console.error(JSON.stringify({ level: 'warn', msg: 'billing unreachable', e: String(e) }));
+		return fail(503, { error: 'Billing is unavailable right now. Try again in a minute.' });
+	}
 	throw e;
 }
 

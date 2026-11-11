@@ -11,7 +11,7 @@
 					{ label: 'Recordings', used: data.usage.tracks, limit: limits.tracks },
 					{ label: 'Members', used: data.usage.seats, limit: limits.seats },
 					{
-						label: 'Analyses this month',
+						label: 'AudioKit jobs this month',
 						used: data.usage.analysisJobsThisMonth,
 						limit: limits.analysisJobsPerMonth
 					}
@@ -79,7 +79,7 @@
 			<section class="stack">
 				<h2 class="h2">Upgrade to Label</h2>
 				<p class="soft">
-					More recordings, members and analyses each month. Billed per label; cancel any time.
+					More recordings, members and AudioKit jobs each month. Billed per label; cancel any time.
 				</p>
 				<div class="actions">
 					<form method="POST" action="?/upgrade">
