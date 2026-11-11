@@ -1,8 +1,13 @@
 import { pathToFileURL } from 'node:url';
 
-// The published site must reach the callback on the host that owns the PKCE cookie.
-export const AUTH_SITE_URL = 'https://erms.epsilonrecords.com';
-export const AUTH_CALLBACK_URL = `${AUTH_SITE_URL}/auth/callback`;
+// The published site must reach the callback on the host that owns the PKCE cookie. labelkit.co is
+// the primary site and Supabase Auth's fallback (Site URL); every host the app is served on needs
+// its own exact callback allowed, or Supabase silently falls back to the Site URL and sign-in breaks
+// (docs/magic-link-redirects.md, EPSILON-134).
+export const AUTH_SITE_URL = 'https://labelkit.co';
+/** Production hosts: LabelKit itself, then customer domains (Epsilon's branded ERMS). */
+export const AUTH_HOSTS = [AUTH_SITE_URL, 'https://erms.epsilonrecords.com'];
+export const AUTH_CALLBACK_URLS = AUTH_HOSTS.map((host) => `${host}/auth/callback`);
 
 /**
  * A narrow Management API PATCH; preserve unrelated settings and existing redirect entries.
@@ -15,9 +20,8 @@ export function authRedirectPatch(current) {
 		.filter(Boolean);
 	const patch = {};
 	if (current.site_url?.replace(/\/$/, '') !== AUTH_SITE_URL) patch.site_url = AUTH_SITE_URL;
-	if (!allowed.includes(AUTH_CALLBACK_URL)) {
-		patch.uri_allow_list = [...allowed, AUTH_CALLBACK_URL].join(',');
-	}
+	const missing = AUTH_CALLBACK_URLS.filter((url) => !allowed.includes(url));
+	if (missing.length) patch.uri_allow_list = [...allowed, ...missing].join(',');
 	return patch;
 }
 

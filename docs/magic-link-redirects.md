@@ -111,3 +111,11 @@ under decision 0022.
 References: [Supabase redirect URL configuration](https://supabase.com/docs/guides/auth/redirect-urls),
 [PKCE flow](https://supabase.com/docs/guides/auth/sessions/pkce-flow),
 [SSR session cookies](https://supabase.com/docs/guides/auth/server-side/advanced-guide).
+
+## Update 2026-11-11: labelkit.co is primary (EPSILON-134)
+
+labelkit.co is now the primary site and Supabase Auth's Site URL. erms.epsilonrecords.com stays as
+Epsilon's branded host. `scripts/auth-redirects.mjs` now expects `site_url` to be
+`https://labelkit.co` and an exact `/auth/callback` entry for each production host
+(`AUTH_HOSTS`). Every customer domain added later must be listed there as well and added to the
+allowlist before anyone signs in on it.
