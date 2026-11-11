@@ -15,6 +15,7 @@ import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
 import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
 import { isLandingRequest } from '#lib/server/landing.js';
+import { keyFromHeader, resolveApiKey } from '#lib/server/api-keys.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /**
@@ -184,7 +185,45 @@ export const handle: Handle = async (input) => {
 			return empty(503);
 		}
 	}
+	if (path.startsWith('/v1/')) return apiHandle(input);
 	return ordinaryHandle(input);
+};
+
+/**
+ * The public /v1 API (EPSILON-137): an `Authorization: Bearer lk_…` key, never a cookie, so no
+ * browser session can be ridden into it. The key is looked up on the owner connection; the request
+ * then runs as the key's agent under RLS, exactly like a signed-in member.
+ */
+const apiHandle: Handle = async ({ event, resolve }) => {
+	const fail = (status: number, code: string, message: string) => {
+		const res = new Response(JSON.stringify({ error: { code, message } }), {
+			status,
+			headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+		});
+		for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.headers.set(name, value);
+		return res;
+	};
+	event.locals.user = null;
+	event.locals.brand = DEFAULT_BRAND;
+	event.locals.memberships = [];
+	event.locals.membership = null;
+	event.locals.db = () => error(401, 'Missing or invalid API key.');
+	const key = keyFromHeader(event.request.headers.get('authorization'));
+	if (!key) return fail(401, 'unauthorized', 'Missing or invalid API key.');
+	let resolved;
+	try {
+		resolved = await resolveApiKey(db(), key);
+	} catch {
+		return fail(503, 'unavailable', 'The API is unavailable right now.');
+	}
+	if (!resolved) return fail(401, 'unauthorized', 'Missing or invalid API key.');
+	event.locals.membership = { orgId: resolved.orgId, orgName: resolved.orgName, role: 'agent' };
+	event.locals.memberships = [event.locals.membership];
+	event.locals.apiKey = { id: resolved.id, scopes: resolved.scopes };
+	event.locals.db = scopedTo(db(), resolved.actorId);
+	const response = await resolve(event);
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.headers.set(name, value);
+	return response;
 };
 
 /** Sent with every server response. The CSP itself comes from SvelteKit (vite.config.ts). */

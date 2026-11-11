@@ -1,6 +1,8 @@
 import { json, error } from '@sveltejs/kit';
 import { queueAudioKitJob, JobError, listJobs } from '#lib/server/audiokit-jobs.js';
 import { requireScope } from '#lib/server/guard.js';
+import { countAnalysesThisMonth, LIMIT_MESSAGES, limitsFor, lockLimit } from '#lib/server/plans.js';
+import { plansConfig } from '#lib/server/plans-env.js';
 import type { RequestHandler } from './$types';
 
 /**
@@ -21,15 +23,19 @@ export const POST: RequestHandler = async ({ params, request, locals, url }) => 
 	}
 
 	try {
-		const result = await locals.db((db) =>
-			queueAudioKitJob(
+		const limits = await limitsFor(plansConfig(), m.orgId);
+		const result = await locals.db(async (db) => {
+			if (limits) await lockLimit(db, m.orgId, 'analysis');
+			if (limits && (await countAnalysesThisMonth(db, m.orgId)) >= limits.analysisJobsPerMonth)
+				throw new JobError(402, LIMIT_MESSAGES.analysis(limits.analysisJobsPerMonth));
+			return queueAudioKitJob(
 				db,
 				{ orgId: m.orgId, role: m.role, actor: { id: locals.user!.id, kind: 'user' } },
 				params.id,
 				masterId,
 				jobRequest
-			)
-		);
+			);
+		});
 		return json(result, { status: 201 });
 	} catch (err) {
 		if (err instanceof JobError) {

@@ -53,7 +53,7 @@ Already neutral: `supabase/templates/invite.html` names the inviting label, not 
 
 - Nothing exists yet. (The `audiokit_label_clients` "billing" fields refer to AudioKit's billing service, not LabelKit plans.)
 - Needed: plans, usage limits (tracks, labels, seats), Stripe checkout and webhooks, and enforcing limits at write time.
-- Check whether AudioKit's billing service (`audiokit-billing`) can be shared rather than rebuilt.
+- Check whether AudioKit's billing service (`epsilon-records/epsilon-billing`) can be shared rather than rebuilt.
 
 ### P4. Public API
 

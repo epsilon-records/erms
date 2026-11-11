@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Operation } from './audio/contract';
+import type { ApiErrorCode, Job, Operation } from './audio/contract';
 import { OPERATIONS, PARAMS_SCHEMAS } from './audio/contract';
+import { AudioProviderError } from './audio/provider';
 import type { providerResolver } from './audiokit-clients';
 import { type Actor, type Database, recordSystemAudit, withAudit } from './audit';
 import { audiokitJobs, masters, recordings, type Role } from './db/schema';
@@ -19,7 +20,7 @@ export type JobsCtx = { orgId: string; role: Role; actor: Actor };
 
 export class JobError extends Error {
 	constructor(
-		readonly status: 400 | 403 | 404 | 409 | 422,
+		readonly status: 400 | 402 | 403 | 404 | 409 | 422,
 		message: string
 	) {
 		super(message);
@@ -208,9 +209,27 @@ export function dueQueuedJobs(db: Database, now: Date, retryDelayMs: number, lim
 }
 
 /**
+ * AudioKit's plan refusals (`402` from `POST /v1/jobs`), with the reason a label member sees on
+ * the failed job. Nothing was queued, and the same request gets the same answer until the plan
+ * changes, so the job fails at once instead of being retried. (`503 entitlement_unavailable`
+ * is not here: the plan couldn't be checked, and a later try can succeed.)
+ */
+export const PLAN_REFUSALS: Partial<Record<ApiErrorCode, string>> = {
+	job_allowance_exhausted:
+		'AudioKit refused the job: the plan’s job allowance for this billing period is used up.',
+	stem_allowance_exhausted:
+		'AudioKit refused the job: the plan’s stem allowance for this billing period is used up.',
+	no_active_plan: 'AudioKit refused the job: the AudioKit client has no active plan.'
+};
+
+export type SubmitOutcome = { status: 'submitted' } | { status: 'failed'; code: ApiErrorCode };
+
+/**
  * Submit a queued job to AudioKit. Called by the background worker. Issues presigned URLs
  * for the master (input) and any outputs, then submits to AudioKit with the job_id as the
- * idempotency key. Stores the provider_job_id returned by AudioKit.
+ * idempotency key. Stores the provider_job_id returned by AudioKit. A plan refusal
+ * (`PLAN_REFUSALS`) marks the job failed and returns; any other error is thrown, and the
+ * worker retries it.
  */
 export async function submitQueuedJob(
 	db: Database,
@@ -218,7 +237,7 @@ export async function submitQueuedJob(
 	providers: Pick<ReturnType<typeof providerResolver>, 'forSubmission' | 'forClient'>,
 	jobId: string,
 	webhookBase: string
-): Promise<void> {
+): Promise<SubmitOutcome> {
 	const [job] = await db
 		.select({
 			id: audiokitJobs.id,
@@ -272,18 +291,50 @@ export async function submitQueuedJob(
 	}
 
 	// Submit to AudioKit
-	const audiokitJob = await audiokit.submit({
-		job_id: job.id,
-		operation,
-		input: {
-			url: inputUrl,
-			sha256: job.masterSha256,
-			filename: job.masterFileName
-		},
-		params: job.params as Record<string, unknown> | null | undefined,
-		outputs: Object.keys(outputsMap).length > 0 ? outputsMap : undefined,
-		webhook: { url: webhookUrl }
-	});
+	let audiokitJob: Job;
+	try {
+		audiokitJob = await audiokit.submit({
+			job_id: job.id,
+			operation,
+			input: {
+				url: inputUrl,
+				sha256: job.masterSha256,
+				filename: job.masterFileName
+			},
+			params: job.params as Record<string, unknown> | null | undefined,
+			outputs: Object.keys(outputsMap).length > 0 ? outputsMap : undefined,
+			webhook: { url: webhookUrl }
+		});
+	} catch (err) {
+		const message =
+			err instanceof AudioProviderError && Object.hasOwn(PLAN_REFUSALS, err.code)
+				? PLAN_REFUSALS[err.code]
+				: undefined;
+		if (!message) throw err;
+		const code = (err as AudioProviderError).code;
+		const now = new Date();
+		// Machine write: the terminal status change and its audit row together (decision 0014).
+		await db.transaction(async (tx) => {
+			await tx
+				.update(audiokitJobs)
+				.set({
+					status: 'failed',
+					error: { code, message },
+					finishedAt: now,
+					attempts: job.attempts + 1,
+					lastAttemptAt: now
+				})
+				.where(eq(audiokitJobs.id, job.id));
+			await recordSystemAudit(tx, {
+				orgId: job.orgId,
+				entity: 'audiokit_job',
+				entityId: job.id,
+				action: 'refused',
+				after: { status: 'failed', code }
+			});
+		});
+		return { status: 'failed', code };
+	}
 
 	// Store provider_job_id and mark as submitted, with an audit entry (decision 0014).
 	await db.transaction(async (tx) => {
@@ -305,6 +356,7 @@ export async function submitQueuedJob(
 			after: { status: 'submitted', provider_job_id: audiokitJob.provider_job_id }
 		});
 	});
+	return { status: 'submitted' };
 }
 
 /**

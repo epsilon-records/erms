@@ -107,6 +107,10 @@
 			<div class="alert ok" role="status">
 				Imported. <a href="/releases">View releases</a>
 			</div>
+		{:else if stage === 'blocked' && 'limit' in form && form.limit}
+			<div class="alert error" role="alert">
+				{form.limit} <a href="/org/billing">Billing</a>
+			</div>
 		{:else if stage === 'blocked'}
 			<div class="alert error" role="alert">
 				Fix the errors below in SymphonicMS or the file, then run the dry run again.

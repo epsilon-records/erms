@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { AudioProvider } from './audio/provider';
+import { AudioProviderError, type AudioProvider } from './audio/provider';
 import { providerResolver } from './audiokit-clients';
 import {
 	dueQueuedJobs,
@@ -206,5 +206,76 @@ describe('queueing analysis from the recording page', () => {
 		expect(
 			(await dueQueuedJobs(db, new Date(now.getTime() + 60_000), 60_000, 100)).map((j) => j.id)
 		).toContain(jobId);
+	});
+	// A-11: AudioKit checks every job against the client's plan. Labels' own clients are
+	// unlimited, so this is defensive: a refusal fails that job once, with a clear reason.
+	const refusingProviders = (error: Error) => {
+		const calls: string[] = [];
+		const provider = {
+			submit: async (req: { job_id: string }) => {
+				calls.push(req.job_id);
+				throw error;
+			}
+		} as unknown as AudioProvider;
+		const providers = providerResolver(
+			db,
+			{
+				baseUrl: 'https://api.example',
+				fallback: { apiKey: 'ak_fallback', webhookSecret: 'whsec_fallback', orgIds: [orgId] },
+				credentialsKey: undefined
+			},
+			() => provider
+		);
+		return { calls, providers };
+	};
+	const storage = {
+		presignGet: async (key: string) => `https://r2.example/get/${key}`,
+		presignPut: async (key: string) => `https://r2.example/put/${key}`
+	};
+
+	it.each([
+		['job_allowance_exhausted', 'probe', 'job allowance'],
+		['stem_allowance_exhausted', 'stems', 'stem allowance'],
+		['no_active_plan', 'probe', 'no active plan']
+	] as const)(
+		'fails a job AudioKit refuses with %s, without retrying it',
+		async (code, op, says) => {
+			const { jobId } = await asUser(db, manager, (tx) =>
+				queueJobForLatestMaster(tx, ctx(), recordingId, { operation: op })
+			);
+			const { calls, providers } = refusingProviders(new AudioProviderError(code, 'over plan'));
+
+			expect(
+				await submitQueuedJob(db, storage as never, providers, jobId, 'https://labelkit.example/x')
+			).toEqual({ status: 'failed', code });
+
+			expect(calls).toEqual([jobId]);
+			const [job] = await db.select().from(audiokitJobs).where(eq(audiokitJobs.id, jobId));
+			expect(job).toMatchObject({ status: 'failed', attempts: 1, providerJobId: null });
+			expect(job.finishedAt).not.toBeNull();
+			expect(job.error).toMatchObject({ code, message: expect.stringContaining(says) });
+			const audits = await db
+				.select({ action: auditLog.action, after: auditLog.after })
+				.from(auditLog)
+				.where(and(eq(auditLog.entity, 'audiokit_job'), eq(auditLog.entityId, jobId)));
+			expect(audits).toContainEqual({ action: 'refused', after: { status: 'failed', code } });
+			// No longer queued, so the worker never picks it up again.
+			const later = new Date(Date.now() + 3_600_000);
+			expect((await dueQueuedJobs(db, later, 60_000, 100)).map((j) => j.id)).not.toContain(jobId);
+		}
+	);
+
+	it('leaves a job queued for retry on other AudioKit errors', async () => {
+		const { jobId } = await asUser(db, manager, (tx) =>
+			queueJobForLatestMaster(tx, ctx(), recordingId, { operation: 'probe' })
+		);
+		for (const code of ['entitlement_unavailable', 'unavailable', 'constructor']) {
+			const { providers } = refusingProviders(new AudioProviderError(code));
+			await expect(
+				submitQueuedJob(db, storage as never, providers, jobId, 'https://labelkit.example/x')
+			).rejects.toMatchObject({ code });
+		}
+		const [job] = await db.select().from(audiokitJobs).where(eq(audiokitJobs.id, jobId));
+		expect(job.status).toBe('queued');
 	});
 });

@@ -53,7 +53,10 @@
 		{ href: '/compositions', label: 'Compositions' },
 		...(canRights ? [{ href: '/rights', label: 'Rights' }] : []),
 		...(canImport ? [{ href: '/import', label: 'Import' }] : []),
-		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : [])
+		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : []),
+		...(canManageMembers && data.plansEnabled ? [{ href: '/org/billing', label: 'Billing' }] : []),
+		...(canManageMembers ? [{ href: '/org/export', label: 'Export' }] : []),
+		...(canManageMembers ? [{ href: '/org/api-keys', label: 'API' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 	// Per-customer branding (EPSILON-132): ERMS on erms.epsilonrecords.com, LabelKit elsewhere.

@@ -60,7 +60,9 @@ export const KNOWN_API_ERROR_CODES = [
 	'client_bootstrap',
 	'rate_limited',
 	'unavailable',
+	'job_allowance_exhausted',
 	'stem_allowance_exhausted',
+	'job_allowance_exhausted',
 	'no_active_plan',
 	'entitlement_unavailable'
 ] as const;

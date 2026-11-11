@@ -892,3 +892,44 @@ export const webhookEvents = pgTable(
 );
 
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
+
+/**
+ * API keys for the public /v1 API (EPSILON-137). Each key acts as its own agent: `actor_id` is the
+ * user id of an `agent` membership in the key's org, so every /v1 query runs under the same RLS
+ * as the app. Only the SHA-256 of the key is kept; the key is shown once, at creation. Created
+ * and revoked only through app.create_api_key / app.revoke_api_key (migration 0026).
+ */
+export const apiKeys = pgTable(
+	'api_keys',
+	{
+		id: uuid('id').primaryKey().$defaultFn(uuidv7),
+		orgId: uuid('org_id')
+			.notNull()
+			.references(() => orgs.id, { onDelete: 'cascade' }),
+		actorId: uuid('actor_id').notNull(),
+		name: text('name').notNull(),
+		/** The key's public prefix, shown in lists: lk_<prefix>_… */
+		prefix: text('prefix').notNull(),
+		keySha256: text('key_sha256').notNull(),
+		scopes: text('scopes').array().notNull(),
+		createdBy: uuid('created_by').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+		revokedAt: timestamp('revoked_at', { withTimezone: true })
+	},
+	(t) => [
+		uniqueIndex('api_keys_actor_key').on(t.actorId),
+		uniqueIndex('api_keys_prefix_key').on(t.prefix),
+		uniqueIndex('api_keys_sha256_key').on(t.keySha256),
+		index('api_keys_org_idx').on(t.orgId, t.createdAt),
+		check('api_keys_name_length', sql`length(${t.name}) BETWEEN 1 AND 60`),
+		check('api_keys_prefix_format', sql`${t.prefix} ~ '^[a-z0-9]{8}$'`),
+		check('api_keys_sha256_format', sql`${t.keySha256} ~ '^[0-9a-f]{64}$'`),
+		check(
+			'api_keys_scopes_allowed',
+			sql`${t.scopes} <@ ARRAY['catalog:read','processing:request']::text[] AND cardinality(${t.scopes}) > 0`
+		)
+	]
+);
+
+export type ApiKey = typeof apiKeys.$inferSelect;
