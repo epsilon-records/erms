@@ -11,7 +11,7 @@ It changes no code.
 
 ## Summary
 
-The base is reusable. Every request is scoped to an org, isolation is enforced by RLS (with tests), member invites and roles work, and an org can already hold several imprints (`labels`). The gaps are mainly around the product:
+The base is reusable. Tenant isolation is enforced by RLS (with tests), member invites and roles work, and an org can already hold several imprints (`labels`). RLS is scoped to the signed-in user (`scopedTo(db(), user.id)` with `app.is_member`), so it allows every org that user belongs to. The active org is chosen in the app, and queries must still filter by it. The gaps are mainly around the product:
 
 - No way to sign up yourself.
 - No per-org branding, domain, plan or feature settings.
