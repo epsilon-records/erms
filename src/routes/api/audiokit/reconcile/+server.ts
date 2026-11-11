@@ -6,6 +6,7 @@ import { reconcileJobs } from '#lib/server/audiokit-jobs.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import {
 	AUDIOKIT_API_KEY,
+	AUDIOKIT_FALLBACK_ORG_IDS,
 	AUDIOKIT_BASE_URL,
 	AUDIOKIT_BILLING_URL,
 	AUDIOKIT_CREDENTIALS_KEY,
@@ -32,7 +33,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Each submitted job is polled with the key of the client it was submitted under.
 	const providers = providerResolver(db, {
 		baseUrl: AUDIOKIT_BASE_URL,
-		fallback: { apiKey: AUDIOKIT_API_KEY, webhookSecret: AUDIOKIT_WEBHOOK_SECRET },
+		fallback: {
+			apiKey: AUDIOKIT_API_KEY,
+			webhookSecret: AUDIOKIT_WEBHOOK_SECRET,
+			orgIds: AUDIOKIT_FALLBACK_ORG_IDS
+		},
 		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
 	});
 	const result = await reconcileJobs(db, providers);

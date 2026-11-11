@@ -184,7 +184,8 @@ describe('per-label AudioKit clients', () => {
 			actor: { id: ownerA, kind: 'user' }
 		});
 		expect(out.status).toBe('pending');
-		expect((await submissionCredentials(db, () => ring, orgId, FALLBACK)).clientId).toBeNull();
+		const listed = { ...FALLBACK, orgIds: [orgId] };
+		expect((await submissionCredentials(db, () => ring, orgId, listed)).clientId).toBeNull();
 		expect(await credentialsForClient(db, () => ring, out.clientId)).toBeNull();
 
 		// Billing has not caught up: nothing moves. Once it has, the client becomes the active one.
@@ -196,7 +197,7 @@ describe('per-label AudioKit clients', () => {
 		);
 	});
 
-	it('gives each org its own key, and the fallback only to an org with no client', async () => {
+	it('gives each org its own key, and the fallback only to a listed org with no client', async () => {
 		const [a, b, none] = [await newOrg('own-a'), await newOrg('own-b'), await newOrg('own-none')];
 		const billing = fakeBilling();
 		const ca = await issueLabelClient(db, billing, ring, {
@@ -214,12 +215,24 @@ describe('per-label AudioKit clients', () => {
 		expect(credsB.clientId).toBe(cb.clientId);
 		expect(credsA.apiKey).not.toBe(credsB.apiKey);
 		expect(credsA.apiKey).not.toBe(FALLBACK.apiKey);
-		expect(await submissionCredentials(db, () => ring, none, FALLBACK)).toEqual({
-			clientId: null,
-			...FALLBACK
+		expect(
+			await submissionCredentials(db, () => ring, none, { ...FALLBACK, orgIds: [none] })
+		).toEqual({ clientId: null, apiKey: FALLBACK.apiKey, webhookSecret: FALLBACK.webhookSecret });
+		await expect(
+			submissionCredentials(db, () => ring, none, { orgIds: [none] })
+		).rejects.toMatchObject({ status: 503 });
+	});
+
+	it('fails closed for an unlisted org with no client instead of using the fallback (EPSILON-135)', async () => {
+		const [listed, unlisted] = [await newOrg('fb-listed'), await newOrg('fb-unlisted')];
+		const fallback = { ...FALLBACK, orgIds: [listed] };
+		expect((await submissionCredentials(db, () => ring, listed, fallback)).clientId).toBeNull();
+		await expect(submissionCredentials(db, () => ring, unlisted, fallback)).rejects.toMatchObject({
+			status: 409
 		});
-		await expect(submissionCredentials(db, () => ring, none, {})).rejects.toMatchObject({
-			status: 503
+		// Unset list: no org may use the fallback.
+		await expect(submissionCredentials(db, () => ring, listed, FALLBACK)).rejects.toMatchObject({
+			status: 409
 		});
 	});
 
@@ -367,7 +380,9 @@ describe('per-label AudioKit clients', () => {
 					return { status: 'running' };
 				}
 			}) as unknown as AudioProvider;
-		const providers = providerResolver(db, env(), factory);
+		// `none` has no client of its own and is allowed the fallback (EPSILON-135).
+		const listedEnv = { ...env(), fallback: { ...FALLBACK, orgIds: [none] } };
+		const providers = providerResolver(db, listedEnv, factory);
 		const storage = {
 			presignGet: async () => 'https://r2.example/get',
 			presignPut: async () => 'https://r2.example/put'
@@ -393,8 +408,30 @@ describe('per-label AudioKit clients', () => {
 
 		// Reconcile polls each job with the key of the client it was submitted under.
 		await db.update(audiokitJobs).set({ submittedAt: new Date(Date.now() - 3_600_000) });
-		await reconcileJobs(db, providerResolver(db, env(), factory));
+		await reconcileJobs(db, providerResolver(db, listedEnv, factory));
 		expect(polled.sort()).toEqual(seen.map((s) => s.key).sort());
+	});
+
+	it('lets a job that never reached AudioKit fail terminally (EPSILON-135)', async () => {
+		const orgId = await newOrg('never-submitted');
+		const job = await newJob(orgId, 30);
+		// The worker's max_attempts update for a job with no provider id.
+		await db
+			.update(audiokitJobs)
+			.set({
+				status: 'failed',
+				error: { code: 'max_attempts', message: 'Job failed after maximum retry attempts' },
+				finishedAt: new Date()
+			})
+			.where(eq(audiokitJobs.id, job.id));
+		const [row] = await db.select().from(audiokitJobs).where(eq(audiokitJobs.id, job.id));
+		expect(row.status).toBe('failed');
+
+		// Any other non-queued state still needs the provider fields.
+		const other = await newJob(orgId, 31);
+		await expect(
+			db.update(audiokitJobs).set({ status: 'submitted' }).where(eq(audiokitJobs.id, other.id))
+		).rejects.toThrow();
 	});
 
 	it("leaves a revoked client's jobs unpolled instead of retrying a dead key", async () => {

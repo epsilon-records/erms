@@ -1,5 +1,5 @@
 import { json, error } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
 import { providerResolver } from '#lib/server/audiokit-clients.js';
 import { submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
@@ -9,6 +9,7 @@ import { masterStorage } from '#lib/server/storage/env.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import {
 	AUDIOKIT_API_KEY,
+	AUDIOKIT_FALLBACK_ORG_IDS,
 	AUDIOKIT_BASE_URL,
 	AUDIOKIT_CREDENTIALS_KEY,
 	AUDIOKIT_WEBHOOK_SECRET
@@ -44,21 +45,31 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const db = adminDb();
 	// Each job is submitted with its own org's AudioKit client (EPSILON-102); an org without one
-	// yet falls back to the deployment-wide key.
+	// yet fails closed unless it is listed in AUDIOKIT_FALLBACK_ORG_IDS (EPSILON-135).
 	const providers = providerResolver(db, {
 		baseUrl: AUDIOKIT_BASE_URL,
-		fallback: { apiKey: AUDIOKIT_API_KEY, webhookSecret: AUDIOKIT_WEBHOOK_SECRET },
+		fallback: {
+			apiKey: AUDIOKIT_API_KEY,
+			webhookSecret: AUDIOKIT_WEBHOOK_SECRET,
+			orgIds: AUDIOKIT_FALLBACK_ORG_IDS
+		},
 		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
 	});
 	const now = new Date();
 	const minRetryTime = new Date(now.getTime() - MIN_RETRY_DELAY_MS);
 
-	// Find queued jobs that haven't been attempted recently
+	// Queued jobs that are due, fewest attempts first: jobs that keep failing (a label with no
+	// AudioKit client, EPSILON-135) must not fill every batch ahead of jobs that can run.
 	const queuedJobs = await db
 		.select({ id: audiokitJobs.id, attempts: audiokitJobs.attempts, orgId: audiokitJobs.orgId })
 		.from(audiokitJobs)
-		.where(eq(audiokitJobs.status, 'queued'))
-		.orderBy(audiokitJobs.requestedAt)
+		.where(
+			and(
+				eq(audiokitJobs.status, 'queued'),
+				or(isNull(audiokitJobs.lastAttemptAt), lte(audiokitJobs.lastAttemptAt, minRetryTime))
+			)
+		)
+		.orderBy(asc(audiokitJobs.attempts), asc(audiokitJobs.requestedAt))
 		.limit(MAX_JOBS_PER_RUN);
 
 	const results = [];
