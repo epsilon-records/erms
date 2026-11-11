@@ -80,6 +80,9 @@ class FakeStorage implements MasterStorage {
 		this.removed.push(key);
 		this.objects.delete(key);
 	}
+	async list(prefix: string) {
+		return [...this.objects.keys()].filter((k) => k.startsWith(prefix));
+	}
 	/** What the browser's PUT would do. */
 	put(key: string, size: number, start = WAV) {
 		this.objects.set(key, { size, start });

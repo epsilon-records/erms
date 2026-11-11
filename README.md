@@ -363,6 +363,24 @@ then runs the request as that agent with `scopedTo`, so `/v1` goes through the s
 - **Spec:** `docs/openapi.yaml`. `openapi.test.ts` checks that it lists exactly the routes under
   `src/routes/v1`.
 
+## Closing and purging a label
+
+An owner closes a label at `/org/close`, by typing its name (migration 0027,
+`app.close_org`). A label on a renewing Label plan has to cancel the plan first.
+
+- **While closed:** every member is sent to `/org/closed`. Owners can still export the label and
+  reopen it with `app.reopen_org` until `purge_after`, which is 30 days after closing.
+- **The daily purge:** `netlify/functions/purge-orgs.mjs` calls `POST /api/internal/purge-orgs`
+  with the worker secret. For each label that is due, it:
+  1. revokes the label's AudioKit client at billing;
+  2. deletes every object under `orgs/<id>/` in R2;
+  3. calls `app.purge_org`, which deletes every row the label owns and the org itself.
+- **Audit log:** `app.purge_org` also deletes the label's audit log entries. The append-only
+  trigger allows this only inside that function, by checking `app.purge_org`; `erms_app` has no
+  DELETE on `audit_log`.
+- **Failures:** if any step fails, the label stays as it is for the next run. Without R2
+  configured, a label that has masters is never purged.
+
 ## Master uploads (Cloudflare R2)
 
 A recording page uploads a WAV master straight from the browser to R2. ERMS never handles the file body:
