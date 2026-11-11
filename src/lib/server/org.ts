@@ -24,7 +24,5 @@ export function needsOnboarding(
 	pathname: string,
 	exempt: string[]
 ): boolean {
-	return Boolean(
-		membership && !membership.onboardedAt && !exempt.includes(pathname)
-	);
+	return Boolean(membership && !membership.onboardedAt && !exempt.includes(pathname));
 }

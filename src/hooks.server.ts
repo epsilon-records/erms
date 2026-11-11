@@ -108,11 +108,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
 
 	// Signed in but in no label (a new self-serve account, or a member who was removed): the only
 	// thing to do is create a label (EPSILON-130), which /signup/label explains when signup is off.
-	if (
-		user &&
-		!event.locals.membership &&
-		!isNoLabelAllowed(event.url.pathname)
-	) {
+	if (user && !event.locals.membership && !isNoLabelAllowed(event.url.pathname)) {
 		redirect(303, '/signup/label');
 	}
 
