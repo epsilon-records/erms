@@ -41,8 +41,8 @@ export type RenderContext = {
 	email: HookEmailData;
 	/** Supabase project URL, e.g. https://<ref>.supabase.co. Verify links go to its /auth/v1. */
 	supabaseUrl: string;
-	/** Origin of this app, where `/auth/confirm` is served. */
-	appOrigin: string;
+	/** Supabase Auth's Site URL (`{{ .SiteURL }}`), where invites open `/auth/confirm`. */
+	siteUrl: string;
 };
 
 export type Message = { to: string; subject: string; html: string; text: string };
@@ -72,8 +72,8 @@ export function verifyUrl(
 	return url.toString();
 }
 
-export function inviteUrl(appOrigin: string, tokenHash: string) {
-	const url = new URL('/auth/confirm', appOrigin);
+export function inviteUrl(siteUrl: string, tokenHash: string) {
+	const url = new URL('/auth/confirm', siteUrl);
 	url.searchParams.set('token_hash', tokenHash);
 	url.searchParams.set('type', 'invite');
 	return url.toString();
@@ -166,7 +166,7 @@ export function render(ctx: RenderContext): Message[] {
 							`${org ?? 'A label'} uses ${product} for its catalogue, rights and releases, and has invited you to join.`
 						],
 						link: {
-							href: inviteUrl(ctx.appOrigin, email.token_hash),
+							href: inviteUrl(ctx.siteUrl, email.token_hash),
 							label: 'Accept the invite and sign in'
 						}
 					},
@@ -269,9 +269,19 @@ export function render(ctx: RenderContext): Message[] {
 			const notice = NOTICES[type];
 			if (!notice) throw new UnsupportedEmailType(`unsupported email type: ${type}`);
 			const { subject, line } = notice(ctx);
+			// Supabase's own mailer sends this notice to the address that was replaced, so its owner
+			// hears about the change (supabase/auth `templatemailer.go`, `EmailChangedNotificationMail`);
+			// by now `user.email` is already the new address. The hook payload carries the old one as
+			// `email_data.old_email` (`mail.go`). Without it, refuse rather than tell the new address.
+			let to = user.email;
+			if (type === 'email_changed_notification') {
+				const old = ctx.email.old_email?.trim();
+				if (!old) throw new UnsupportedEmailType('email_changed_notification without old_email');
+				to = old;
+			}
 			return [
 				compose(
-					user.email,
+					to,
 					`${subject} (${product})`,
 					{
 						heading: subject,

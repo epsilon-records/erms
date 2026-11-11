@@ -3,7 +3,7 @@ import { SENDERS } from './sender';
 import { render, UnsupportedEmailType, type HookEmailData, type RenderContext } from './templates';
 
 const SUPABASE = 'https://efalpthvvmvpaikuxymd.supabase.co';
-const APP = 'https://labelkit.co';
+const SITE = 'https://labelkit.co';
 
 function ctx(
 	type: string,
@@ -24,7 +24,7 @@ function ctx(
 			...data
 		},
 		supabaseUrl: SUPABASE,
-		appOrigin: APP,
+		siteUrl: SITE,
 		...over
 	};
 }
@@ -52,6 +52,7 @@ describe('auth email copy', () => {
 		for (const type of ALL_TYPES) {
 			const c = ctx(type);
 			if (type === 'email_change') c.user.new_email = 'new@example.test';
+			if (type === 'email_changed_notification') c.email.old_email = 'old@example.test';
 			const out = render(c);
 			expect(out.length, type).toBeGreaterThan(0);
 			for (const m of out) {
@@ -81,6 +82,15 @@ describe('auth email copy', () => {
 		);
 		expect(m.html).not.toContain('/auth/v1/verify');
 		expect(`${m.subject}${m.html}`).not.toMatch(/epsilon/i);
+	});
+
+	it('invite: links to Supabase’s Site URL, not the payload’s site_url (the Auth API URL)', () => {
+		const c = ctx('invite', { siteUrl: 'https://site.example.test/' });
+		const [m] = render(c);
+		expect(m.text).toContain(
+			'https://site.example.test/auth/confirm?token_hash=pkce_hash-one&type=invite'
+		);
+		expect(m.html).not.toContain(c.email.site_url);
 	});
 
 	it('invite to Epsilon from Epsilon’s sender calls the app ERMS', () => {
@@ -137,6 +147,28 @@ describe('auth email copy', () => {
 		expect(out).toHaveLength(1);
 		expect(out[0].to).toBe('new@example.test');
 		expect(out[0].html).toContain('token=only-hash');
+	});
+
+	it('email changed notice goes to the old address, as Supabase’s own mailer sends it', () => {
+		const c = ctx('email_changed_notification', {}, { old_email: 'old@example.test' });
+		c.user.email = 'new@example.test';
+		const out = render(c);
+		expect(out).toHaveLength(1);
+		expect(out[0].to).toBe('old@example.test');
+		expect(out[0].text).toContain('changed from old@example.test to new@example.test');
+	});
+
+	it('email changed notice without old_email is refused, never sent to the new address', () => {
+		for (const old of [undefined, null, '', '  ']) {
+			const c = ctx('email_changed_notification', {}, { old_email: old });
+			c.user.email = 'new@example.test';
+			expect(() => render(c), String(old)).toThrow(UnsupportedEmailType);
+		}
+	});
+
+	it('other notices go to the account’s current address', () => {
+		const c = ctx('password_changed_notification', {}, { old_email: 'old@example.test' });
+		expect(render(c)[0].to).toBe('person@example.test');
 	});
 
 	it('reauthentication sends the code, not a link', () => {
