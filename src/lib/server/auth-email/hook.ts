@@ -109,7 +109,14 @@ export async function handleSendEmailHook(request: Request, deps: HookDeps): Pro
 		return hookError(500, 'Sign-in email is not configured (hook secret missing).');
 	}
 
-	const rawBody = await request.text();
+	// The body read counts against the budget too: a stalled body must not outlast Supabase's 5 s.
+	let rawBody: string;
+	try {
+		rawBody = await withinBudget(request.text(), remaining());
+	} catch {
+		log({ level: 'error', outcome: 'body_read_failed' });
+		return hookError(500, 'Could not read the Send Email hook request.');
+	}
 	const nowSeconds = Math.floor(clock() / 1000);
 	const verified = verifyHook(config.hookSecret, request.headers, rawBody, nowSeconds);
 	if (!verified.ok) {

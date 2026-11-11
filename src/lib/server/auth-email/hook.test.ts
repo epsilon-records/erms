@@ -261,6 +261,28 @@ describe('Send Email hook', () => {
 		expect(t.fetcher).not.toHaveBeenCalled();
 	});
 
+	it('a request body that stalls past the budget fails closed without a lookup or send', async () => {
+		vi.useFakeTimers();
+		try {
+			const t = setup([OTHER]);
+			const stalled = new Request('https://labelkit.co/api/auth/send-email', {
+				method: 'POST',
+				body: new ReadableStream({ start() {} }), // never sends a byte or closes
+				// @ts-expect-error duplex is required by undici for a streamed body
+				duplex: 'half'
+			});
+			const pending = t.run(stalled);
+			await vi.advanceTimersByTimeAsync(HOOK_BUDGET_MS + 1);
+			const res = await pending;
+			expect(res.status).toBe(500);
+			expect(t.memberOrgIds).not.toHaveBeenCalled();
+			expect(t.fetcher).not.toHaveBeenCalled();
+			expect(t.logs.at(-1)).toMatchObject({ outcome: 'body_read_failed' });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('rejects a bad signature before any lookup or send', async () => {
 		const t = setup([EPSILON]);
 		const other = randomHookSecret();
