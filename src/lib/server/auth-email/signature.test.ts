@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hookKey, signHook, verifyHook } from './signature';
+import { hookKey, signatureEntries, signHook, verifyHook } from './signature';
 import { hookSecret, randomHookSecret } from './test-secrets';
 
 // The Standard Webhooks spec's own published example (standardwebhooks.com, svix docs). The repo
@@ -39,6 +39,35 @@ describe('Send Email hook signature (Standard Webhooks)', () => {
 		expect(
 			verifyHook(SPEC.secret, headers(SPEC.id, SPEC.timestamp, sigs), SPEC.body, SPEC.timestamp).ok
 		).toBe(true);
+	});
+
+	it('accepts either secret of a rotation in Supabase’s ", "-joined header', () => {
+		const [a, b] = [randomHookSecret(), randomHookSecret()];
+		const t = SPEC.timestamp;
+		const sigA = signHook(hookKey(a)!, SPEC.id, t, SPEC.body);
+		const sigB = signHook(hookKey(b)!, SPEC.id, t, SPEC.body);
+		// supabase/auth hookshttp.go: strings.Join(signatureList, ", ")
+		const header = `v1,${sigA}, v1,${sigB}`;
+		expect(signatureEntries(header)).toEqual([
+			{ version: 'v1', signature: sigA },
+			{ version: 'v1', signature: sigB }
+		]);
+		for (const secret of [a, b]) {
+			expect(verifyHook(secret, headers(SPEC.id, t, header), SPEC.body, t).ok).toBe(true);
+		}
+		expect(verifyHook(randomHookSecret(), headers(SPEC.id, t, header), SPEC.body, t)).toMatchObject(
+			{ ok: false, reason: 'bad_signature' }
+		);
+	});
+
+	it('parses space- and comma-separated entries without leaving a separator on any', () => {
+		expect(signatureEntries('  v1,AAA=  v1a,BBB,  v2,CCC==  ')).toEqual([
+			{ version: 'v1', signature: 'AAA=' },
+			{ version: 'v1a', signature: 'BBB' },
+			{ version: 'v2', signature: 'CCC==' }
+		]);
+		expect(signatureEntries('v1,AAA,')).toEqual([]);
+		expect(signatureEntries('garbage v1,')).toEqual([]);
 	});
 
 	it('rejects a changed body, id or timestamp', () => {
