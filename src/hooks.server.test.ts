@@ -43,10 +43,25 @@ describe('auth hook allowlist', () => {
 		}
 	);
 
-	it.each(['/', '/dashboard', '/api/recordings', '/api/audiokit'])(
+	it('serves the LabelKit landing page at / without a Supabase user', async () => {
+		const { resolved } = await runHook('/');
+		expect(resolved).toBe(true);
+	});
+
+	it.each(['/dashboard', '/api/recordings', '/api/audiokit'])(
 		'still redirects the unauthenticated app path %s to /login',
 		async (pathname) => {
 			await expect(runHook(pathname)).rejects.toMatchObject({ status: 303, location: '/login' });
 		}
 	);
+});
+
+describe('isLandingRequest', () => {
+	it('is public only at / on LabelKit hosts', async () => {
+		const { isLandingRequest } = await import('#lib/server/landing.js');
+		expect(isLandingRequest('/', { orgId: null })).toBe(true);
+		expect(isLandingRequest('/releases', { orgId: null })).toBe(false);
+		// A customer's branded domain keeps / behind sign-in.
+		expect(isLandingRequest('/', { orgId: 'org-epsilon' })).toBe(false);
+	});
 });
