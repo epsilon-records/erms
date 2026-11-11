@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -29,7 +30,7 @@
 					: 'active';
 </script>
 
-<svelte:head><title>Consents · ERMS</title></svelte:head>
+<svelte:head><title>Consents · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
 
 <div class="container">
 	<section class="spread">

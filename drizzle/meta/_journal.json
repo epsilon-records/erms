@@ -169,6 +169,13 @@
       "when": 1794390000000,
       "tag": "0023_self_serve_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794392287353,
+      "tag": "0024_org_branding",
+      "breakpoints": true
     }
   ]
 }

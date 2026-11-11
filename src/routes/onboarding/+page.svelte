@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -46,7 +47,7 @@
 <div class="container">
 	<section class="stack" style="max-width: 640px">
 		<div class="eyebrow"><span>{data.orgName}</span></div>
-		<h1 class="title">Welcome to ERMS</h1>
+		<h1 class="title">Welcome to {page.data.brand?.name ?? 'LabelKit'}</h1>
 		<p class="muted" style="margin: 0">
 			You're signed in to <strong>{data.orgName}</strong> as {roleLabel[data.role] ?? data.role}.
 		</p>

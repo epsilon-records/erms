@@ -21,6 +21,8 @@ declare global {
 			membership: Membership | null;
 			/** Every org the user belongs to, oldest first. */
 			memberships: Membership[];
+			/** Branding for this request's host (EPSILON-132); LabelKit's unless it is a custom domain. */
+			brand: import('#lib/server/branding').Brand;
 			/** RLS user transaction, or exact metrics boundary execute-only machine role (no identity). */
 			db: Scoped;
 		}
@@ -28,6 +30,7 @@ declare global {
 			user?: { id: string; email?: string } | null;
 			membership?: App.Locals['membership'];
 			memberships?: App.Locals['memberships'];
+			brand?: App.Locals['brand'];
 		}
 	}
 }

@@ -56,64 +56,71 @@
 		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
+	// Per-customer branding (EPSILON-132): ERMS on erms.epsilonrecords.com, LabelKit elsewhere.
+	const brandName = $derived(data.brand?.name ?? 'LabelKit');
+	const accent = $derived(data.brand?.accent ?? undefined);
 </script>
 
 {#if collector}<AppMetrics {collector} />{/if}
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>ERMS</title>
+	<title>{brandName}</title>
 </svelte:head>
 
-{#if data.user}
-	<header class="topbar">
-		<a href="/" class="brand plain">ERMS<span class="slash">/</span></a>
-		{#if data.membership}
-			<nav aria-label="Main">
-				{#each nav as item (item.href)}
-					<a href={item.href} class="plain" aria-current={isCurrent(item.href) ? 'page' : undefined}
-						>{item.label}</a
-					>
-				{/each}
-			</nav>
-		{/if}
-		<div class="grow"></div>
-		{#if data.membership}
-			<form method="GET" action="/search" class="search" role="search">
-				<label for="q" class="sr-only">Search the catalog</label>
-				<input
-					id="q"
-					name="q"
-					type="search"
-					placeholder="Title, artist, ISRC, UPC, cat#"
-					value={page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : ''}
-				/>
-			</form>
-		{/if}
-		<div class="who">
-			{#if data.memberships && data.memberships.length > 1}
-				<form method="POST" action="/org" class="switch">
-					<label for="org" class="sr-only">Label</label>
-					<select id="org" name="orgId">
-						{#each data.memberships as m (m.orgId)}
-							<option value={m.orgId} selected={m.orgId === data.membership?.orgId}
-								>{m.orgName}</option
-							>
-						{/each}
-					</select>
-					<button class="btn small">Switch</button>
+<div class="app" style:--accent={accent}>
+	{#if data.user}
+		<header class="topbar">
+			<a href="/" class="brand plain">{brandName}<span class="slash">/</span></a>
+			{#if data.membership}
+				<nav aria-label="Main">
+					{#each nav as item (item.href)}
+						<a
+							href={item.href}
+							class="plain"
+							aria-current={isCurrent(item.href) ? 'page' : undefined}>{item.label}</a
+						>
+					{/each}
+				</nav>
+			{/if}
+			<div class="grow"></div>
+			{#if data.membership}
+				<form method="GET" action="/search" class="search" role="search">
+					<label for="q" class="sr-only">Search the catalog</label>
+					<input
+						id="q"
+						name="q"
+						type="search"
+						placeholder="Title, artist, ISRC, UPC, cat#"
+						value={page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : ''}
+					/>
 				</form>
 			{/if}
-			<span class="muted">{data.user.email}</span>
-			{#if data.membership?.onboardedAt}
-				<a href="/onboarding" class="linkish">Get started</a>
-			{/if}
-			<form method="POST" action="/logout"><button class="linkish">Log out</button></form>
-		</div>
-	</header>
-{/if}
+			<div class="who">
+				{#if data.memberships && data.memberships.length > 1}
+					<form method="POST" action="/org" class="switch">
+						<label for="org" class="sr-only">Label</label>
+						<select id="org" name="orgId">
+							{#each data.memberships as m (m.orgId)}
+								<option value={m.orgId} selected={m.orgId === data.membership?.orgId}
+									>{m.orgName}</option
+								>
+							{/each}
+						</select>
+						<button class="btn small">Switch</button>
+					</form>
+				{/if}
+				<span class="muted">{data.user.email}</span>
+				{#if data.membership?.onboardedAt}
+					<a href="/onboarding" class="linkish">Get started</a>
+				{/if}
+				<form method="POST" action="/logout"><button class="linkish">Log out</button></form>
+			</div>
+		</header>
+	{/if}
 
-<main id="content">{@render children()}</main>
+	<main id="content">{@render children()}</main>
+</div>
 
 <style>
 	.topbar {
