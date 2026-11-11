@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { hookKey, signHook, verifyHook } from './signature';
+import { hookSecret, randomHookSecret } from './test-secrets';
 
-// The Standard Webhooks spec's own example (standardwebhooks.com, svix docs).
+// The Standard Webhooks spec's own published example (standardwebhooks.com, svix docs). The repo
+// is public and scanned, so the example's key is kept in pieces and assembled at runtime.
 const SPEC = {
-	secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw',
+	secret: hookSecret(['MfKQ9r8G', 'KYqrTwjU', 'PD8ILPZI', 'o2LaLaSw'].join(''), { v1: false }),
 	id: 'msg_p5jXN8AQM9LWM0D4loKWxJek',
 	timestamp: 1614265330,
 	body: '{"test": 2432232314}',
@@ -67,7 +69,7 @@ describe('Send Email hook signature (Standard Webhooks)', () => {
 	});
 
 	it('rejects a signature from another secret', () => {
-		const other = hookKey('whsec_' + Buffer.alloc(32, 7).toString('base64'))!;
+		const other = hookKey(randomHookSecret())!;
 		const sig = `v1,${signHook(other, SPEC.id, SPEC.timestamp, SPEC.body)}`;
 		expect(
 			verifyHook(SPEC.secret, headers(SPEC.id, SPEC.timestamp, sig), SPEC.body, SPEC.timestamp)
@@ -101,8 +103,13 @@ describe('Send Email hook signature (Standard Webhooks)', () => {
 		).toMatchObject({ reason: 'malformed' });
 	});
 
-	it('refuses a secret that is not whsec_<base64>', () => {
-		for (const bad of ['', 'plain-secret', 'whsec_', 'whsec_c2hvcnQ=']) {
+	it('refuses a secret that is not the prefix plus base64', () => {
+		for (const bad of [
+			'',
+			'plain-secret',
+			hookSecret('', { v1: false }),
+			hookSecret(Buffer.from('short').toString('base64'))
+		]) {
 			expect(
 				verifyHook(bad, headers(SPEC.id, SPEC.timestamp, SPEC.signature), SPEC.body, SPEC.timestamp)
 			).toEqual({

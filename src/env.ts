@@ -56,7 +56,7 @@ export const variables = defineEnvVars({
 	SEND_EMAIL_HOOK_SECRET: {
 		schema: (value) => value || undefined,
 		description:
-			'Send Email hook secret from Supabase (Authentication -> Hooks), "v1,whsec_<base64>"; verifies each hook call'
+			'Send Email hook secret, as generated in Supabase (Authentication -> Auth Hooks); verifies each hook call'
 	},
 	RESEND_KEY_EPSILON: {
 		schema: (value) => value || undefined,

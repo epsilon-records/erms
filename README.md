@@ -295,7 +295,7 @@ within Supabase's 5 s hook limit, cold start included; the Resend call has a 3.5
 
 | Variable                    | What it is                                                                                  |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| `SEND_EMAIL_HOOK_SECRET`    | The hook's secret from Supabase, `v1,whsec_<base64>`. Verifies every call.                  |
+| `SEND_EMAIL_HOOK_SECRET`    | The hook's secret, as Supabase generates it (paste it whole). Verifies every call.          |
 | `RESEND_KEY_EPSILON`        | Resend key limited to `auth.epsilonrecords.com` (the existing `erms-supabase-smtp` key).    |
 | `RESEND_KEY_LABELKIT`       | Resend key limited to `auth.labelkit.co` (the key Supabase's SMTP uses now).                |
 | `AUTH_EMAIL_EPSILON_ORG_ID` | Epsilon's org id. Not a secret. `select id, name from orgs order by created_at` to find it. |

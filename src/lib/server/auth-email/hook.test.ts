@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleSendEmailHook, type HookConfig } from './hook';
 import { hookKey, signHook } from './signature';
+import { randomHookSecret } from './test-secrets';
 
-const SECRET = `v1,whsec_${Buffer.alloc(32, 9).toString('base64')}`;
+const SECRET = randomHookSecret();
 const EPSILON = '019a0000-0000-7000-8000-00000000e951';
 const OTHER = '019a0000-0000-7000-8000-0000000000b2';
 const USER = '6f1c2b8e-1c1a-4d55-9a57-0b1f1b0a5c11';
@@ -53,7 +54,7 @@ function signed(body: string, opts: { secret?: string; id?: string; at?: number 
 
 const CONFIG: HookConfig = {
 	hookSecret: SECRET,
-	keys: { epsilon: 're_epsilon_test', labelkit: 're_labelkit_test' },
+	keys: { epsilon: 'fake-key-epsilon', labelkit: 'fake-key-labelkit' },
 	epsilonOrgId: EPSILON,
 	supabaseUrl: 'https://efalpthvvmvpaikuxymd.supabase.co'
 };
@@ -99,7 +100,7 @@ describe('Send Email hook', () => {
 		expect(await res.json()).toEqual({});
 		expect(t.memberOrgIds).toHaveBeenCalledWith(USER);
 		const [mail] = t.sent();
-		expect(mail.auth).toBe('Bearer re_epsilon_test');
+		expect(mail.auth).toBe('Bearer fake-key-epsilon');
 		expect(mail.body.from).toBe('Epsilon Records <no-reply@auth.epsilonrecords.com>');
 		expect(mail.body.to).toEqual(['staff@example.test']);
 		expect(mail.idem).toBe('msg_1:0');
@@ -109,7 +110,7 @@ describe('Send Email hook', () => {
 		const t = setup([OTHER]);
 		expect((await t.run(signed(payload()))).status).toBe(200);
 		const [mail] = t.sent();
-		expect(mail.auth).toBe('Bearer re_labelkit_test');
+		expect(mail.auth).toBe('Bearer fake-key-labelkit');
 		expect(mail.body.from).toBe('LabelKit <no-reply@auth.labelkit.co>');
 	});
 
@@ -136,7 +137,7 @@ describe('Send Email hook', () => {
 
 	it('rejects a bad signature before any lookup or send', async () => {
 		const t = setup([EPSILON]);
-		const other = `v1,whsec_${Buffer.alloc(32, 1).toString('base64')}`;
+		const other = randomHookSecret();
 		const res = await t.run(signed(payload(), { secret: other }));
 		expect(res.status).toBe(401);
 		expect(await res.json()).toMatchObject({ error: { http_code: 401 } });
@@ -171,7 +172,7 @@ describe('Send Email hook', () => {
 	});
 
 	it('fails closed without the chosen sender’s key: never falls back to the other domain', async () => {
-		const t = setup([EPSILON], { keys: { epsilon: undefined, labelkit: 're_labelkit_test' } });
+		const t = setup([EPSILON], { keys: { epsilon: undefined, labelkit: 'fake-key-labelkit' } });
 		const res = await t.run(signed(payload()));
 		expect(res.status).toBe(500);
 		expect((await res.json()).error.message).toContain('auth.epsilonrecords.com');
