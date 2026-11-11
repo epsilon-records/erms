@@ -89,7 +89,7 @@ export const actions: Actions = {
 
 		let invited;
 		try {
-			invited = await admin.invite(parsed.data.email, m.orgName);
+			invited = await admin.invite(parsed.data.email, m.orgName, m.orgId);
 		} catch (e) {
 			if (e instanceof InviteRefused) {
 				return fail(400, {

@@ -1,7 +1,7 @@
 <!--
   Supabase Auth "Invite user" template for ERMS (EPSILON-87).
 
-  One sender serves every label (decision 0021) and Supabase's templates are shared by every org,
+  Supabase's templates are shared by every org (decision 0021, kept by 0027),
   so this copy never names Epsilon Records: it names the label the person is invited to, from
   `invited_org_name`, which the members page sets when it sends the invite
   (src/lib/server/auth-admin.ts). It is the inviting org's display name, set by its owners.
@@ -11,6 +11,10 @@
 
   Production: paste this body into Authentication -> Emails -> Invite user in the ERMS project.
   Subject: as in supabase/config.toml, [auth.email.template.invite].
+
+  Once Supabase's Send Email hook is on (EPSILON-147, decision 0027), the hosted template is no
+  longer used: src/lib/server/auth-email/templates.ts renders the same copy. Keep the two in step
+  while SMTP is still the rollback; this file also drives the local stack's invite email.
 -->
 <h2>
 	You're invited to {{ if .Data.invited_org_name }}{{ .Data.invited_org_name }}{{ else }}a label{{

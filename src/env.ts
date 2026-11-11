@@ -50,6 +50,28 @@ export const variables = defineEnvVars({
 		description:
 			'Supabase secret (service-role) key for the Auth admin API, used only to send member invites'
 	},
+	// Sign-in email through Supabase's Send Email hook (EPSILON-147, decision 0027). Read by
+	// src/routes/api/auth/send-email only. Unset is safe while Supabase still sends over SMTP; once
+	// the hook is switched on, a missing one fails every auth email closed (README, "Sign-in email").
+	SEND_EMAIL_HOOK_SECRET: {
+		schema: (value) => value || undefined,
+		description:
+			'Send Email hook secret, as generated in Supabase (Authentication -> Auth Hooks); verifies each hook call'
+	},
+	RESEND_KEY_EPSILON: {
+		schema: (value) => value || undefined,
+		description:
+			'Resend API key limited to auth.epsilonrecords.com: sign-in email for Epsilon staff'
+	},
+	RESEND_KEY_LABELKIT: {
+		schema: (value) => value || undefined,
+		description: 'Resend API key limited to auth.labelkit.co: sign-in email for everyone else'
+	},
+	AUTH_EMAIL_EPSILON_ORG_ID: {
+		schema: (value) => value || undefined,
+		description:
+			"Epsilon's org id; its members (and invites to it) get mail from auth.epsilonrecords.com. Not a secret"
+	},
 	AUDIO_PROVIDER: {
 		schema: z.enum(['stub', 'audiokit']).default('stub'),
 		description: 'Which AudioProvider implementation the processing worker uses'
