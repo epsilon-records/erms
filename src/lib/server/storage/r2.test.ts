@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { createR2Storage } from './r2';
+import { createR2Storage, inspectStream } from './r2';
 
 const config = {
 	accountId: 'acct123',
@@ -62,20 +63,49 @@ describe('R2 storage', () => {
 		).rejects.toThrow();
 	});
 
-	it('HEADs and reads only the first bytes', async () => {
+	it('HEADs, then reads the whole object once to hash it', async () => {
+		const body = new TextEncoder().encode('RIFF\x24\x00\x00\x00WAVEfmt and the rest of the file');
 		const { calls, fetchImpl } = recorder((req) =>
 			req.method === 'HEAD'
-				? new Response(null, { headers: { 'content-length': '1234' } })
-				: new Response(new Uint8Array([82, 73, 70, 70]), { status: 206 })
+				? new Response(null, { headers: { 'content-length': String(body.length) } })
+				: new Response(body)
 		);
 		const r2 = createR2Storage(config, fetchImpl);
-		expect(await r2.head(key)).toEqual({ size: 1234 });
-		expect(await r2.readStart(key, 4)).toEqual(new Uint8Array([82, 73, 70, 70]));
-		expect(calls[1].headers.get('range')).toBe('bytes=0-3');
+		expect(await r2.head(key)).toEqual({ size: body.length });
+		expect(await r2.inspect(key, 12)).toEqual({
+			sha256: createHash('sha256').update(body).digest('hex'),
+			size: body.length,
+			start: body.slice(0, 12)
+		});
+		expect(calls.map((c) => c.method)).toEqual(['HEAD', 'GET']);
+		expect(calls[1].headers.get('range')).toBeNull();
+	});
+
+	it('hashes a stream that arrives in small chunks', async () => {
+		const bytes = new Uint8Array(1000).map((_, i) => i % 251);
+		const stream = new ReadableStream<Uint8Array>({
+			start(c) {
+				for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7));
+				c.close();
+			}
+		});
+		expect(await inspectStream(stream, 12)).toEqual({
+			sha256: createHash('sha256').update(bytes).digest('hex'),
+			size: 1000,
+			start: bytes.slice(0, 12)
+		});
+		const tiny = new ReadableStream<Uint8Array>({
+			start(c) {
+				c.enqueue(new Uint8Array([1, 2]));
+				c.close();
+			}
+		});
+		expect((await inspectStream(tiny, 12)).start).toEqual(new Uint8Array([1, 2]));
 	});
 
 	it('returns null for a missing object', async () => {
 		const { fetchImpl } = recorder(() => new Response(null, { status: 404 }));
 		expect(await createR2Storage(config, fetchImpl).head(key)).toBeNull();
+		expect(await createR2Storage(config, fetchImpl).inspect(key, 12)).toBeNull();
 	});
 });

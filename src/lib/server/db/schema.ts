@@ -666,7 +666,10 @@ export const masters = pgTable(
 		format: text('format').notNull().default('wav'),
 		/** Declared before upload, confirmed against R2 before the master is ready. */
 		sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
-		/** Hex SHA-256 of the file, computed in the browser while uploading. */
+		/**
+		 * Hex SHA-256 of the file. The browser reports one when it finishes uploading; the server
+		 * computes its own from R2 and records the master only if the two agree (EPSILON-120).
+		 */
 		sha256: text('sha256'),
 		fileName: text('file_name').notNull(),
 		status: masterStatusEnum('status').notNull().default('pending'),

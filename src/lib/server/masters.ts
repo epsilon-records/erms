@@ -216,10 +216,46 @@ const Complete = z.object({
 export type CompleteResult =
 	{ status: 'ready'; master: Master } | { status: 'rejected'; reason: string };
 
+/** Outcome of checking a stored master: the server's own hash, or why it was refused. */
+export type Verification =
+	{ ok: true; sha256: string; size: number } | { ok: false; reason: string };
+
 /**
- * Finish an upload: complete the multipart upload, then check what R2 actually holds
- * (size matches what was declared, the bytes start with a WAV header) before recording
- * the master. An object that fails is deleted and the row marked rejected.
+ * Check what R2 actually holds for a master against what the uploader declared: the size, a WAV
+ * header, and a SHA-256 the server computes itself. `head` first, so a file of the wrong size is
+ * refused without reading it; then one streamed read of the whole object for the header and hash.
+ */
+export async function verifyStoredMaster(
+	storage: MasterStorage,
+	objectKey: string,
+	declaredSize: number,
+	claimedSha256: string
+): Promise<Verification | null> {
+	const head = await storage.head(objectKey);
+	if (!head) return null;
+	if (head.size !== declaredSize) {
+		return { ok: false, reason: `Stored file is ${head.size} bytes, expected ${declaredSize}.` };
+	}
+	const read = await storage.inspect(objectKey, WAV_HEADER_BYTES);
+	if (!read) return null;
+	if (read.size !== declaredSize) {
+		return { ok: false, reason: `Stored file is ${read.size} bytes, expected ${declaredSize}.` };
+	}
+	if (!isWavHeader(read.start))
+		return { ok: false, reason: 'The uploaded file is not a WAV file.' };
+	if (read.sha256 !== claimedSha256) {
+		return {
+			ok: false,
+			reason: 'The stored file does not match the checksum the upload reported. Upload it again.'
+		};
+	}
+	return { ok: true, sha256: read.sha256, size: read.size };
+}
+
+/**
+ * Finish an upload: complete the multipart upload, then check what R2 actually holds (see
+ * verifyStoredMaster) before recording the master. The sha256 recorded is the one the server
+ * computed. An object that fails is deleted and the row marked rejected.
  */
 export async function completeMasterUpload(
 	db: Database,
@@ -231,7 +267,7 @@ export async function completeMasterUpload(
 	assertCanUpload(ctx);
 	const parsed = Complete.safeParse(input);
 	if (!parsed.success) throw new MasterError(400, 'Invalid completion request.');
-	const { sha256, parts } = parsed.data;
+	const { sha256: claimed, parts } = parsed.data;
 
 	return withAudit(db, ctx, async (tx, audit) => {
 		const row = await pendingMaster(tx, ctx, masterId, true);
@@ -245,17 +281,11 @@ export async function completeMasterUpload(
 			await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
 		}
 
-		const head = await storage.head(row.objectKey);
-		if (!head) throw new MasterError(409, 'The file has not arrived in storage yet.');
+		const verified = await verifyStoredMaster(storage, row.objectKey, row.sizeBytes, claimed);
+		if (!verified) throw new MasterError(409, 'The file has not arrived in storage yet.');
 
-		let reason: string | null = null;
-		if (head.size !== row.sizeBytes) {
-			reason = `Stored file is ${head.size} bytes, expected ${row.sizeBytes}.`;
-		} else if (!isWavHeader(await storage.readStart(row.objectKey, WAV_HEADER_BYTES))) {
-			reason = 'The uploaded file is not a WAV file.';
-		}
-
-		if (reason) {
+		if (!verified.ok) {
+			const { reason } = verified;
 			await storage.remove(row.objectKey);
 			await tx
 				.update(masters)
@@ -271,6 +301,7 @@ export async function completeMasterUpload(
 			return { status: 'rejected' as const, reason };
 		}
 
+		const { sha256, size } = verified;
 		const completedAt = new Date();
 		const [updated] = await tx
 			.update(masters)
@@ -282,7 +313,7 @@ export async function completeMasterUpload(
 			entityId: row.id,
 			action: 'upload_complete',
 			before: { status: 'pending' },
-			after: { status: 'ready', sha256, sizeBytes: head.size, completedAt }
+			after: { status: 'ready', sha256, sizeBytes: size, completedAt }
 		});
 		return { status: 'ready' as const, master: updated };
 	});

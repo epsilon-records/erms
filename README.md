@@ -369,7 +369,7 @@ A recording page uploads a WAV master straight from the browser to R2. ERMS neve
 
 1. `POST /recordings/:id/masters` (owner or catalog manager) checks the file is a WAV (name, type, size up to 4 GiB), records a pending master, and returns a presigned PUT URL. Files over 100 MiB start a multipart upload instead, in 64 MiB parts.
 2. `POST …/masters/:masterId/parts` signs part URLs, up to 16 at a time. URLs last 15 minutes.
-3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete`. ERMS completes the multipart upload, HEADs the object to confirm its size, reads its first 12 bytes to confirm a WAV header, and records the key, SHA-256, size and format. A file that fails is deleted and marked rejected.
+3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete` with it. ERMS completes the multipart upload, HEADs the object to confirm its size, then reads the object once, as a stream, to confirm a WAV header and compute its own SHA-256. It records the key, its own SHA-256, size and format only if that hash matches the one the browser reported. A file that fails any check is deleted and marked rejected.
 4. `POST …/masters/:masterId/abort` cancels a pending upload.
 5. `DELETE …/masters/:masterId` (owner or catalog manager) removes the object from R2 and
    deletes the row in one transaction, audited as `master_delete`. A pending multipart upload

@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
 import { AwsClient } from 'aws4fetch';
 
 /**
  * Master file storage on Cloudflare R2 through its S3-compatible API (decision 0011).
  *
- * The browser uploads straight to R2 with presigned URLs; the server only signs URLs
- * and makes small control calls (start/complete a multipart upload, HEAD the object,
- * read its first bytes). No file body passes through a Netlify function.
+ * The browser uploads straight to R2 with presigned URLs; the server signs URLs, makes small
+ * control calls (start/complete a multipart upload, HEAD the object) and reads each finished
+ * master once to check it (`inspect`). No file body is uploaded through a Netlify function.
  */
 export interface MasterStorage {
 	/** Presigned PUT for a single-request upload. */
@@ -25,12 +26,37 @@ export interface MasterStorage {
 	abortMultipart(key: string, uploadId: string): Promise<void>;
 	/** Size of the stored object, or null if there is none. */
 	head(key: string): Promise<{ size: number } | null>;
-	/** The first `length` bytes of the object. */
-	readStart(key: string, length: number): Promise<Uint8Array>;
+	/**
+	 * Read the whole object once, as a stream: its SHA-256, its size in bytes and its first
+	 * `headerBytes` bytes. Null if there is no object.
+	 */
+	inspect(key: string, headerBytes: number): Promise<Inspection | null>;
 	remove(key: string): Promise<void>;
 }
 
 export type Part = { partNumber: number; etag: string };
+
+/** What one streamed read of a stored object found. */
+export type Inspection = { sha256: string; size: number; start: Uint8Array };
+
+/** Hash a byte stream without holding it in memory, keeping its first `headerBytes` bytes. */
+export async function inspectStream(
+	body: ReadableStream<Uint8Array>,
+	headerBytes: number
+): Promise<Inspection> {
+	const hash = createHash('sha256');
+	const start = new Uint8Array(headerBytes);
+	let size = 0;
+	const reader = body.getReader();
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		hash.update(value);
+		if (size < headerBytes) start.set(value.subarray(0, headerBytes - size), size);
+		size += value.length;
+	}
+	return { sha256: hash.digest('hex'), size, start: start.slice(0, Math.min(size, headerBytes)) };
+}
 
 export type R2Config = {
 	accountId: string;
@@ -123,14 +149,10 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 			return { size: Number(res.headers.get('content-length')) };
 		},
 
-		async readStart(key, length) {
-			const res = await call(
-				objectUrl(key),
-				{ method: 'GET', headers: { Range: `bytes=0-${length - 1}` } },
-				'read'
-			);
-			if (res.status === 404) return new Uint8Array();
-			return new Uint8Array(await res.arrayBuffer()).slice(0, length);
+		async inspect(key, headerBytes) {
+			const res = await call(objectUrl(key), { method: 'GET' }, 'read');
+			if (res.status === 404 || !res.body) return null;
+			return inspectStream(res.body, headerBytes);
 		},
 
 		async remove(key) {

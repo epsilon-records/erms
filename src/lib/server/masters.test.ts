@@ -41,7 +41,9 @@ const SHA = 'ab'.repeat(32);
 
 /** In-memory stand-in for R2 that records which keys it was asked to sign. */
 class FakeStorage implements MasterStorage {
-	objects = new Map<string, { size: number; start: Uint8Array }>();
+	/** `sha256` is the hash of what R2 holds; the tests set it apart from what the upload claims. */
+	objects = new Map<string, { size: number; start: Uint8Array; sha256: string }>();
+	inspected: string[] = [];
 	uploads = new Map<string, { key: string; completed?: Part[] }>();
 	signed: string[] = [];
 	removed: string[] = [];
@@ -73,16 +75,18 @@ class FakeStorage implements MasterStorage {
 		const o = this.objects.get(key);
 		return o ? { size: o.size } : null;
 	}
-	async readStart(key: string, length: number) {
-		return (this.objects.get(key)?.start ?? new Uint8Array()).slice(0, length);
+	async inspect(key: string, headerBytes: number) {
+		this.inspected.push(key);
+		const o = this.objects.get(key);
+		return o ? { sha256: o.sha256, size: o.size, start: o.start.slice(0, headerBytes) } : null;
 	}
 	async remove(key: string) {
 		this.removed.push(key);
 		this.objects.delete(key);
 	}
 	/** What the browser's PUT would do. */
-	put(key: string, size: number, start = WAV) {
-		this.objects.set(key, { size, start });
+	put(key: string, size: number, start = WAV, sha256 = SHA) {
+		this.objects.set(key, { size, start, sha256 });
 	}
 }
 
@@ -414,6 +418,27 @@ describe('master uploads', () => {
 			expect(storage.objects.has(objectKey)).toBe(false);
 		});
 
+		it('rejects and deletes an upload whose stored bytes do not match the reported sha256', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(1000))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, 1000, WAV, 'cd'.repeat(32));
+			const res = await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			expect(res.status).toBe('rejected');
+			expect(storage.objects.has(objectKey)).toBe(false);
+			const row = await keyOf(start.masterId);
+			expect(row.status).toBe('rejected');
+			expect(row.sha256).toBeNull();
+			const [reject] = await db
+				.select({ action: auditLog.action })
+				.from(auditLog)
+				.where(and(eq(auditLog.entityId, start.masterId), eq(auditLog.action, 'upload_reject')));
+			expect(reject).toBeDefined();
+		});
+
 		it('recognises WAV headers and file names', () => {
 			expect(isWavHeader(WAV)).toBe(true);
 			const rf64 = new TextEncoder().encode('RF64\x00\x00\x00\x00WAVE');
@@ -436,12 +461,15 @@ describe('master uploads', () => {
 			expect(start.mode).toBe('single');
 			const { objectKey } = await keyOf(start.masterId);
 			storage.put(objectKey, 2048);
+			storage.inspected = [];
 			const res = await asUser(db, managerA, (tx) =>
 				completeMasterUpload(tx, storage, ctx(managerA, 'catalog_manager'), start.masterId, {
 					sha256: SHA
 				})
 			);
 			expect(res.status).toBe('ready');
+			// The server read the object exactly once to check it.
+			expect(storage.inspected).toEqual([objectKey]);
 			const row = await keyOf(start.masterId);
 			expect(row).toMatchObject({
 				objectKey,
