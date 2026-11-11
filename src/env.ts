@@ -61,7 +61,16 @@ export const variables = defineEnvVars({
 	AUDIOKIT_API_KEY: {
 		schema: (value) => value || undefined,
 		description:
-			'Deployment-wide AudioKit API key: the fallback for an org that has no client of its own yet (EPSILON-102)'
+			"Deployment-wide AudioKit API key (Epsilon's): the fallback for orgs in AUDIOKIT_FALLBACK_ORG_IDS with no client of their own yet, and for polling jobs already submitted with it (EPSILON-102, EPSILON-135)"
+	},
+	AUDIOKIT_FALLBACK_ORG_IDS: {
+		schema: (value) =>
+			(value ?? '')
+				.split(',')
+				.map((id: string) => id.trim())
+				.filter(Boolean),
+		description:
+			'Comma-separated org ids that may submit new jobs with the deployment-wide key while they have no client of their own; unset means none (EPSILON-135)'
 	},
 	AUDIOKIT_WEBHOOK_SECRET: {
 		schema: (value) => value || undefined,

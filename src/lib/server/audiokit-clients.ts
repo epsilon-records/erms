@@ -13,10 +13,12 @@ import { audiokitJobs, audiokitLabelClients, type AudiokitLabelClient } from './
  * verified with, and retires a replaced client. Every function takes the owner connection from
  * its caller; the org is always the job's or the signed-in member's, never a request body.
  *
- * Until an org has its own client it keeps using the deployment-wide key (AUDIOKIT_API_KEY and
- * AUDIOKIT_WEBHOOK_SECRET), so nothing breaks before billing is deployed. Once an org has had a
- * live client the fallback is closed to it for good: a label whose client was revoked fails
- * closed instead of silently going back to Epsilon's unlimited key.
+ * The deployment-wide key (AUDIOKIT_API_KEY and AUDIOKIT_WEBHOOK_SECRET) is Epsilon's unlimited
+ * key. New jobs are submitted with it only for the orgs listed in AUDIOKIT_FALLBACK_ORG_IDS, and only
+ * while such an org has never had a live client (EPSILON-135). Any other org without an active
+ * client fails closed, so a LabelKit customer can never run on Epsilon's quota. A label whose
+ * client was revoked also fails closed, listed or not. Jobs already stamped with the fallback (client
+ * id null) are still polled and verified with it until they finish.
  */
 
 export class LabelClientError extends Error {
@@ -31,7 +33,12 @@ export class LabelClientError extends Error {
 /** What a request to AudioKit is made with. `clientId` null is the deployment-wide fallback. */
 export type Credentials = { clientId: string | null; apiKey: string; webhookSecret: string };
 
-export type FallbackCredentials = { apiKey?: string; webhookSecret?: string };
+export type FallbackCredentials = {
+	apiKey?: string;
+	webhookSecret?: string;
+	/** Orgs allowed to submit new jobs with the deployment-wide key. Empty or unset: none. */
+	orgIds?: readonly string[];
+};
 
 const ctx = (
 	row: Pick<AudiokitLabelClient, 'orgId' | 'clientId'>,
@@ -55,7 +62,7 @@ function openCredentials(ring: KeyRing, row: AudiokitLabelClient): Credentials {
 
 /**
  * The credentials new jobs for an org are submitted with: its active client, else (only for an
- * org that has never had a live client) the deployment-wide fallback.
+ * org listed in `fallback.orgIds` that has never had a live client) the deployment-wide fallback.
  */
 export async function submissionCredentials(
 	db: Database,
@@ -71,6 +78,9 @@ export async function submissionCredentials(
 	if (active) return openCredentials(ring(), active);
 	if (rows.some((r) => r.status === 'draining' || r.status === 'revoked')) {
 		throw new LabelClientError(409, 'This label has no active AudioKit client.');
+	}
+	if (!fallback.orgIds?.includes(orgId)) {
+		throw new LabelClientError(409, 'This label has no AudioKit client yet.');
 	}
 	if (!fallback.apiKey || !fallback.webhookSecret) {
 		throw new LabelClientError(503, 'AudioKit credentials are not configured.');

@@ -812,7 +812,9 @@ export const audiokitJobs = pgTable(
 		index('audiokit_jobs_provider_idx').on(t.providerJobId),
 		check(
 			'audiokit_jobs_submitted_complete',
-			sql`${t.status} = 'queued' OR (${t.providerJobId} IS NOT NULL AND ${t.submittedAt} IS NOT NULL)`
+			// A job that never reached AudioKit (e.g. its label has no client, EPSILON-135) may still
+			// fail terminally; every other non-queued job has been submitted.
+			sql`${t.status} IN ('queued', 'failed') OR (${t.providerJobId} IS NOT NULL AND ${t.submittedAt} IS NOT NULL)`
 		),
 		check(
 			'audiokit_jobs_finished_complete',
