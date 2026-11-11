@@ -516,6 +516,42 @@ for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
 	});
 }
 
+// The Send Email hook's lookup (migration 0025, EPSILON-147): only erms_auth_email may call it, and
+// that role can read nothing else. A signed-in user must not learn another account's labels.
+for (const role of ['anon', 'authenticated', 'erms_app']) {
+	RLS_CASES.push({
+		requiresSupabaseRoles: role !== 'erms_app',
+		name: `${role} cannot call the auth email org lookup`,
+		role,
+		claim: role === 'anon' ? null : IDS.u1,
+		probe: `SELECT app_auth_email.member_org_ids('${IDS.u2}')`,
+		expect: 'error',
+		errorCode: '42501'
+	});
+}
+RLS_CASES.push({
+	requiresSupabaseRoles: false,
+	name: 'erms_auth_email reads one account’s org ids through the lookup',
+	role: 'erms_auth_email',
+	claim: null,
+	probe: `SELECT array_to_string(app_auth_email.member_org_ids('${IDS.u1}'), ',')`,
+	expect: IDS.orgA
+});
+for (const probe of [
+	'SELECT count(*) FROM public.memberships',
+	'SELECT count(*) FROM public.labels'
+]) {
+	RLS_CASES.push({
+		requiresSupabaseRoles: false,
+		name: `erms_auth_email has no table rights: ${probe}`,
+		role: 'erms_auth_email',
+		claim: null,
+		probe,
+		expect: 'error',
+		errorCode: '42501'
+	});
+}
+
 // webhook_events is written only by the AudioKit webhook route on the owner connection. It once
 // shipped without RLS while anon and authenticated held every privilege on it. RLS does not
 // govern TRUNCATE, so the migration revokes the grants too; these cases pin both.

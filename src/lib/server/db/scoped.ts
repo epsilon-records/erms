@@ -27,6 +27,18 @@ export function scopedTo(db: Database, userId: string): Scoped {
 	return (fn) => asUser(db, userId, fn);
 }
 
+/**
+ * The Send Email auth hook's role (EPSILON-147, migration 0025): EXECUTE on
+ * app_auth_email.member_org_ids() and nothing else. No JWT identity is set. Called only inside a
+ * transaction owned by client.ts, after the route has verified the hook's signature.
+ */
+export const AUTH_EMAIL_ROLE = 'erms_auth_email';
+export async function setAuthEmailRole(tx: Database) {
+	await tx.execute(
+		sql`select set_config('role', ${AUTH_EMAIL_ROLE}, true), set_config('statement_timeout', '1000ms', true)`
+	);
+}
+
 export type MetricsRole = 'erms_metrics_ingest' | 'erms_metrics_prune';
 /** Called only inside a reserved transaction owned by client.ts. No JWT identity is set. */
 export async function setMetricsRole(tx: Database, role: MetricsRole) {

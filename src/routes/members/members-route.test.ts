@@ -69,7 +69,7 @@ describe('members page: invite action', () => {
 			locals: locals(ownerA, orgA, 'Label A')
 		} as never);
 		expect(out).toMatchObject({ ok: true, result: { outcome: 'added' } });
-		expect(invite).toHaveBeenCalledWith('new@example.test', 'Label A');
+		expect(invite).toHaveBeenCalledWith('new@example.test', 'Label A', orgA);
 		const rows = await db.select().from(memberships);
 		expect(rows.find((r) => r.userId === newcomer)).toMatchObject({
 			orgId: orgA,
