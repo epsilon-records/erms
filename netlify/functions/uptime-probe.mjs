@@ -36,6 +36,7 @@ export const ENDPOINTS = [
 	'https://billing.audiokit.ai/ready',
 	'https://console.audiokit.ai',
 	'https://audiokit.ai',
+	'https://labelkit.co/login',
 	'https://erms.epsilonrecords.com/login'
 ];
 
@@ -93,7 +94,7 @@ export async function probe(url, { timeoutMs = TIMEOUT_MS, fetchImpl = fetch } =
 			method: 'GET',
 			redirect: 'follow',
 			cache: 'no-store',
-			headers: { 'user-agent': 'erms-uptime-probe (+https://erms.epsilonrecords.com)' },
+			headers: { 'user-agent': 'erms-uptime-probe (+https://labelkit.co)' },
 			signal: AbortSignal.timeout(timeoutMs)
 		});
 		// Only the status matters; don't keep the connection busy reading the page.

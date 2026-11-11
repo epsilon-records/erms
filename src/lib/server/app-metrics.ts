@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bucket, METRICS_ORIGIN, parseSample } from '#lib/app-metrics-contract.js';
+import { bucket, isMetricsOrigin, parseSample } from '#lib/app-metrics-contract.js';
 import type { Scoped } from './db/scoped';
 export const empty = (status: number) =>
 	new Response(null, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -22,7 +22,7 @@ export function createReceiver(now = Date.now) {
 	let tokens = 5,
 		updated = now(),
 		active = 0;
-	return async (request: Request, run: Scoped, enabled: boolean, origin = METRICS_ORIGIN) => {
+	return async (request: Request, run: Scoped, enabled: boolean) => {
 		if (request.method !== 'POST') return empty(405);
 		if (!enabled) return empty(204);
 		const time = now();
@@ -38,7 +38,7 @@ export function createReceiver(now = Date.now) {
 				status: 403,
 				headers: { 'Cache-Control': 'no-store', 'X-App-Metrics-Rejection': reason }
 			});
-		if (h.get('origin') !== origin) return rejected('origin');
+		if (!isMetricsOrigin(h.get('origin'))) return rejected('origin');
 		if (h.get('sec-fetch-site') !== 'same-origin') return rejected('fetch-site');
 		for (const key of forbidden) if (h.has(key)) return rejected('forbidden-' + key);
 		for (const key of h.keys()) {

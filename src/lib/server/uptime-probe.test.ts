@@ -63,11 +63,12 @@ describe('uptime prober (shared decision 0010)', () => {
 	});
 	afterEach(() => vi.restoreAllMocks());
 
-	it('probes exactly the four endpoints the decision names, every 5 minutes, 10 s timeout', () => {
+	it('probes exactly the five endpoints the decision names, every 5 minutes, 10 s timeout', () => {
 		expect(ENDPOINTS).toEqual([
 			'https://billing.audiokit.ai/ready',
 			'https://console.audiokit.ai',
 			'https://audiokit.ai',
+			'https://labelkit.co/login',
 			'https://erms.epsilonrecords.com/login'
 		]);
 		expect(config.schedule).toBe('*/5 * * * *');
@@ -173,6 +174,21 @@ describe('uptime prober (shared decision 0010)', () => {
 			['erms.epsilonrecords.com/login', 'status']
 		]);
 		expect(f.events()[1].exception.values[0].value).toContain('ENOTFOUND');
+	});
+
+	it('reports a failure on either domain the same way, one event per failing login page', async () => {
+		for (const [url, name] of [
+			['https://labelkit.co/login', 'labelkit.co/login'],
+			['https://erms.epsilonrecords.com/login', 'erms.epsilonrecords.com/login']
+		]) {
+			const f = fakeFetch({ [url]: 503 });
+			const out = await run({ fetchImpl: f.impl, env, ...fast });
+			expect(f.probes.map((p) => p.url)).toEqual(expect.arrayContaining(ENDPOINTS));
+			expect(out.reported).toEqual([url]);
+			const [event] = f.events();
+			expect(event.fingerprint).toEqual(['uptime-probe', name]);
+			expect(event.tags).toMatchObject({ probe_endpoint: name, probe_reason: 'status' });
+		}
 	});
 
 	it('groups a long outage into one issue: same fingerprint every run, whatever the status', async () => {

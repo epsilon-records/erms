@@ -1,6 +1,6 @@
 import {
 	duration,
-	METRICS_ORIGIN,
+	isMetricsOrigin,
 	METRICS_PATH,
 	routeCode,
 	type Metric
@@ -38,7 +38,7 @@ export function createCollector(options: {
 	visible: () => boolean;
 	lifetime?: Lifetime;
 }) {
-	const enabled = options.enabled && options.origin === METRICS_ORIGIN;
+	const enabled = options.enabled && isMetricsOrigin(options.origin);
 	const lifetime = options.lifetime ?? createLifetime();
 	const owner = Symbol();
 	if (enabled) {

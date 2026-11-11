@@ -1,8 +1,8 @@
 import { it, expect, vi, afterEach } from 'vitest';
 import { createCollector, createLifetime } from './app-metrics-client';
-import { METRICS_ORIGIN } from './app-metrics-contract';
+import { METRICS_ORIGINS } from './app-metrics-contract';
 afterEach(() => vi.useRealTimers());
-function setup(enabled = true, origin = METRICS_ORIGIN) {
+function setup(enabled = true, origin: string = METRICS_ORIGINS[0]) {
 	let time = 42,
 		visible = true;
 	const fetch = vi
@@ -52,6 +52,32 @@ it('drops disabled/wrong-origin/unknown/hidden initial documents', () => {
 	s.client.after('/', 'link');
 	expect(s.fetch).not.toHaveBeenCalled();
 });
+it('is enabled on exactly the two production origins and nowhere else', () => {
+	for (const origin of METRICS_ORIGINS) {
+		const s = setup(true, origin);
+		s.client.after('/', 'enter');
+		expect(s.fetch).toHaveBeenCalledTimes(1);
+	}
+	for (const origin of [
+		'https://deploy-preview-1--epsilon-erms.netlify.app',
+		'https://main--epsilon-erms.netlify.app',
+		'https://epsilon-erms.netlify.app',
+		'https://labelkit.co.evil.example',
+		'https://www.labelkit.co',
+		'https://sub.labelkit.co',
+		'http://labelkit.co',
+		'https://labelkit.co/',
+		'https://labelkit.co:8443',
+		'https://erms.epsilonrecords.com.evil.example',
+		'https://epsilonrecords.com',
+		'null',
+		''
+	]) {
+		const s = setup(true, origin);
+		s.client.after('/', 'enter');
+		expect(s.fetch).not.toHaveBeenCalled();
+	}
+});
 it('conservatively drops same-symbol, excluded, canceled, stale and form navigation', () => {
 	const { client, fetch, time } = setup();
 	client.after('/login', 'enter');
@@ -96,7 +122,7 @@ it('shares one document mount/budget across duplicate initialization and root re
 		.mockResolvedValue(new Response(null, { status: 204 }));
 	const options = {
 		enabled: true,
-		origin: METRICS_ORIGIN,
+		origin: METRICS_ORIGINS[0],
 		fetch,
 		now: () => 100,
 		visible: () => true,

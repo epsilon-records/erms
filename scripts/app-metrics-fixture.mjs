@@ -70,7 +70,10 @@ try {
 				transform(code, id, options) {
 					if (!options?.ssr) return;
 					if (id === resolve(repo, 'src/lib/app-metrics-contract.ts'))
-						return code.replace("'https://erms.epsilonrecords.com'", JSON.stringify(fixtureOrigin));
+						return code.replace(
+							/export const METRICS_ORIGINS = \[[^\]]*\] as const;/,
+							`export const METRICS_ORIGINS = [${JSON.stringify(fixtureOrigin)}] as const;`
+						);
 					if (id === resolve(repo, 'src/routes/api/app-metrics/+server.ts'))
 						return code.replace(
 							"import { APP_METRICS_ENABLED } from '$app/env/private';",

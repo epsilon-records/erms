@@ -164,7 +164,7 @@ fallback is closed to it for good, so a label whose client is revoked fails clos
 
 `netlify/functions/uptime-probe.mjs` (shared decision 0010) covers the endpoints Sentry's single
 uptime monitor does not: `billing.audiokit.ai/ready`, `console.audiokit.ai`, `audiokit.ai` and
-`erms.epsilonrecords.com/login`. Every 5 minutes it GETs each one with a 10 s timeout, following
+`labelkit.co/login` and `erms.epsilonrecords.com/login`. Every 5 minutes it GETs each one with a 10 s timeout, following
 redirects (`console.audiokit.ai/` answers 303 to `/login`; the final answer is what counts). A
 failed probe is retried once after 2 s, so a one-off network error inside the function does not
 alert. If the retry also fails, a non-2xx final answer, a timeout or a network error sends one
@@ -276,8 +276,8 @@ Music intelligence (an artist graph from open music data) is out of scope for no
 
 Both `APP_METRICS_ENABLED` and `PUBLIC_APP_METRICS_ENABLED` default to **false**.
 Keep both false pending independent review, migration review, merge and enablement approval.
-The browser additionally requires the production build context and exact
-`https://erms.epsilonrecords.com` origin. No deployment configuration is changed by this PR.
+The browser additionally requires the production build context and one of the exact production origins
+`https://labelkit.co` or `https://erms.epsilonrecords.com` (never a preview host). No deployment configuration is changed by this PR.
 Cloudflare app analytics remain inactive. No new vendor, subscription or database is added.
 
 Only the literal framework route ID `/` maps to `catalog_home`; all other routes are
