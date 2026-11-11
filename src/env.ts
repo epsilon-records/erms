@@ -114,6 +114,24 @@ export const variables = defineEnvVars({
 		description:
 			"Bearer token for billing's /v1/admin/label-clients routes; server only, never logged"
 	},
+	// Plans and billing (EPSILON-136): read from epsilon-billing's /v1/admin/labels routes with
+	// AUDIOKIT_BILLING_URL and LABEL_CLIENTS_ADMIN_TOKEN. Off by default: no billing page, no limits.
+	PLANS_ENABLED: {
+		schema: z
+			.string()
+			.default('false')
+			.transform((v) => v === 'true'),
+		description: 'Shows the billing page and enforces plan limits; off unless "true"'
+	},
+	PLAN_LIMITS_EXEMPT_ORG_IDS: {
+		schema: (value) =>
+			(value ?? '')
+				.split(',')
+				.map((id: string) => id.trim())
+				.filter(Boolean),
+		description:
+			"Orgs (orgs.id, comma-separated) that plan limits never apply to, e.g. Epsilon's own label"
+	},
 	WORKER_SECRET: {
 		schema: (value) => value || undefined,
 		description: 'Bearer token for the background job worker endpoint'
