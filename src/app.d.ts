@@ -23,6 +23,8 @@ declare global {
 			memberships: Membership[];
 			/** Branding for this request's host (EPSILON-132); LabelKit's unless it is a custom domain. */
 			brand: import('#lib/server/branding').Brand;
+			/** Set on /v1 requests: the API key that authenticated them (EPSILON-137). */
+			apiKey?: { id: string; scopes: import('#lib/server/api-keys').ApiKeyScope[] };
 			/** RLS user transaction, or exact metrics boundary execute-only machine role (no identity). */
 			db: Scoped;
 		}

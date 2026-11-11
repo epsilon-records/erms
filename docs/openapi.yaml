@@ -1,0 +1,77 @@
+openapi: 3.1.0
+info:
+  title: LabelKit API
+  version: 1.0.0
+  description: |
+    Read a label's catalogue. Authenticate with an API key from the API page in LabelKit,
+    sent as `Authorization: Bearer lk_…`. A key belongs to one label and sees only that
+    label. Errors answer `{"error": {"code", "message"}}`. Lists page by id: pass the
+    previous page's `next_cursor` as `after`.
+servers:
+  - url: https://labelkit.co
+security:
+  - apiKey: []
+paths:
+  /v1/releases:
+    get:
+      summary: List releases
+      parameters:
+        [{ $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/after' }]
+      responses:
+        '200': { $ref: '#/components/responses/Page' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /v1/releases/{id}:
+    get:
+      summary: Get a release with its tracks, credits and artists
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200': { description: '`{ "release": { … } }`' }
+        '404': { $ref: '#/components/responses/Error' }
+  /v1/recordings:
+    get:
+      summary: List recordings
+      parameters:
+        [{ $ref: '#/components/parameters/limit' }, { $ref: '#/components/parameters/after' }]
+      responses:
+        '200': { $ref: '#/components/responses/Page' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /v1/recordings/{id}:
+    get:
+      summary: Get a recording with its releases and credits
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses:
+        '200': { description: '`{ "recording": { … } }`' }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    apiKey: { type: http, scheme: bearer, description: 'lk_<prefix>_<secret>' }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    limit:
+      { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    after: { name: after, in: query, schema: { type: string, format: uuid } }
+  responses:
+    Page:
+      description: A page of results
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, next_cursor]
+            properties:
+              data: { type: array, items: { type: object } }
+              next_cursor: { type: [string, 'null'] }
+    Error:
+      description: An error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties: { code: { type: string }, message: { type: string } }

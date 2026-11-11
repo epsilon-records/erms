@@ -1,4 +1,4 @@
-import { and, count, eq, gte, sql } from 'drizzle-orm';
+import { and, count, eq, gte, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '#lib/server/audit.js';
 import { audiokitJobs, memberships, recordings } from '#lib/server/db/schema.js';
@@ -162,7 +162,8 @@ export async function countMembers(tx: Database, orgId: string): Promise<number>
 	const [row] = await tx
 		.select({ n: count() })
 		.from(memberships)
-		.where(eq(memberships.orgId, orgId));
+		// API keys are agent members and take no seat.
+		.where(and(eq(memberships.orgId, orgId), ne(memberships.role, 'agent')));
 	return row.n;
 }
 
