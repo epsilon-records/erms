@@ -261,12 +261,20 @@ route is unused.
 Edge Functions (`[edge_runtime]` is off) and its other machine callers (the AudioKit webhooks) are
 SvelteKit routes that verify a signature, with secrets in Netlify; a Postgres hook cannot call
 Resend and wait for the answer, so it could not fail closed. The cost is that Netlify must answer
-within Supabase's 5 s hook limit, cold start included; the Resend call has a 3.5 s timeout.
+within Supabase's 5 s hook limit, cold start included. Supabase does not retry a timeout, and the
+email's tokens are rolled back with it. So the handler gives itself 4 s from the start of the call
+for the lookup and every send together. Each Resend call is capped at 3.5 s or what is left, and
+the two emails of a secure email change go out at once, not one after the other.
 
 - **What it does.** Verifies the Standard Webhooks signature (`webhook-id`, `webhook-timestamp`,
   `webhook-signature`, five-minute tolerance) on the raw body, looks up the account's org ids,
   picks the sender, renders the email and sends it through Resend with that sender's key. The
-  `webhook-id` is the Resend idempotency key, so a retried call does not send twice. Code:
+  Resend idempotency key is `<webhook-id>:<n>`. It dedupes only a replay of the same hook call.
+  It does not dedupe Supabase's retries: Supabase makes a new `webhook-id` for every attempt
+  (it retries network errors, and 429/503 answers that carry `retry-after`). So if a connection
+  drops after Resend accepted the email, the retry sends a second copy of the same link or notice.
+  Accepted here, since a duplicate is harmless. With two hook secrets (rotation) Supabase sends
+  two signatures joined by `", "`; either one verifying is enough. Code:
   `src/lib/server/auth-email/`.
 - **Database access.** The route has no signed-in user and never gets the owner connection.
   `hooks.server.ts` gives this exact path a runner that switches to `erms_auth_email` (migration
@@ -278,18 +286,28 @@ within Supabase's 5 s hook limit, cold start included; the Resend call has a 3.5
     so an invite to Epsilon for a brand-new address comes from `auth.epsilonrecords.com`, and an
     invite to another label comes from `auth.labelkit.co` even for someone who is already Epsilon
     staff. `invited_org_id` is user-editable metadata, so it is trusted for invite emails only.
-  - _Everything else_ (sign-in link, signup, email change, notices): Epsilon's sender only when
-    Epsilon is the account's one and only org. Someone in Epsilon **and** another label gets
-    `auth.labelkit.co`: a sign-in link is not about one label.
+  - _Everything else_ (sign-in link, signup, email change, notices): Epsilon's sender whenever
+    Epsilon is one of the account's orgs, even if the person also belongs to other labels (Nate's
+    decision, labelkit#73). The rule is per recipient, so other labels' people never get Epsilon
+    mail.
 - **Copy.** The invite ports `supabase/templates/invite.html` (it names the inviting label, links
-  to `/auth/confirm` with the token hash) and calls the app ERMS from Epsilon's sender and LabelKit
-  from LabelKit's. The hosted magic-link template was Supabase's `{{ .ConfirmationURL }}` default and
+  to `/auth/confirm` on Supabase's Site URL, `https://labelkit.co`, as the template's
+  `{{ .SiteURL }}` did; `scripts/auth-redirects.mjs` holds that value). It does not use the request's
+  host or the payload's `email_data.site_url`: Supabase fills the latter with the Auth API's own
+  URL (`<project>.supabase.co/auth/v1`), not the Site URL. It calls the app ERMS from Epsilon's
+  sender and LabelKit from LabelKit's. The hosted magic-link template was Supabase's `{{ .ConfirmationURL }}` default and
   is not in the repo, so sign-in and the other types get plain, neutral copy that names no label;
   their links are the same Auth `/verify` URL as before, so `/auth/callback` is unchanged. Every
-  `email_action_type` in Supabase's schema has copy; an unknown one is refused.
+  `email_action_type` in Supabase's schema has copy; an unknown one is refused. Recipients follow
+  Supabase's own mailer: the "email address was changed" notice goes to the **old** address
+  (`email_data.old_email`) so its owner hears about the change, and is refused if that is missing;
+  every other notice goes to the account's address.
 - **Fails closed.** A missing setting, a bad signature, a failed lookup, an unknown type or a
   refused send answers an error (`{"error":{"http_code","message"}}`), Supabase reports the
-  sign-in as failed and nothing is sent. It never falls back to the other domain or to SMTP. Each
+  sign-in as failed and nothing is sent. Supabase reads that body only from a 200/202 answer; for
+  the 4xx/5xx statuses used here the person signing in sees a generic error ("Unexpected status
+  code returned from hook: 502" and the like, reported as a 500), so the messages are for logs
+  and tests. Rate limits are not shown to the user as such either. It never falls back to the other domain or to SMTP. Each
   call logs one JSON line (`"event":"auth_email_hook"`, outcome, sender domain, Resend ids), never
   the address or a token.
 
