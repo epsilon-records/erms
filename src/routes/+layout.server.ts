@@ -1,4 +1,5 @@
-import { PLANS_ENABLED } from '$app/env/private';
+import { plansClient } from '#lib/server/plans.js';
+import { plansConfig } from '#lib/server/plans-env.js';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ locals }) => ({
@@ -6,5 +7,6 @@ export const load: LayoutServerLoad = ({ locals }) => ({
 	membership: locals.membership,
 	memberships: locals.memberships,
 	brand: locals.brand,
-	plansEnabled: PLANS_ENABLED
+	// Same check as /org/billing: on, and billing reachable by URL and token.
+	plansEnabled: plansClient(plansConfig()) !== null
 });

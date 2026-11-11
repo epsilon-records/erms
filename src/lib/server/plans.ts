@@ -1,4 +1,4 @@
-import { and, count, eq, gte } from 'drizzle-orm';
+import { and, count, eq, gte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '#lib/server/audit.js';
 import { audiokitJobs, memberships, recordings } from '#lib/server/db/schema.js';
@@ -130,9 +130,27 @@ export async function limitsFor(
 
 export type Usage = { tracks: number; seats: number; analysisJobsThisMonth: number };
 
-/** Start of the current calendar month, UTC: analysis limits reset on the 1st. */
+/**
+ * Start of the current calendar month, UTC: analysis limits reset on the 1st. Every AudioKit job
+ * counts (analysis, preview, transcode alike), because each one is a job run on AudioKit.
+ */
 export function monthStart(now = new Date()): Date {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/**
+ * Serialize a count-then-write limit check per org and limit: two concurrent requests for the same
+ * label would otherwise both pass a check at limit - 1. Transaction-scoped, so it is held through
+ * the write and released at commit or rollback.
+ */
+export async function lockLimit(
+	tx: Database,
+	orgId: string,
+	limit: 'tracks' | 'analysis'
+): Promise<void> {
+	await tx.execute(
+		sql`select pg_advisory_xact_lock(hashtextextended(${`plan-limit:${limit}:${orgId}`}, 0))`
+	);
 }
 
 export async function countRecordings(tx: Database, orgId: string): Promise<number> {
@@ -175,5 +193,5 @@ export const LIMIT_MESSAGES = {
 	seats: (limit: number) =>
 		`Your plan allows ${limit} members. Upgrade the label's plan on the Billing page to invite more.`,
 	analysis: (limit: number) =>
-		`Your plan allows ${limit} analyses a month. Upgrade the label's plan on the Billing page, or wait until the 1st.`
+		`Your plan allows ${limit} AudioKit jobs a month. Upgrade the label's plan on the Billing page, or wait until the 1st.`
 };
