@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { slugFromName } from '#lib/slug.js';
 	import type { PageProps } from './$types';
 
@@ -17,7 +18,7 @@
 
 <div class="container" style="max-width: 480px; padding-top: 12vh">
 	<section class="stack">
-		<div class="eyebrow"><span>LabelKit</span></div>
+		<div class="eyebrow"><span>{page.data.brand?.name ?? 'LabelKit'}</span></div>
 		<h1 class="display">Name your label</h1>
 	</section>
 

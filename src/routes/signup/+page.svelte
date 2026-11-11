@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -6,7 +7,7 @@
 
 <div class="container" style="max-width: 480px; padding-top: 12vh">
 	<section class="stack">
-		<div class="eyebrow"><span>LabelKit</span></div>
+		<div class="eyebrow"><span>{page.data.brand?.name ?? 'LabelKit'}</span></div>
 		<h1 class="display">Create an account</h1>
 	</section>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -18,7 +19,7 @@
 	);
 </script>
 
-<svelte:head><title>Compositions · ERMS</title></svelte:head>
+<svelte:head><title>Compositions · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
 
 <div class="container">
 	<section class="spread">

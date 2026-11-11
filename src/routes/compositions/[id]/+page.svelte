@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import {
 		confirmRemoval,
 		removedIdentities,
@@ -46,7 +47,7 @@
 	</p></noscript
 >
 
-<svelte:head><title>{comp.title} · ERMS</title></svelte:head>
+<svelte:head><title>{comp.title} · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
 
 <div class="container">
 	<section class="stack">

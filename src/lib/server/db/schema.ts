@@ -42,9 +42,30 @@ export const orgs = pgTable(
 		id: uuid('id').primaryKey().$defaultFn(uuidv7),
 		name: text('name').notNull(),
 		slug: text('slug').notNull(),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		/** Per-customer branding (EPSILON-132). Null: the product's own (LabelKit). */
+		displayName: text('display_name'),
+		/** Accent colour as lowercase #rrggbb; null keeps the default accent. */
+		accentColor: text('accent_color'),
+		/** A host the label is served on, e.g. erms.epsilonrecords.com; lowercase, no port. */
+		customDomain: text('custom_domain')
 	},
-	(t) => [uniqueIndex('orgs_slug_key').on(t.slug)]
+	(t) => [
+		uniqueIndex('orgs_slug_key').on(t.slug),
+		uniqueIndex('orgs_custom_domain_key').on(t.customDomain),
+		check(
+			'orgs_display_name_length',
+			sql`${t.displayName} IS NULL OR length(${t.displayName}) BETWEEN 1 AND 60`
+		),
+		check(
+			'orgs_accent_color_format',
+			sql`${t.accentColor} IS NULL OR ${t.accentColor} ~ '^#[0-9a-f]{6}$'`
+		),
+		check(
+			'orgs_custom_domain_format',
+			sql`${t.customDomain} IS NULL OR ${t.customDomain} ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'`
+		)
+	]
 );
 
 export const memberships = pgTable(

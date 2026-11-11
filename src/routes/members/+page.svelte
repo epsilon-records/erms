@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { confirmRemoval } from '#lib/removal-confirmation.js';
 	import type { PageProps } from './$types';
 
@@ -39,7 +40,7 @@
 	</p></noscript
 >
 
-<svelte:head><title>Members · ERMS</title></svelte:head>
+<svelte:head><title>Members · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
 
 <div class="container">
 	<section class="spread">
@@ -49,8 +50,8 @@
 		</div>
 	</section>
 	<p class="soft">
-		Everyone who can sign in to {data.orgName} in ERMS, and what they can do. Changes apply to this label
-		only. A label always keeps at least one owner.
+		Everyone who can sign in to {data.orgName} in {page.data.brand?.name ?? 'LabelKit'}, and what
+		they can do. Changes apply to this label only. A label always keeps at least one owner.
 	</p>
 
 	<div class="table-wrap">

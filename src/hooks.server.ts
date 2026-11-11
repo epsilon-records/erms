@@ -12,6 +12,7 @@ import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
 import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
+import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /**
@@ -61,6 +62,15 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		}
 	});
 
+	// Per-customer branding by host (EPSILON-132), before sign-in so the login page is branded too.
+	// Pages only: API and machine paths never need it and stay off the owner connection here. A
+	// failed lookup must never take the login page down: fall back to LabelKit's own branding.
+	event.locals.brand = event.url.pathname.startsWith('/api/')
+		? DEFAULT_BRAND
+		: await Promise.resolve()
+				.then(() => brandForHost(db(), event.url.host))
+				.catch(() => DEFAULT_BRAND);
+
 	// getUser() asks Supabase Auth to verify the token; never trust getSession() alone on the server.
 	const {
 		data: { user }
@@ -88,7 +98,11 @@ const appHandle: Handle = async ({ event, resolve }) => {
 				.orderBy(asc(memberships.createdAt), asc(orgs.name))
 		);
 		event.locals.memberships = rows;
-		event.locals.membership = pickMembership(rows, event.cookies.get(ORG_COOKIE));
+		// On a customer's own domain, act in that label when the user belongs to it.
+		event.locals.membership = pickMembership(
+			rows,
+			event.locals.brand.orgId ?? event.cookies.get(ORG_COOKIE)
+		);
 	}
 
 	const isPublic = PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p));
