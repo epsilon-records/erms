@@ -55,6 +55,7 @@ export const KNOWN_API_ERROR_CODES = [
 	'operation_unavailable',
 	'unauthorized',
 	'not_found',
+	'client_not_found',
 	'idempotency_conflict',
 	'client_bootstrap',
 	'rate_limited',

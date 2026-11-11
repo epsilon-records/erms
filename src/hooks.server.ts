@@ -14,6 +14,7 @@ import { db } from '#lib/server/db/client.js';
 import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
 import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
+import { isLandingRequest } from '#lib/server/landing.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /**
@@ -106,7 +107,9 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		);
 	}
 
-	const isPublic = PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p));
+	const isPublic =
+		PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p)) ||
+		isLandingRequest(event.url.pathname, event.locals.brand);
 	if (!user && !isPublic) {
 		redirect(303, '/login');
 	}
