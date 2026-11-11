@@ -1,5 +1,5 @@
 import { DATABASE_URL } from '$app/env/private';
-import { createDb, schema } from './index';
+import { createDb, declareParams, schema } from './index';
 
 let instance: ReturnType<typeof createDb> | undefined;
 
@@ -34,7 +34,7 @@ export function metricsRunner(role: MetricsRole): Scoped {
 					},
 					onnotice: () => {}
 				});
-				metricsDatabase = drizzle(pool, { schema });
+				metricsDatabase = drizzle(declareParams(pool), { schema });
 			}
 			// postgres-js 4 removes timed-out begin/reserve operations from its queue BEFORE
 			// execution; no Promise.race can leave a late query running in the background.
