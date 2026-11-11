@@ -21,6 +21,14 @@ export const variables = defineEnvVars({
 			.transform((v) => v === 'true'),
 		description: 'First-party performance client; disabled pending review'
 	},
+	// Self-serve signup (EPSILON-130). Off by default: open it once plans and billing exist.
+	SIGNUP_ENABLED: {
+		schema: z
+			.string()
+			.default('false')
+			.transform((v) => v === 'true'),
+		description: 'Lets anyone create an account and a label from /signup; off unless "true"'
+	},
 	PUBLIC_SUPABASE_URL: {
 		public: true,
 		schema: z.url(),

@@ -1,9 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
+import { SIGNUP_ENABLED } from '$app/env/private';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
 	if (locals.user) redirect(303, '/');
+	return { signupOpen: SIGNUP_ENABLED };
 };
 
 export const actions: Actions = {

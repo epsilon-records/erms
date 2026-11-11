@@ -21,7 +21,10 @@ import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js'
  * bearer token; webhook verifies AudioKit's X-Signature HMAC), so the login redirect must
  * not intercept them. Every other path stays behind the sign-in redirect.
  */
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/auth/confirm', '/api/audiokit/'];
+const PUBLIC_PATHS = ['/login', '/signup', '/auth/callback', '/auth/confirm', '/api/audiokit/'];
+
+/** Routes a signed-in user with no label can reach; everything else sends them to create one. */
+const NO_LABEL_ALLOWED = [...PUBLIC_PATHS, '/logout'];
 
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
 const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
@@ -91,6 +94,16 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const isPublic = PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p));
 	if (!user && !isPublic) {
 		redirect(303, '/login');
+	}
+
+	// Signed in but in no label (a new self-serve account, or a member who was removed): the only
+	// thing to do is create a label (EPSILON-130), which /signup/label explains when signup is off.
+	if (
+		user &&
+		!event.locals.membership &&
+		!NO_LABEL_ALLOWED.some((p) => event.url.pathname.startsWith(p))
+	) {
+		redirect(303, '/signup/label');
 	}
 
 	// First run: send a member who hasn't finished onboarding to the welcome page.
