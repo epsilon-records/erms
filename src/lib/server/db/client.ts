@@ -9,11 +9,24 @@ export function db() {
 	return instance;
 }
 
+/**
+ * The Send Email auth hook's runner (EPSILON-147): each call is one transaction as erms_auth_email,
+ * which can only read the org ids of one account through app_auth_email.member_org_ids(). The hook
+ * has no signed-in user, so it cannot run as erms_app, and it never gets the owner connection.
+ */
+export function authEmailRunner(): Scoped {
+	return (fn) =>
+		db().transaction(async (tx) => {
+			await setAuthEmailRole(tx);
+			return fn(tx);
+		});
+}
+
 // Separate small pool: no catalogue workload can queue anonymous metrics behind product queries.
 // At most two ingest + one maintenance callers reach this pool; connection setup times out in 1s.
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { setMetricsRole, type MetricsRole, type Scoped } from './scoped';
+import { setAuthEmailRole, setMetricsRole, type MetricsRole, type Scoped } from './scoped';
 let metricsDatabase: ReturnType<typeof createDb> | undefined;
 let metricsActive = 0;
 export function metricsRunner(role: MetricsRole): Scoped {

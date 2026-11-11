@@ -5,7 +5,8 @@ import * as Sentry from '@sentry/sveltekit';
 import { PUBLIC_SUPABASE_PUBLISHABLE_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
 import { SENTRY_DSN } from '$app/env/private';
 import { asc, eq } from 'drizzle-orm';
-import { metricsRunner } from '#lib/server/db/client.js';
+import { authEmailRunner, metricsRunner } from '#lib/server/db/client.js';
+import { AUTH_EMAIL_HOOK_PATH } from '#lib/server/auth-email/hook.js';
 import { isMetricsRequest } from '#lib/app-metrics-sentry.js';
 import { empty } from '#lib/server/app-metrics.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
@@ -140,6 +141,13 @@ const ordinaryHandle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) :
 /** Exact anonymous boundary BEFORE Auth, cookies, tenant lookups and Sentry request capture. */
 export const handle: Handle = async (input) => {
 	const path = input.event.url.pathname;
+	// Supabase Auth's Send Email hook (EPSILON-147): a machine caller with no session. It skips
+	// cookies, Auth and branding, and gets only the erms_auth_email runner; the route verifies the
+	// hook's signature before it uses even that.
+	if (path === AUTH_EMAIL_HOOK_PATH) {
+		input.event.locals.db = authEmailRunner();
+		return input.resolve(input.event);
+	}
 	if (path === '/api/app-metrics' || path === '/api/internal/app-metrics-prune') {
 		if (
 			path === '/api/internal/app-metrics-prune' &&

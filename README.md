@@ -229,7 +229,7 @@ onboarding state, invite by email with a role, change a role, remove someone.
   the membership row is still written under RLS. The route asks the database whether the caller
   owns the org before any email goes out. Without the key, invites are off and the page says so.
 - **New address:** Supabase creates the account and sends its Invite email through the one sender
-  (`auth.epsilonrecords.com`, decisions 0004 and 0021). **Existing account, including a pending invitation:** reuse it without
+  (see [Sign-in email](#sign-in-email) for which domain sends it). **Existing account, including a pending invitation:** reuse it without
   resending mail or changing its shared metadata. Supabase would resend a pending account's stored
   first-label copy, ignoring the second label's invite data. The person uses their invitation or
   signs in, then selects the added label in the switcher. Success copy does not expose account
@@ -247,6 +247,105 @@ compensation. The read-only existing-account check is not atomic with Supabase a
 simultaneous first invitations can race, so it does not prove per-invite routing or mail atomicity.
 The confirmation flow uses the existing verified-membership org selection, not a new label-specific
 redirect. Hosted configuration and the published-site decision-0022 proof remain release prerequisites.
+
+## Sign-in email
+
+Decision 0027 (EPSILON-147): Epsilon's staff get sign-in and invite email from
+`auth.epsilonrecords.com`; everyone else, and any address with no membership yet, from
+`auth.labelkit.co`. Supabase has one SMTP sender per project, so the choice is made by Supabase's
+**Send Email auth hook**, which this app serves at `POST /api/auth/send-email`. Until the hook is
+switched on in Supabase, every auth email still goes over SMTP from `auth.labelkit.co`, and the
+route is unused.
+
+**Why an endpoint in this app** rather than an Edge Function or a Postgres hook: the repo has no
+Edge Functions (`[edge_runtime]` is off) and its other machine callers (the AudioKit webhooks) are
+SvelteKit routes that verify a signature, with secrets in Netlify; a Postgres hook cannot call
+Resend and wait for the answer, so it could not fail closed. The cost is that Netlify must answer
+within Supabase's 5 s hook limit, cold start included. Supabase does not retry a timeout, and the
+email's tokens are rolled back with it. So the handler gives itself 4 s from the start of the call
+for the lookup and every send together. Each Resend call is capped at 3.5 s or what is left, and
+the two emails of a secure email change go out at once, not one after the other.
+
+- **What it does.** Verifies the Standard Webhooks signature (`webhook-id`, `webhook-timestamp`,
+  `webhook-signature`, five-minute tolerance) on the raw body, looks up the account's org ids,
+  picks the sender, renders the email and sends it through Resend with that sender's key. The
+  Resend idempotency key is `<webhook-id>:<n>`. It dedupes only a replay of the same hook call.
+  It does not dedupe Supabase's retries: Supabase makes a new `webhook-id` for every attempt
+  (it retries network errors, and 429/503 answers that carry `retry-after`). So if a connection
+  drops after Resend accepted the email, the retry sends a second copy of the same link or notice.
+  Accepted here, since a duplicate is harmless. With two hook secrets (rotation) Supabase sends
+  two signatures joined by `", "`; either one verifying is enough. Code:
+  `src/lib/server/auth-email/`.
+- **Database access.** The route has no signed-in user and never gets the owner connection.
+  `hooks.server.ts` gives this exact path a runner that switches to `erms_auth_email` (migration
+  `0025`): no login, no BYPASSRLS, no table rights, and EXECUTE on one SECURITY DEFINER function,
+  `app_auth_email.member_org_ids(uuid)`, which returns that account's org ids and nothing else. The
+  signature is checked before the runner is used.
+- **Which sender.**
+  - _Invite:_ the inviting org decides. The members page stores `invited_org_id` with the invite,
+    so an invite to Epsilon for a brand-new address comes from `auth.epsilonrecords.com`, and an
+    invite to another label comes from `auth.labelkit.co` even for someone who is already Epsilon
+    staff. `invited_org_id` is user-editable metadata, so it is trusted for invite emails only.
+  - _Everything else_ (sign-in link, signup, email change, notices): Epsilon's sender whenever
+    Epsilon is one of the account's orgs, even if the person also belongs to other labels (Nate's
+    decision, labelkit#73). The rule is per recipient, so other labels' people never get Epsilon
+    mail.
+- **Copy.** The invite ports `supabase/templates/invite.html` (it names the inviting label, links
+  to `/auth/confirm` on Supabase's Site URL, `https://labelkit.co`, as the template's
+  `{{ .SiteURL }}` did; `scripts/auth-redirects.mjs` holds that value). It does not use the request's
+  host or the payload's `email_data.site_url`: Supabase fills the latter with the Auth API's own
+  URL (`<project>.supabase.co/auth/v1`), not the Site URL. It calls the app ERMS from Epsilon's
+  sender and LabelKit from LabelKit's. The hosted magic-link template was Supabase's `{{ .ConfirmationURL }}` default and
+  is not in the repo, so sign-in and the other types get plain, neutral copy that names no label;
+  their links are the same Auth `/verify` URL as before, so `/auth/callback` is unchanged. Every
+  `email_action_type` in Supabase's schema has copy; an unknown one is refused. Recipients follow
+  Supabase's own mailer: the "email address was changed" notice goes to the **old** address
+  (`email_data.old_email`) so its owner hears about the change, and is refused if that is missing;
+  every other notice goes to the account's address.
+- **Fails closed.** A missing setting, a bad signature, a failed lookup, an unknown type or a
+  refused send answers an error (`{"error":{"http_code","message"}}`), Supabase reports the
+  sign-in as failed and nothing is sent. Supabase reads that body only from a 200/202 answer; for
+  the 4xx/5xx statuses used here the person signing in sees a generic error ("Unexpected status
+  code returned from hook: 502" and the like, reported as a 500), so the messages are for logs
+  and tests. Rate limits are not shown to the user as such either. It never falls back to the other domain or to SMTP. Each
+  call logs one JSON line (`"event":"auth_email_hook"`, outcome, sender domain, Resend ids), never
+  the address or a token.
+
+| Variable                    | What it is                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `SEND_EMAIL_HOOK_SECRET`    | The hook's secret, as Supabase generates it (paste it whole). Verifies every call.          |
+| `RESEND_KEY_EPSILON`        | Resend key limited to `auth.epsilonrecords.com` (the existing `erms-supabase-smtp` key).    |
+| `RESEND_KEY_LABELKIT`       | Resend key limited to `auth.labelkit.co` (the key Supabase's SMTP uses now).                |
+| `AUTH_EMAIL_EPSILON_ORG_ID` | Epsilon's org id. Not a secret. `select id, name from orgs order by created_at` to find it. |
+
+All four are server-only, set in Netlify's **production** context, scoped to Functions/Runtime.
+None go in the repo.
+
+### Switching it on
+
+1. Merge; the deploy job applies migration `0025`. Confirm with `pnpm db:drift`.
+2. In Netlify (site `labelkit`, production), set `RESEND_KEY_EPSILON`, `RESEND_KEY_LABELKIT` and
+   `AUTH_EMAIL_EPSILON_ORG_ID`.
+3. In Supabase (project `efalpthvvmvpaikuxymd`): **Authentication → Auth Hooks → Add hook → Send
+   Email hook**. Hook type **HTTPS**; URL `https://labelkit.co/api/auth/send-email`; press
+   **Generate secret** and copy it. Leave the hook **disabled** for now and save. Do not change the
+   SMTP settings: they are the rollback.
+4. Set `SEND_EMAIL_HOOK_SECRET` in Netlify to that secret, then redeploy so the functions read it.
+5. Check the route is live and refusing unsigned calls:
+   `curl -si -X POST https://labelkit.co/api/auth/send-email -H 'content-type: application/json' -d '{}'`
+   must answer `401` with `Send Email hook rejected: missing`. A `500` naming a variable means one
+   is not set.
+6. Enable the Send Email hook in Supabase. From now on SMTP is not used.
+7. Prove it (EPSILON-147's done-when): an Epsilon member signs in and the mail arrives from
+   `auth.epsilonrecords.com`; a test org's member signs in and it arrives from `auth.labelkit.co`.
+   Check the Resend logs (domain per email), Supabase's Auth logs and the Netlify function log
+   (`auth_email_hook` … `"outcome":"sent"`).
+
+### Rolling back to SMTP
+
+In Supabase, **Authentication → Auth Hooks → Send Email hook → disable** (or delete it). Supabase
+goes back to its SMTP sender, `auth.labelkit.co`, at once; nothing in the app needs to change and no
+deploy is needed. The Netlify variables can stay.
 
 ## Master uploads (Cloudflare R2)
 

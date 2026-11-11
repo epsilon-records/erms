@@ -17,7 +17,8 @@ import { SUPABASE_SECRET_KEY } from '$app/env/private';
  * Why the admin API at all: an invite has to create the account (the login page refuses to,
  * `shouldCreateUser: false`) and only the admin API sends Supabase's invite email, through the
  * same SMTP sender as sign-in (decisions 0004, 0021). The email copy names the recipient's own
- * label from `invited_org_name` (supabase/templates/invite.html).
+ * label from `invited_org_name`, and the Send Email hook picks the sender from `invited_org_id`
+ * (src/lib/server/auth-email/, EPSILON-147).
  */
 
 export type InviteResult = {
@@ -29,7 +30,7 @@ export type InviteResult = {
 export type MemberAccount = { email: string | null; lastSignInAt: string | null };
 
 export interface AuthAdmin {
-	invite(email: string, orgName: string): Promise<InviteResult>;
+	invite(email: string, orgName: string, orgId: string): Promise<InviteResult>;
 	accounts(userIds: string[]): Promise<Map<string, MemberAccount>>;
 }
 
@@ -56,7 +57,7 @@ export function supabaseAuthAdmin(client: SupabaseClient): AuthAdmin {
 	}
 
 	return {
-		async invite(rawEmail, orgName) {
+		async invite(rawEmail, orgName, orgId) {
 			const email = rawEmail.trim().toLowerCase();
 			// Supabase resends to pending users with their STORED metadata, ignoring new
 			// invite data. Reuse every existing account before invoking the email endpoint,
@@ -64,7 +65,8 @@ export function supabaseAuthAdmin(client: SupabaseClient): AuthAdmin {
 			const existing = await findByEmail(email);
 			if (existing) return { userId: existing, emailed: false };
 			const { data, error } = await admin.inviteUserByEmail(email, {
-				data: { invited_org_name: orgName }
+				// The org id lets the Send Email hook pick the inviting org's sender (EPSILON-147).
+				data: { invited_org_name: orgName, invited_org_id: orgId }
 			});
 			if (!error && data.user) return { userId: data.user.id, emailed: true };
 

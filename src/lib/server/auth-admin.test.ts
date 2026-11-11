@@ -23,11 +23,12 @@ describe('Auth admin (invites)', () => {
 			.mockResolvedValue({ data: { user: { id: 'new-user' } }, error: null });
 		const out = await supabaseAuthAdmin(fake({ inviteUserByEmail })).invite(
 			'  Someone@Example.TEST ',
-			'Label A'
+			'Label A',
+			'org-a'
 		);
 		expect(out).toEqual({ userId: 'new-user', emailed: true });
 		expect(inviteUserByEmail).toHaveBeenCalledWith('someone@example.test', {
-			data: { invited_org_name: 'Label A' }
+			data: { invited_org_name: 'Label A', invited_org_id: 'org-a' }
 		});
 	});
 
@@ -47,7 +48,8 @@ describe('Auth admin (invites)', () => {
 		});
 		const out = await supabaseAuthAdmin(fake({ inviteUserByEmail, listUsers })).invite(
 			'known@example.test',
-			'Label A'
+			'Label A',
+			'org-a'
 		);
 		expect(out).toEqual({ userId: 'known', emailed: false });
 		expect(inviteUserByEmail).not.toHaveBeenCalled();
@@ -70,7 +72,8 @@ describe('Auth admin (invites)', () => {
 		const listUsers = vi.fn().mockResolvedValue({ data: { users: [pending] }, error: null });
 		const out = await supabaseAuthAdmin(fake({ inviteUserByEmail, listUsers })).invite(
 			'pending@example.test',
-			'Label B'
+			'Label B',
+			'org-b'
 		);
 		expect(out).toEqual({ userId: 'pending', emailed: false });
 		expect(inviteUserByEmail).not.toHaveBeenCalled();
@@ -84,12 +87,14 @@ describe('Auth admin (invites)', () => {
 			.fn()
 			.mockResolvedValue({ data: { users: [] }, error: new Error('unavailable') });
 		const admin = supabaseAuthAdmin(fake({ inviteUserByEmail, listUsers }));
-		await expect(admin.invite('a@example.test', 'Label B')).rejects.toThrow('unavailable');
+		await expect(admin.invite('a@example.test', 'Label B', 'org-b')).rejects.toThrow('unavailable');
 		listUsers.mockResolvedValue({
 			data: { users: Array.from({ length: 1000 }, () => ({ email: 'other@example.test' })) },
 			error: null
 		});
-		await expect(admin.invite('a@example.test', 'Label B')).rejects.toThrow('scan exceeded');
+		await expect(admin.invite('a@example.test', 'Label B', 'org-b')).rejects.toThrow(
+			'scan exceeded'
+		);
 		expect(inviteUserByEmail).not.toHaveBeenCalled();
 	});
 
@@ -105,7 +110,7 @@ describe('Auth admin (invites)', () => {
 			.fn()
 			.mockResolvedValue({ data: { user: null }, error: { status: 429 } });
 		await expect(
-			supabaseAuthAdmin(fake({ inviteUserByEmail })).invite('a@example.test', 'Label A')
+			supabaseAuthAdmin(fake({ inviteUserByEmail })).invite('a@example.test', 'Label A', 'org-a')
 		).rejects.toBeInstanceOf(InviteRefused);
 	});
 
