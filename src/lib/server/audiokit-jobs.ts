@@ -19,7 +19,7 @@ export type JobsCtx = { orgId: string; role: Role; actor: Actor };
 
 export class JobError extends Error {
 	constructor(
-		readonly status: 400 | 403 | 404 | 409 | 422,
+		readonly status: 400 | 402 | 403 | 404 | 409 | 422,
 		message: string
 	) {
 		super(message);

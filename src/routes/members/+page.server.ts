@@ -3,6 +3,8 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { authAdmin, InviteRefused, type MemberAccount } from '#lib/server/auth-admin.js';
 import { editAction, formFields } from '#lib/server/form.js';
 import { requireScope } from '#lib/server/guard.js';
+import { countMembers, LIMIT_MESSAGES, limitsFor } from '#lib/server/plans.js';
+import { plansConfig } from '#lib/server/plans-env.js';
 import {
 	addMember,
 	canManageMembers,
@@ -85,6 +87,16 @@ export const actions: Actions = {
 		// by RLS anyway; this check only keeps a refused invite from sending mail first.
 		if (!(await locals.db((tx) => canManageMembers(tx, m.orgId)))) {
 			error(403, 'Only an owner of this label can invite members.');
+		}
+
+		const limits = await limitsFor(plansConfig(), m.orgId);
+		if (limits && (await locals.db((tx) => countMembers(tx, m.orgId))) >= limits.seats) {
+			return fail(402, {
+				action: 'invite',
+				ok: false as const,
+				errors: { form: LIMIT_MESSAGES.seats(limits.seats) },
+				values: f
+			});
 		}
 
 		let invited;

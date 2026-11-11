@@ -3,6 +3,11 @@ import { fail } from '@sveltejs/kit';
 import { recentImports } from '#lib/server/catalog.js';
 import { requireScope } from '#lib/server/guard.js';
 import { applyImport } from '#lib/server/import/apply.js';
+import { countRecordings, LIMIT_MESSAGES, limitsFor } from '#lib/server/plans.js';
+import { plansConfig } from '#lib/server/plans-env.js';
+
+/** Thrown inside the import transaction to roll back an import that goes over the plan. */
+class OverLimit extends Error {}
 import {
 	normalizeCsvText,
 	parseSymphonicInventory,
@@ -56,15 +61,47 @@ async function run(request: Request, locals: App.Locals, dryRun: boolean) {
 	};
 	if (summary.errors > 0) return fail(422, { ...base, stage: 'blocked' as const });
 
-	const result = await locals.db((tx) =>
-		applyImport(tx, plan, {
-			orgId: m.orgId,
-			actor: { id: locals.user!.id, kind: 'user' },
-			fileName: csv.name,
-			fileSha256: sha256,
-			dryRun
-		})
-	);
+	const limits = await limitsFor(plansConfig(), m.orgId);
+	let overLimit = false;
+	let result;
+	try {
+		result = await locals.db(async (tx) => {
+			const applied = await applyImport(tx, plan, {
+				orgId: m.orgId,
+				actor: { id: locals.user!.id, kind: 'user' },
+				fileName: csv.name,
+				fileSha256: sha256,
+				dryRun
+			});
+			// A dry run has already rolled back, so count what it would add on top of today's catalog.
+			if (limits) {
+				const total = dryRun
+					? (await countRecordings(tx, m.orgId)) + applied.counts.recordings.created
+					: await countRecordings(tx, m.orgId);
+				if (total > limits.tracks) {
+					overLimit = true;
+					if (!dryRun) throw new OverLimit();
+				}
+			}
+			return applied;
+		});
+	} catch (e) {
+		if (e instanceof OverLimit) {
+			return fail(402, {
+				...base,
+				stage: 'blocked' as const,
+				limit: LIMIT_MESSAGES.tracks(limits!.tracks)
+			});
+		}
+		throw e;
+	}
+	if (overLimit) {
+		return fail(402, {
+			...base,
+			stage: 'blocked' as const,
+			limit: LIMIT_MESSAGES.tracks(limits!.tracks)
+		});
+	}
 	return {
 		...base,
 		stage: dryRun ? ('previewed' as const) : ('imported' as const),
