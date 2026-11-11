@@ -347,6 +347,22 @@ In Supabase, **Authentication → Auth Hooks → Send Email hook → disable** (
 goes back to its SMTP sender, `auth.labelkit.co`, at once; nothing in the app needs to change and no
 deploy is needed. The Netlify variables can stay.
 
+## Public API (`/v1`)
+
+Owners create API keys on `/org/api-keys` (EPSILON-137, migration 0026). A key is
+`lk_<prefix>_<secret>`. Only its SHA-256 is stored, and the key itself is shown once. Every key acts
+as its own `agent` member of the label. The request hook looks the key up on the owner connection and
+then runs the request as that agent with `scopedTo`, so `/v1` goes through the same RLS as the app.
+
+- **Sign-in:** `/v1` accepts only `Authorization: Bearer`, never the session cookie.
+- **Scopes:** `catalog:read` and `processing:request`, a subset of the agent role in `rbac.ts`.
+- **Limits:** at most 10 live keys per label. Keys are created and revoked only through
+  `app.create_api_key` and `app.revoke_api_key`, which write the audit entry. Revoking a key deletes
+  its agent membership too.
+- **Members and seats:** agent members don't appear on the Members page and don't use a plan seat.
+- **Spec:** `docs/openapi.yaml`. `openapi.test.ts` checks that it lists exactly the routes under
+  `src/routes/v1`.
+
 ## Master uploads (Cloudflare R2)
 
 A recording page uploads a WAV master straight from the browser to R2. ERMS never handles the file body:

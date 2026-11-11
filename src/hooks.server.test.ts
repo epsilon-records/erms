@@ -56,6 +56,17 @@ describe('auth hook allowlist', () => {
 	);
 });
 
+describe('/v1 API auth', () => {
+	it('answers 401 JSON, never a login redirect, without an API key', async () => {
+		const { response, resolved } = await runHook('/v1/releases');
+		expect(resolved).toBe(false);
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({
+			error: { code: 'unauthorized', message: 'Missing or invalid API key.' }
+		});
+	});
+});
+
 describe('isLandingRequest', () => {
 	it('is public only at / on LabelKit hosts', async () => {
 		const { isLandingRequest } = await import('#lib/server/landing.js');

@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { NoChange, withAudit, type Actor, type Database } from './audit';
 import { EditError } from './catalog-edit';
@@ -72,16 +72,19 @@ async function refusals<T>(run: () => Promise<T>): Promise<T> {
 }
 
 export async function listMembers(db: Database, orgId: string): Promise<MemberRow[]> {
-	return db
-		.select({
-			userId: memberships.userId,
-			role: memberships.role,
-			createdAt: memberships.createdAt,
-			onboardedAt: memberships.onboardedAt
-		})
-		.from(memberships)
-		.where(eq(memberships.orgId, orgId))
-		.orderBy(asc(memberships.createdAt), asc(memberships.userId));
+	return (
+		db
+			.select({
+				userId: memberships.userId,
+				role: memberships.role,
+				createdAt: memberships.createdAt,
+				onboardedAt: memberships.onboardedAt
+			})
+			.from(memberships)
+			// API keys act as `agent` members (EPSILON-137); they are managed on /org/api-keys.
+			.where(and(eq(memberships.orgId, orgId), ne(memberships.role, 'agent')))
+			.orderBy(asc(memberships.createdAt), asc(memberships.userId))
+	);
 }
 
 /** Whether the caller is an owner of `orgId`, asked of the database rather than the session. */
