@@ -61,6 +61,7 @@ export const KNOWN_API_ERROR_CODES = [
 	'rate_limited',
 	'unavailable',
 	'stem_allowance_exhausted',
+	'job_allowance_exhausted',
 	'no_active_plan',
 	'entitlement_unavailable'
 ] as const;

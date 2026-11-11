@@ -20,13 +20,19 @@ export const API_KEY_SCOPES = [
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 const KEY_RE = /^lk_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$/;
-const PREFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const PREFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'; // 36 characters
 
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export function generateKey(random: (n: number) => Buffer = randomBytes) {
-	const bytes = random(8);
-	const prefix = [...bytes].map((b) => PREFIX_ALPHABET[b % PREFIX_ALPHABET.length]).join('');
+	// Rejection sampling: 252 is the largest multiple of 36 below 256, so every character is
+	// equally likely (a plain modulo would favour the first few).
+	let prefix = '';
+	while (prefix.length < 8) {
+		for (const b of random(16)) {
+			if (b < 252 && prefix.length < 8) prefix += PREFIX_ALPHABET[b % 36];
+		}
+	}
 	const secret = random(32).toString('base64url');
 	const key = `lk_${prefix}_${secret}`;
 	return { key, prefix, hash: sha256(key) };
@@ -69,7 +75,8 @@ export async function createApiKey(
 	const id = crypto.randomUUID();
 	try {
 		await tx.execute(
-			sql`select app.create_api_key(${id}::uuid, ${orgId}::uuid, ${name}, ${prefix}, ${hash}, ${scopes}::text[])`
+			// One Postgres array literal; the scopes are checked against API_KEY_SCOPES above.
+			sql`select app.create_api_key(${id}::uuid, ${orgId}::uuid, ${name}, ${prefix}, ${hash}, ${`{${scopes.join(',')}}`}::text[])`
 		);
 	} catch (e) {
 		const code =
