@@ -190,6 +190,13 @@
       "when": 1794436790519,
       "tag": "0026_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794440006215,
+      "tag": "0027_close_and_purge",
+      "breakpoints": true
     }
   ]
 }
