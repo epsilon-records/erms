@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import type { Analysis, AnalysisCardKey } from '#lib/analysis.js';
+	import {
+		STARTING_LABEL,
+		createRunTracker,
+		runSubmit,
+		startingAnnouncement
+	} from '#lib/analysis-run.js';
 
 	let {
 		recordingId,
@@ -27,6 +34,17 @@
 		'tags'
 	];
 	const cards = $derived(order.map((key) => analysis[key]));
+
+	// Cards whose Run / Re-run has been pressed and whose action has not returned yet.
+	let starting = $state<ReadonlySet<string>>(new Set());
+	const tracker = createRunTracker((next) => (starting = next));
+	// Announced politely when a run starts; cleared once the action returns.
+	const announcement = $derived(
+		cards
+			.filter((card) => starting.has(card.key))
+			.map((card) => startingAnnouncement(card.label.toLowerCase()))
+			.join('. ')
+	);
 
 	function rec(value: unknown): Record<string, unknown> {
 		return value && typeof value === 'object' && !Array.isArray(value)
@@ -98,9 +116,12 @@
 	<div class="alert ok" role="status">Analysis job queued.</div>
 {/if}
 
+<p class="sr-only" role="status" aria-live="polite">{announcement}</p>
+
 <div class="analysis">
 	{#each cards as card (card.key)}
-		<article class="card">
+		{@const isStarting = starting.has(card.key)}
+		<article class="card" aria-busy={isStarting ? 'true' : undefined}>
 			<header class="card-head">
 				<h3 class="card-title">{card.label}</h3>
 				{#if card.status === 'done'}
@@ -238,10 +259,18 @@
 			{/if}
 
 			{#if canRun}
-				<form method="POST" action="?/runAnalysis" class="rerun">
+				<form
+					method="POST"
+					action="?/runAnalysis"
+					class="rerun"
+					use:enhance={runSubmit(tracker, card.key)}
+				>
 					<input type="hidden" name="operation" value={card.key} />
-					<button class="btn small" disabled={card.status === 'pending' && card.jobId !== null}>
-						{card.jobId === null ? 'Run' : 'Re-run'}
+					<button
+						class="btn small"
+						disabled={isStarting || (card.status === 'pending' && card.jobId !== null)}
+					>
+						{isStarting ? STARTING_LABEL : card.jobId === null ? 'Run' : 'Re-run'}
 					</button>
 				</form>
 			{/if}
