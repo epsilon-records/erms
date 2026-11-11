@@ -383,4 +383,10 @@ describe('needsOnboarding', () => {
 		expect(needsOnboarding(null, '/', exempt)).toBe(false);
 		expect(needsOnboarding({ ...member, onboardedAt: null }, '/onboarding', exempt)).toBe(false);
 	});
+
+	it('matches exempt paths exactly, not by prefix', () => {
+		for (const path of ['/onboardingx', '/onboarding/other', '/logout-later', '/loginx']) {
+			expect(needsOnboarding({ ...member, onboardedAt: null }, path, exempt), path).toBe(true);
+		}
+	});
 });

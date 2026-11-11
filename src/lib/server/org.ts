@@ -15,7 +15,8 @@ export function pickMembership(rows: Membership[], wanted: string | undefined) {
 
 /**
  * Whether a signed-in member should be sent to first-run onboarding: they have a
- * membership they haven't completed onboarding for, and the path isn't exempt.
+ * membership they haven't completed onboarding for, and the path isn't one of the exempt paths
+ * (matched exactly, so `/onboarding` does not also exempt `/onboarding-anything`).
  * Kept pure so the routing rule can be unit-tested.
  */
 export function needsOnboarding(
@@ -24,6 +25,6 @@ export function needsOnboarding(
 	exempt: string[]
 ): boolean {
 	return Boolean(
-		membership && !membership.onboardedAt && !exempt.some((p) => pathname.startsWith(p))
+		membership && !membership.onboardedAt && !exempt.includes(pathname)
 	);
 }

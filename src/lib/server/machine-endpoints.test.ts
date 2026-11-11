@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { isMachineRoute, isPublicPath, MACHINE_ROUTES } from './public-paths';
 
 /**
  * Invariants between the machine endpoints, the environment they read and the docs that describe
@@ -18,7 +19,6 @@ import { describe, expect, it } from 'vitest';
 const ROOT = new URL('../../../', import.meta.url); // src/lib/server -> repo root
 const read = (rel: string) => readFileSync(new URL(rel, ROOT), 'utf8');
 
-const hooks = read('src/hooks.server.ts');
 const envSchema = read('src/env.ts');
 const envExample = read('.env.example');
 const readme = read('README.md');
@@ -34,37 +34,60 @@ const scheduledFunctions: Record<string, string> = {
 	'audiokit-reconcile': 'netlify/functions/audiokit-reconcile.mjs'
 };
 
-/** Every POST-only machine route under src/routes/api/audiokit/, read from the tree. */
+/**
+ * Every route under src/routes/api/audiokit/, read from the tree, with each `[param]` segment
+ * replaced by a sample value so it can be checked against the hook's matcher.
+ */
 function machineRoutes(): string[] {
-	const dir = new URL('src/routes/api/audiokit/', ROOT);
-	if (!existsSync(dir)) return [];
-	return readdirSync(dir, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && existsSync(new URL(`${entry.name}/+server.ts`, dir)))
-		.map((entry) => `/api/audiokit/${entry.name}`)
-		.sort();
+	const root = new URL('src/routes/api/audiokit/', ROOT);
+	if (!existsSync(root)) return [];
+	const found: string[] = [];
+	const walk = (dir: URL, path: string) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			if (!entry.isDirectory()) continue;
+			const sub = new URL(`${entry.name}/`, dir);
+			const segment = `${path}/${entry.name}`;
+			if (existsSync(new URL('+server.ts', sub))) found.push(segment);
+			walk(sub, segment);
+		}
+	};
+	walk(root, '/api/audiokit');
+	return found.sort();
 }
 
+const sample = (route: string) => route.replace(/\[[^\]]+\]/g, 'sample-id');
+
 describe('machine endpoints', () => {
-	it('finds the routes it is meant to guard', () => {
-		// If this fails, the enumeration broke, and every assertion below would pass vacuously.
+	it('pins the set of routes under /api/audiokit', () => {
+		// A new route here is reachable without a session only if public-paths.ts lists it. If this
+		// fails, decide whether the new route verifies its own credentials, then update both.
 		expect(machineRoutes()).toEqual([
 			'/api/audiokit/reconcile',
 			'/api/audiokit/webhook',
+			'/api/audiokit/webhook/[client_id]',
 			'/api/audiokit/worker'
 		]);
 	});
 
-	it('exempts every /api/audiokit route from the sign-in redirect', () => {
-		const declared = hooks.match(/const PUBLIC_PATHS = \[([^\]]*)\]/s)?.[1] ?? '';
-		const prefixes = [...declared.matchAll(/'([^']+)'/g)].map((match) => match[1]);
-
+	it('exempts exactly those routes from the sign-in redirect', () => {
 		for (const route of machineRoutes()) {
-			// The hook compares with startsWith, so one prefix has to cover the whole path.
-			const covered = prefixes.some((prefix) => route.startsWith(prefix));
-			expect(
-				covered,
-				`${route} is not under any PUBLIC_PATHS prefix; a token call gets a 303 to /login`
-			).toBe(true);
+			expect(isMachineRoute(sample(route)), route).toBe(true);
+			expect(isPublicPath(sample(route)), route).toBe(true);
+		}
+		expect(MACHINE_ROUTES.every((route) => machineRoutes().includes(route))).toBe(true);
+	});
+
+	it('does not exempt other paths under the same prefixes', () => {
+		for (const path of [
+			'/api/audiokit',
+			'/api/audiokit/',
+			'/api/audiokit/new-route',
+			'/api/audiokit/worker/',
+			'/api/audiokit/workerx',
+			'/api/audiokit/webhook/',
+			'/api/audiokit/webhook/sample-id/extra'
+		]) {
+			expect(isPublicPath(path), path).toBe(false);
 		}
 	});
 

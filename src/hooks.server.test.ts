@@ -31,7 +31,12 @@ async function runHook(pathname: string) {
 }
 
 describe('auth hook allowlist', () => {
-	it.each(['/api/audiokit/worker', '/api/audiokit/webhook', '/api/audiokit/reconcile'])(
+	it.each([
+		'/api/audiokit/worker',
+		'/api/audiokit/webhook',
+		'/api/audiokit/reconcile',
+		'/api/audiokit/webhook/client-123'
+	])(
 		'lets the machine endpoint %s reach its handler without a Supabase user',
 		async (pathname) => {
 			const { response, resolved } = await runHook(pathname);
@@ -48,12 +53,37 @@ describe('auth hook allowlist', () => {
 		expect(resolved).toBe(true);
 	});
 
-	it.each(['/privacy', '/terms'])('serves %s without a Supabase user', async (pathname) => {
+	it.each([
+		'/login',
+		'/signup',
+		'/signup/label',
+		'/privacy',
+		'/terms',
+		'/auth/callback',
+		'/auth/confirm'
+	])('serves %s without a Supabase user', async (pathname) => {
 		const { resolved } = await runHook(pathname);
 		expect(resolved).toBe(true);
 	});
 
-	it.each(['/dashboard', '/api/recordings', '/api/audiokit'])(
+	it.each([
+		'/dashboard',
+		'/api/recordings',
+		'/api/audiokit',
+		'/api/audiokit/',
+		'/api/audiokit/anything',
+		'/api/audiokit/workerx',
+		'/api/audiokit/worker/extra',
+		'/api/audiokit/webhook/',
+		'/api/audiokit/webhook/client-123/extra',
+		'/loginx',
+		'/login/extra',
+		'/signupx',
+		'/privacy-old',
+		'/terms/old',
+		'/auth/callbackx',
+		'/auth/confirm/extra'
+	])(
 		'still redirects the unauthenticated app path %s to /login',
 		async (pathname) => {
 			await expect(runHook(pathname)).rejects.toMatchObject({ status: 303, location: '/login' });
