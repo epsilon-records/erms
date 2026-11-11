@@ -2,7 +2,7 @@
 	import LegalPage from '#lib/components/LegalPage.svelte';
 </script>
 
-<LegalPage title="Terms of service" effective="[date of publication]">
+<LegalPage title="Terms of service" effective="12 November 2026">
 	<p>
 		These terms are an agreement between Epsilon Records, Nieuwe Uilenburgerstraat 21C, 1011LM
 		Amsterdam, the Netherlands ("we"), and the label or business that uses LabelKit ("you").

@@ -2,7 +2,7 @@
 	import LegalPage from '#lib/components/LegalPage.svelte';
 </script>
 
-<LegalPage title="Privacy notice" effective="[date of publication]">
+<LegalPage title="Privacy notice" effective="12 November 2026">
 	<p>
 		This notice covers LabelKit: labelkit.co, the label workspaces on it, and branded workspaces
 		such as erms.epsilonrecords.com. It says what personal data LabelKit processes, why, and who
