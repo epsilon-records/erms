@@ -7,9 +7,9 @@
  *   members page records the inviting org's id in the invite (`invited_org_id`), so an invite to
  *   Epsilon gets Epsilon's sender even though the address has no account or membership yet, and an
  *   invite to another label gets LabelKit's even if the person is already Epsilon staff.
- * - **Otherwise memberships decide.** Epsilon's sender only when Epsilon is the account's one and
- *   only org. Someone in Epsilon and another label gets `auth.labelkit.co` for sign-in links: a
- *   sign-in link is not about one label, and the neutral sender is right for both.
+ * - **Otherwise memberships decide.** Epsilon's sender whenever Epsilon is one of the account's
+ *   orgs, even if it also belongs to other labels (Nate's decision on EPSILON-147, labelkit#73).
+ *   The rule is per recipient, so the other label's people never see Epsilon's sender.
  * - `invited_org_id` lives in user metadata, which a signed-in user can change on their own
  *   account, so it is trusted only for `invite` emails. Those are sent by the Auth admin API alone,
  *   at the moment the account is created with that metadata.
@@ -54,6 +54,5 @@ export function chooseSender(input: SenderInput): SenderId {
 	if (input.actionType === 'invite' && input.invitedOrgId) {
 		return input.invitedOrgId.toLowerCase() === epsilon ? 'epsilon' : 'labelkit';
 	}
-	const orgs = new Set(input.memberOrgIds.map((id) => id.toLowerCase()));
-	return orgs.size === 1 && orgs.has(epsilon) ? 'epsilon' : 'labelkit';
+	return input.memberOrgIds.some((id) => id.toLowerCase() === epsilon) ? 'epsilon' : 'labelkit';
 }

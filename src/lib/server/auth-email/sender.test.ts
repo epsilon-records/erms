@@ -21,9 +21,11 @@ describe('sign-in email sender (decision 0027)', () => {
 		expect(SENDERS.labelkit.from).toMatch(/@auth\.labelkit\.co>$/);
 	});
 
-	it('uses auth.labelkit.co for a sign-in by someone in Epsilon and another org', () => {
-		expect(pick('magiclink', [EPSILON, OTHER])).toBe('labelkit');
-		expect(pick('magiclink', [OTHER, EPSILON, THIRD])).toBe('labelkit');
+	it('uses auth.epsilonrecords.com for someone in Epsilon and another org', () => {
+		expect(pick('magiclink', [EPSILON, OTHER])).toBe('epsilon');
+		expect(pick('magiclink', [OTHER, EPSILON, THIRD])).toBe('epsilon');
+		expect(pick('email_changed_notification', [OTHER, EPSILON])).toBe('epsilon');
+		expect(pick('magiclink', [OTHER, THIRD])).toBe('labelkit');
 	});
 
 	it('uses the invite’s org when the email is an invite', () => {
@@ -32,6 +34,7 @@ describe('sign-in email sender (decision 0027)', () => {
 		expect(pick('invite', [], OTHER)).toBe('labelkit');
 		// Epsilon staff invited to another label hear from that label's side.
 		expect(pick('invite', [EPSILON], OTHER)).toBe('labelkit');
+		expect(pick('invite', [EPSILON, OTHER], OTHER)).toBe('labelkit');
 		expect(pick('invite', [OTHER], EPSILON.toUpperCase())).toBe('epsilon');
 	});
 
