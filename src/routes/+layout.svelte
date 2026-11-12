@@ -49,9 +49,15 @@
 	});
 	onMount(() => {
 		const onPreloadError = (event: Event) => {
-			const last = Number(sessionStorage.getItem('chunk-reload-at') ?? 0);
-			if (Date.now() - last < 60_000) return;
-			sessionStorage.setItem('chunk-reload-at', String(Date.now()));
+			// Without a working throttle we don't reload at all (storage blocked or full):
+			// the error surfaces as before rather than risking a reload loop.
+			try {
+				const last = Number(sessionStorage.getItem('chunk-reload-at') ?? 0);
+				if (Date.now() - last < 60_000) return;
+				sessionStorage.setItem('chunk-reload-at', String(Date.now()));
+			} catch {
+				return;
+			}
 			event.preventDefault();
 			location.reload();
 		};
