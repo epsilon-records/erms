@@ -19,7 +19,7 @@ import { isMachineRoute, isPublicPath, PUBLIC_PAGES } from '#lib/server/public-p
 import { keyFromHeader, resolveApiKey } from '#lib/server/api-keys.js';
 import {
 	API_INDEX,
-	API_MOVED,
+	NOT_FOUND,
 	apiHostRoute,
 	isApiHost,
 	OPENAPI_PATH,
@@ -166,14 +166,11 @@ export const handle: Handle = async (input) => {
 		const route = apiHostRoute(path);
 		if (route === 'api') return apiHandle(input);
 		if (route === 'openapi') return publicApiDocument(input);
-		return jsonResponse(
-			route === 'index' ? 200 : 404,
-			route === 'index' ? API_INDEX : { error: { code: 'not_found', message: 'Not found.' } }
-		);
+		return jsonResponse(route === 'index' ? 200 : 404, route === 'index' ? API_INDEX : NOT_FOUND);
 	}
-	// labelkit.co and custom domains don't serve the API; only local dev and previews still do.
+	// labelkit.co and custom domains don't serve the API (a plain 404); local dev and previews do.
 	if (path.startsWith('/v1/') && !servesApiForTesting(input.event.url.host))
-		return jsonResponse(404, API_MOVED);
+		return jsonResponse(404, NOT_FOUND);
 	if (path === OPENAPI_PATH) return publicApiDocument(input);
 	// Supabase Auth's Send Email hook (EPSILON-147): a machine caller with no session. It skips
 	// cookies, Auth and branding, and gets only the labelkit_auth_email runner; the route verifies the

@@ -71,7 +71,7 @@ it('requires a Bearer key for /v1 on the API host and never reads cookies', asyn
 	expect(spies.auth).not.toHaveBeenCalled();
 });
 
-it('does not serve the API on labelkit.co or a custom domain, naming the API host', async () => {
+it('does not serve the API on labelkit.co or a custom domain: a plain 404', async () => {
 	for (const href of [
 		'https://labelkit.co/v1/releases',
 		'https://labelkit.co/v1/openapi.yaml',
@@ -79,7 +79,8 @@ it('does not serve the API on labelkit.co or a custom domain, naming the API hos
 	]) {
 		const res = await handle({ event: event(href), resolve: never } as never);
 		expect(res.status, href).toBe(404);
-		expect((await res.json()).error.message).toContain('https://api.labelkit.co');
+		expect(await res.json()).toEqual({ error: { code: 'not_found', message: 'Not found.' } });
+		expect(res.headers.get('location')).toBeNull();
 	}
 	expect(never).not.toHaveBeenCalled();
 });

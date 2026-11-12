@@ -4,9 +4,9 @@
  * key, the public OpenAPI document at `/v1/openapi.yaml`, and a small JSON index at `/`. Every
  * other path is a JSON 404, so no page, cookie or session ever lives on the API host.
  *
- * The API is not served on labelkit.co or any label's custom domain: `/v1/*` there answers a JSON
- * 404 that names the API host (Nate, 2026-11-12; no keys existed yet). Local development and
- * Netlify deploy previews still serve it, so it can be tried before release.
+ * The API is not served on labelkit.co or any label's custom domain: `/v1/*` there is a plain JSON
+ * 404, with no redirect and no pointer to the API host (Nate, 2026-11-12; no keys existed yet).
+ * Local development and Netlify deploy previews still serve it, so it can be tried before release.
  */
 import { normalizeHost } from './branding';
 
@@ -31,10 +31,8 @@ export function servesApiForTesting(host: string | null | undefined): boolean {
 	);
 }
 
-/** The body of `/v1/*` on a host that doesn't serve the API. */
-export const API_MOVED = {
-	error: { code: 'not_found', message: `The LabelKit API is at ${API_BASE_URL}.` }
-} as const;
+/** The body of every JSON 404: unknown paths on the API host, and `/v1/*` elsewhere. */
+export const NOT_FOUND = { error: { code: 'not_found', message: 'Not found.' } } as const;
 
 export type ApiHostRoute = 'index' | 'openapi' | 'api' | 'not_found';
 
