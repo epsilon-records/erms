@@ -76,19 +76,19 @@ describe('hasVerificationRecord', () => {
 describe('provisioner', () => {
 	function fakeApis(state: { aliases: string[]; allow: string }) {
 		const calls: Array<{ method: string; url: string; body?: unknown }> = [];
-		const fetch = (async (url: string, init?: RequestInit) => {
+		const fakeFetch = (async (url: string, init?: RequestInit) => {
 			const method = init?.method ?? 'GET';
 			const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 			calls.push({ method, url, body });
 			expect((init?.headers as Record<string, string>).authorization).toMatch(/^Bearer /);
-			if (url.includes('api.netlify.com')) {
+			if (new URL(url).host === 'api.netlify.com') {
 				if (method === 'PATCH') state.aliases = body.domain_aliases;
 				return Response.json({ domain_aliases: state.aliases, other: 'kept' });
 			}
 			if (method === 'PATCH') state.allow = body.uri_allow_list;
 			return Response.json({ uri_allow_list: state.allow, smtp_pass: 'secret' });
-		}) as typeof fetch;
-		return { fetch, calls };
+		}) as typeof globalThis.fetch;
+		return { fetch: fakeFetch, calls };
 	}
 	const config = {
 		netlifyToken: 'n',
@@ -135,7 +135,8 @@ describe('provisioner', () => {
 	});
 
 	it('reports an API failure as a 502', async () => {
-		const fetch = (async () => new Response('no', { status: 401 })) as unknown as typeof fetch;
+		const fetch = (async () =>
+			new Response('no', { status: 401 })) as unknown as typeof globalThis.fetch;
 		await expect(provisioner({ ...config, fetch }).add('x.example.com')).rejects.toMatchObject({
 			status: 502
 		});
