@@ -8,10 +8,26 @@ info:
     label. Errors answer `{"error": {"code", "message"}}`. Lists page by id: pass the
     previous page's `next_cursor` as `after`.
 servers:
+  - url: https://api.labelkit.co
+    description: The API host.
   - url: https://labelkit.co
+    description: The same API on the app's host, kept for existing keys and scripts.
 security:
   - apiKey: []
 paths:
+  /v1/openapi.yaml:
+    get:
+      summary: This OpenAPI document
+      description: The public contract. No key needed.
+      operationId: getOpenapi
+      security: []
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/yaml:
+              schema:
+                type: string
   /v1/releases:
     get:
       summary: List releases
