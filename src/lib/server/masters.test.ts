@@ -389,6 +389,43 @@ describe('master uploads', () => {
 			);
 		});
 
+		it('only the owner connection can record a master as checked', async () => {
+			// EPSILON-164: labelkit_app cannot write the server's hash or the completion time, so it
+			// cannot mark a master ready either (masters_ready_complete needs both).
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav())
+			);
+			const id = start.masterId;
+			await pgRefused(
+				asUser(db, ownerA, (tx) =>
+					tx.update(masters).set({ sha256: SHA }).where(eq(masters.id, id))
+				)
+			);
+			await pgRefused(
+				asUser(db, ownerA, (tx) =>
+					tx.update(masters).set({ completedAt: new Date() }).where(eq(masters.id, id))
+				)
+			);
+			await pgRefused(
+				asUser(db, ownerA, (tx) =>
+					tx
+						.update(masters)
+						.set({ status: 'ready', sha256: SHA, completedAt: new Date() })
+						.where(eq(masters.id, id))
+				)
+			);
+			expect(await keyOf(id)).toMatchObject({ status: 'pending', sha256: null, completedAt: null });
+
+			// What uploads use is still allowed.
+			await asUser(db, ownerA, (tx) =>
+				tx
+					.update(masters)
+					.set({ status: 'verifying', claimedSha256: SHA, uploadId: null })
+					.where(eq(masters.id, id))
+			);
+			expect(await keyOf(id)).toMatchObject({ status: 'verifying', claimedSha256: SHA });
+		});
+
 		it('another org cannot read the master rows', async () => {
 			await asUser(db, ownerA, (tx) =>
 				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav())
