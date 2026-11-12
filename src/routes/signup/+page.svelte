@@ -39,15 +39,3 @@
 		<p class="soft">Already have an account? <a href="/login">Log in</a></p>
 	{/if}
 </div>
-
-<style>
-	/* A form page's heading, not the marketing hero: .display (44–96 px) was a poster
-	   headline over a one-field form. Pages keep scoped CSS until they move to
-	   Tailwind (shared 0046). */
-	.form-title {
-		font-size: clamp(28px, 1.5rem + 1vw, 32px);
-		line-height: 1.1;
-		font-weight: 700;
-		letter-spacing: -0.02em;
-	}
-</style>

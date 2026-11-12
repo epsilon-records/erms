@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -73,7 +74,7 @@
 									{#if l.open > 0}
 										<form method="POST" action="?/claim">
 											<input type="hidden" name="labelId" value={l.id} />
-											<button class="btn small">Claim {l.open}</button>
+											<Button type="submit" size="small">Claim {l.open}</Button>
 										</form>
 									{:else}<span class="soft">Done</span>{/if}
 								</td>

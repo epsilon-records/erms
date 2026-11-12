@@ -4,6 +4,9 @@
 	// portal and the public API are marked "Soon" until they exist (gap analysis, EPSILON-128).
 	let { signupOpen }: { signupOpen: boolean } = $props();
 
+	// Phone nav (audit F-16): under 760 px the links fold behind a Menu button, like epsilonrecords.com.
+	let menuOpen = $state(false);
+
 	const today = [
 		'Releases, recordings & compositions',
 		'Credits and splits per track',
@@ -116,7 +119,7 @@
 
 <div class="landing">
 	<header>
-		<div class="wrap bar">
+		<div class="wrap masthead">
 			<a href="/" class="logo">
 				<svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
 					<rect x="8" y="8" width="16" height="3.4" fill="currentColor" />
@@ -125,7 +128,23 @@
 				</svg>
 				<span>LabelKit</span><span class="by">by Epsilon Records</span>
 			</a>
-			<nav aria-label="Main">
+			<button
+				type="button"
+				class="menu-toggle"
+				aria-expanded={menuOpen}
+				aria-controls="landing-nav"
+				onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Close' : 'Menu'}</button
+			>
+			<!-- Closes the menu after a link is followed; the links themselves handle keys. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+			<nav
+				id="landing-nav"
+				aria-label="Main"
+				class:open={menuOpen}
+				onclick={(e) => {
+					if ((e.target as HTMLElement).closest('a')) menuOpen = false;
+				}}
+			>
 				<a href="#features">Features</a>
 				<a href="#pricing">Pricing</a>
 				<a href="#faq">FAQ</a>
@@ -135,7 +154,7 @@
 		</div>
 	</header>
 
-	<main>
+	<div class="landing-body">
 		<section class="wrap hero">
 			<div class="copy">
 				<p class="kicker">Label software for independent labels</p>
@@ -155,11 +174,11 @@
 				</p>
 			</div>
 			<figure class="sample" aria-label="Example release in LabelKit">
-				<div class="sample-head"><span>Releases / EPS-042</span><span>Sample</span></div>
+				<div class="sample-head"><span>Releases / SMPL-001</span><span>Sample</span></div>
 				<div class="sample-body">
-					<p class="mono dim">EPS-042</p>
-					<p class="title">Release title</p>
-					<p class="dim">Artist · EP · 4 recordings</p>
+					<p class="mono dim">SMPL-001</p>
+					<p class="title">Lower Canal</p>
+					<p class="dim">Night Index · EP · 4 recordings</p>
 					<p class="ok">● Rights complete · Consents recorded</p>
 					<dl>
 						<div>
@@ -260,7 +279,7 @@
 				<a href="/signup" class="dark">Start free</a>
 			</div>
 		</section>
-	</main>
+	</div>
 
 	<footer class="wrap">
 		<span>© 2015–2026 Epsilon Records · Amsterdam</span>
@@ -306,7 +325,8 @@
 		z-index: 5;
 		background: var(--bg);
 	}
-	.bar {
+	/* Not .bar: app.css uses that name for 4 px progress bars, which collapsed this row. */
+	.masthead {
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: space-between;
@@ -347,8 +367,55 @@
 		font-size: 15px;
 		color: #c5c9cf;
 	}
+	nav a {
+		/* 44 px touch floor (audit F-11). */
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+	}
 	nav a:hover {
 		color: #fff;
+	}
+	.menu-toggle {
+		display: none;
+	}
+	@media (max-width: 760px) and (scripting: enabled) {
+		.menu-toggle {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+			padding: 0 16px;
+			border: 1px solid var(--line-control, #646a73);
+			background: transparent;
+			color: var(--text);
+			font: inherit;
+			font-weight: 600;
+			cursor: pointer;
+		}
+		nav {
+			display: none;
+			flex-basis: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0;
+		}
+		nav.open {
+			display: flex;
+		}
+		nav a {
+			border-top: 1px solid var(--line);
+		}
+		nav a.cta {
+			justify-content: center;
+			margin-top: 12px;
+			border-top: 0;
+		}
+	}
+	@media (max-width: 480px) and (scripting: enabled) {
+		/* Logo, tagline and Menu don't fit on one row on a phone. */
+		.by {
+			display: none;
+		}
 	}
 	.cta,
 	.ghost,
@@ -619,6 +686,11 @@
 	.links {
 		display: flex;
 		gap: 20px;
+	}
+	.links a {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
 	}
 	footer {
 		display: flex;
