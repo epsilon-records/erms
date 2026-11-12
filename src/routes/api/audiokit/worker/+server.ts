@@ -1,19 +1,13 @@
 import { json, error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { providerResolver } from '#lib/server/audiokit-clients.js';
+import { audiokitClientEnv } from '#lib/server/audiokit-env.js';
 import { dueQueuedJobs, submitQueuedJob } from '#lib/server/audiokit-jobs.js';
 import { db as adminDb } from '#lib/server/db/client.js';
 import { recordSystemAudit } from '#lib/server/audit.js';
 import { audiokitJobs } from '#lib/server/db/schema.js';
 import { masterStorage } from '#lib/server/storage/env.js';
 import { isAuthorizedWorkerRequest } from '#lib/server/worker-auth.js';
-import {
-	AUDIOKIT_API_KEY,
-	AUDIOKIT_FALLBACK_ORG_IDS,
-	AUDIOKIT_BASE_URL,
-	AUDIOKIT_CREDENTIALS_KEY,
-	AUDIOKIT_WEBHOOK_SECRET
-} from '$app/env/private';
 import type { RequestHandler } from './$types';
 
 /**
@@ -39,22 +33,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		throw error(503, 'Storage not configured');
 	}
 
-	if (!AUDIOKIT_BASE_URL) {
+	const clientEnv = audiokitClientEnv();
+	if (!clientEnv) {
 		throw error(503, 'AudioKit client not configured');
 	}
 
 	const db = adminDb();
 	// Each job is submitted with its own org's AudioKit client (EPSILON-102); an org without one
 	// yet fails closed unless it is listed in AUDIOKIT_FALLBACK_ORG_IDS (EPSILON-135).
-	const providers = providerResolver(db, {
-		baseUrl: AUDIOKIT_BASE_URL,
-		fallback: {
-			apiKey: AUDIOKIT_API_KEY,
-			webhookSecret: AUDIOKIT_WEBHOOK_SECRET,
-			orgIds: AUDIOKIT_FALLBACK_ORG_IDS
-		},
-		credentialsKey: AUDIOKIT_CREDENTIALS_KEY
-	});
+	const providers = providerResolver(db, clientEnv);
 	const now = new Date();
 	const minRetryTime = new Date(now.getTime() - MIN_RETRY_DELAY_MS);
 
