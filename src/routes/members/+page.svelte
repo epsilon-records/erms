@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import { confirmRemoval } from '#lib/removal-confirmation.js';
 	import type { PageProps } from './$types';
 
@@ -30,6 +34,15 @@
 		invited: 'invited, not signed in',
 		unknown: 'not onboarded'
 	};
+	const inviteFailed = $derived(failed && form?.action === 'invite');
+	/** Errors that belong to no single field of the invite form, shown under it. */
+	const inviteFormErrors = $derived(
+		inviteFailed
+			? Object.entries(errors)
+					.filter(([k]) => k !== 'email' && k !== 'role')
+					.map(([, msg]) => msg)
+			: []
+	);
 	const owners = $derived(data.members.filter((m) => m.role === 'owner').length);
 </script>
 
@@ -70,13 +83,21 @@
 							{#if m.userId === data.me}<span class="muted"> · you</span>{/if}
 						</td>
 						<td>
-							<form method="POST" action="?/role" class="row-form">
+							<form method="POST" action="?/role" class="flex items-center gap-2">
 								<input type="hidden" name="userId" value={m.userId} />
 								<label for="role-{m.userId}" class="sr-only">Role</label>
-								<select id="role-{m.userId}" name="role" value={m.role} disabled={lastOwner}>
-									{#each ROLES as [k, l] (k)}<option value={k}>{l}</option>{/each}
-								</select>
-								{#if !lastOwner}<button class="btn small">Save</button>{/if}
+								<NativeSelect.Root
+									id="role-{m.userId}"
+									name="role"
+									value={m.role}
+									disabled={lastOwner}
+									size="sm"
+								>
+									{#each ROLES as [k, l] (k)}<NativeSelect.Option value={k}>{l}</NativeSelect.Option
+										>{/each}
+								</NativeSelect.Root>
+								{#if !lastOwner}<Button type="submit" variant="default" size="small">Save</Button
+									>{/if}
 							</form>
 						</td>
 						<td>
@@ -92,7 +113,7 @@
 										`Remove ${m.email ?? m.userId} from ${data.orgName}? They will lose access to this label. Their shared sign-in account will remain.`}
 								>
 									<input type="hidden" name="userId" value={m.userId} />
-									<button class="btn small danger">Remove</button>
+									<Button type="submit" variant="danger" size="small">Remove</Button>
 								</form>
 							{/if}
 						</td>
@@ -117,35 +138,50 @@
 				Add them to {data.orgName} with the chosen role. They can use their invitation or sign in, then
 				select this label. A new email is not guaranteed.
 			</p>
-			<div class="form-grid">
-				<label for="email">Email</label>
-				<input
-					id="email"
-					name="email"
-					type="email"
-					autocomplete="off"
-					value={values.email ?? ''}
-					required
-				/>
-				<label for="role">Role</label>
-				<select id="role" name="role" value={values.role ?? 'viewer'}>
-					{#each ROLES as [k, l] (k)}<option value={k}>{l}</option>{/each}
-				</select>
-				<span></span>
-				<div><button class="btn primary">Send invite</button></div>
-			</div>
+			<Field.Group class="gap-2.5">
+				<Field.Field orientation="responsive">
+					<Field.Label for="email">Email</Field.Label>
+					<Input
+						id="email"
+						name="email"
+						type="email"
+						autocomplete="off"
+						value={values.email ?? ''}
+						required
+						aria-invalid={inviteFailed && errors.email ? true : undefined}
+						aria-describedby={inviteFailed && errors.email ? 'email-error' : undefined}
+					/>
+					{#if inviteFailed && errors.email}
+						<Field.Error id="email-error">{errors.email}</Field.Error>
+					{/if}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="role">Role</Field.Label>
+					<NativeSelect.Root
+						id="role"
+						name="role"
+						value={values.role ?? 'viewer'}
+						aria-invalid={inviteFailed && errors.role ? true : undefined}
+						aria-describedby={inviteFailed && errors.role ? 'role-error' : undefined}
+					>
+						{#each ROLES as [k, l] (k)}<NativeSelect.Option value={k}>{l}</NativeSelect.Option
+							>{/each}
+					</NativeSelect.Root>
+					{#if inviteFailed && errors.role}
+						<Field.Error id="role-error">{errors.role}</Field.Error>
+					{/if}
+				</Field.Field>
+				<!-- Lines the button up with the controls: the 140 px label column plus the 20 px gap. -->
+				<div class="sm:pl-[160px]"><Button type="submit">Send invite</Button></div>
+			</Field.Group>
 		{:else}
 			<p class="soft" style="margin: 0">
 				Invites are off on this deploy: the server has no Supabase secret key. Members can still be
 				re-roled and removed here.
 			</p>
 		{/if}
-		{#if failed && form?.action === 'invite'}
-			<div class="alert error" role="alert">
-				{Object.entries(errors)
-					.map(([k, msg]) => (k === 'form' ? msg : `${k}: ${msg}`))
-					.join('\n')}
-			</div>
+		{#if inviteFormErrors.length}
+			<div class="alert error" role="alert">{inviteFormErrors.join('\n')}</div>
 		{:else if invited?.outcome === 'added'}
 			<div class="alert ok" role="status">
 				Member added: {invited.email}. They can use their invitation or sign in, then select
@@ -157,15 +193,3 @@
 	</form>
 	<p class="soft"><a href="/org/close">Close this label</a></p>
 </div>
-
-<style>
-	.row-form {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-	}
-	.row-form select {
-		width: auto;
-		padding: 6px 10px;
-	}
-</style>

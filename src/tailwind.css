@@ -10,6 +10,9 @@
 @import 'tw-animate-css';
 
 @source './lib/components/ui';
+/* Utilities the migrated pages (login, members, API keys) use in their own markup. Listed instead of
+   scanning those routes, so their legacy class names can't pick up Tailwind rules. */
+@source inline('flex items-center gap-2 gap-2.5 gap-4 font-mono w-fit max-w-[480px] sm:pl-[160px]');
 
 @theme inline {
 	--color-background: var(--bg);
@@ -25,6 +28,14 @@
 	--color-on-accent: var(--on-accent);
 	--color-warn: var(--warn);
 	--color-danger: var(--danger);
+	/* shadcn-svelte's names, so the copied-in form controls need few edits. */
+	--color-muted-foreground: var(--muted);
+	--color-input: #3a3f46;
+	--color-placeholder: #8a9099;
+	--color-primary: var(--accent);
+	--color-primary-foreground: var(--on-accent);
+	--color-destructive: var(--danger);
+	--color-ring: var(--accent);
 	--font-sans: var(--sans);
 	--font-mono: var(--mono);
 	/* The B+C look is square-cornered (LabelKit 0009). */
