@@ -334,6 +334,11 @@ describe('credits add form', () => {
 		expect(tagWithId(body, 'credit-name')).not.toContain(' aria-invalid=');
 	});
 
+	it('shows a role error under the form when there is no role control', () => {
+		const body = html(Credits, { ...props, roles: ['main'], errors: { role: 'Pick a role' } });
+		expect(body).toMatch(/role="alert"[^>]*>Pick a role/);
+	});
+
 	it('sends a single role as a hidden field', () => {
 		const body = html(Credits, { ...props, roles: ['main'] });
 		expect(body).toMatch(/<input type="hidden" name="role" value="main"/);
@@ -360,6 +365,21 @@ describe('ownership form', () => {
 		expect(selectedValues(body, 'holder_0')).toEqual(['p:a1']);
 		expect(selectedValues(body, 'holder_1')).toEqual(['']);
 		expectSubmitButtons(body);
+	});
+
+	it('ties a territory error to the territory input, not the box under the form', () => {
+		const body = html(Ownership, {
+			groups,
+			options,
+			action: 'setMaster',
+			errors: { territory: 'Use a two-letter country code' },
+			values: { territory: 'XYZ' }
+		});
+		const input = tagWithId(body, 'own-territory');
+		expect(input).toContain('aria-invalid="true"');
+		expect(input).toContain('aria-describedby="own-territory-help own-territory-error"');
+		expect(body.match(/Use a two-letter country code/g)).toHaveLength(1);
+		expect(body).toMatch(/id="own-territory-error"/);
 	});
 });
 
@@ -463,5 +483,35 @@ describe('rights forms', () => {
 		]);
 		expect(tagWithId(body, 'grantedOn')).toContain('value="2026-11-12"');
 		expectSubmitButtons(body);
+	});
+
+	it('ties a grant error to its field, and the revoke button confirms the removal', () => {
+		const consent = {
+			id: 'c1',
+			partyId: 'a1',
+			party: 'Ana',
+			purpose: 'stem_separation',
+			recordingId: null,
+			recording: null,
+			recordingVersion: null,
+			grantedOn: '2026-01-01',
+			expiresOn: null,
+			revokedAt: null
+		};
+		const data = { consents: [consent], agreements: [], options, today: '2026-11-12' };
+		const form = {
+			action: 'grant',
+			ok: false,
+			errors: { expiresOn: 'Expiry is before the grant date' },
+			values: { partyId: 'a1', expiresOn: '2025-01-01' }
+		};
+		const body = html(ConsentsPage, { data, form });
+		expect(tagWithId(body, 'expiresOn')).toContain('aria-describedby="expiresOn-error"');
+		expect(body).toMatch(
+			/role="alert"[^>]*id="expiresOn-error"[^>]*>(<!--[^>]*-->)*Expiry is before/
+		);
+		expect(body).toMatch(
+			/<button[^>]*name="removalConfirmed"[^>]*value="yes"[^>]*type="submit"|<button[^>]*type="submit"[^>]*name="removalConfirmed"[^>]*value="yes"/
+		);
 	});
 });

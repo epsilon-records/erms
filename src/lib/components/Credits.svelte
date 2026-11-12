@@ -32,7 +32,8 @@
 	/** The add form's errors: name and role sit under their control, anything else under the form. */
 	const formErrors = $derived(
 		Object.entries(errors)
-			.filter(([k]) => k !== 'name' && k !== 'role')
+			// A role error has no control to sit under when there is only one role.
+			.filter(([k]) => k !== 'name' && !(k === 'role' && roles.length > 1))
 			.map(([, m]) => m)
 	);
 </script>

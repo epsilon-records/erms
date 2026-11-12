@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import {
@@ -58,6 +59,12 @@
 		return h ? (field === 'holder' ? h.holder : h.share) : '';
 	};
 	const total = (g: Group) => g.holders.reduce((a, h) => a + Number(h.share), 0);
+	/** Errors shown under the form; a territory error sits under its own input instead. */
+	const formErrors = $derived(
+		Object.entries(errors)
+			.filter(([k]) => k !== 'territory')
+			.map(([k, m]) => (k === 'form' || k === 'shares' ? m : `${k}: ${m}`))
+	);
 </script>
 
 <noscript
@@ -127,11 +134,15 @@
 					bind:value={territory}
 					maxlength={2}
 					aria-invalid={errors.territory ? true : undefined}
-					aria-describedby="own-territory-help"
+					aria-describedby={errors.territory
+						? 'own-territory-help own-territory-error'
+						: 'own-territory-help'}
 				/>
 				<span id="own-territory-help" class="soft" style="margin-left: 8px"
 					>WW for worldwide, or a country code</span
 				>
+				{#if errors.territory}<Field.Error id="own-territory-error">{errors.territory}</Field.Error
+					>{/if}
 			</div>
 		</div>
 		{#key territory}
@@ -175,12 +186,8 @@
 			remove it.
 		</p>
 		<div><Button type="submit" variant="primary">Save ownership</Button></div>
-		{#if failedBefore}
-			<div class="alert error" role="alert">
-				{Object.entries(errors)
-					.map(([k, m]) => (k === 'form' || k === 'shares' ? m : `${k}: ${m}`))
-					.join('\n')}
-			</div>
+		{#if formErrors.length}
+			<div class="alert error" role="alert">{formErrors.join('\n')}</div>
 		{:else if saved}
 			<div class="alert ok" role="status">Ownership saved.</div>
 		{/if}
