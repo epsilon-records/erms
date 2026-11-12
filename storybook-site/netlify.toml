@@ -1,6 +1,6 @@
-# The storybook.labelkit.co Netlify site (shared 0061). Its base directory is storybook-site/,
-# so Netlify reads this file instead of the app's netlify.toml. Storybook is built from the repo
-# root and published here.
+# The storybook.labelkit.co Netlify site (shared 0061), public since shared 0062. Its base
+# directory is storybook-site/, so Netlify reads this file instead of the app's netlify.toml.
+# Storybook is built from the repo root and published here.
 [build]
   command = "cd .. && corepack enable && pnpm install --frozen-lockfile && pnpm build-storybook -o storybook-site/dist"
   publish = "dist"
@@ -8,16 +8,10 @@
   # An uncached build (the site's first, or after "clear cache") has CACHED_COMMIT_REF equal to
   # COMMIT_REF, so the diff alone is always empty and the build was always skipped: the site
   # never published and storybook.labelkit.co served Netlify's 404. Build in that case.
-  ignore = "[ \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib/components/ui ../src/lib/utils.ts ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
+  ignore = "[ \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
 
 [build.environment]
   NODE_VERSION = "22"
-  # The shared soft gate (shared 0047) isn't a credential worth failing builds over.
-  SECRETS_SCAN_OMIT_KEYS = "STORYBOOK_PASSWORD"
-
-[[edge_functions]]
-  path = "/*"
-  function = "storybook"
 
 [[headers]]
   for = "/*"

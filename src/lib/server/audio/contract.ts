@@ -119,7 +119,7 @@ export const InputFile = z.object({
 	url: HttpsUrl,
 	sha256: Sha256,
 	/** Original filename, used only as a format hint. */
-	filename: z.string().optional()
+	filename: z.string().nullable().optional()
 });
 export type InputFile = z.infer<typeof InputFile>;
 
@@ -136,7 +136,7 @@ export type WebhookTarget = z.infer<typeof WebhookTarget>;
 /** Points to an ERMS authorization decision. No consent documents leave ERMS. */
 export const AuthorizationRef = z.object({
 	decision_id: z.string(),
-	purpose: z.string().optional()
+	purpose: z.string().nullable().optional()
 });
 export type AuthorizationRef = z.infer<typeof AuthorizationRef>;
 
