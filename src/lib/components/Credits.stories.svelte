@@ -20,7 +20,7 @@
 		credits,
 		canEdit: true,
 		roles,
-		values: { role: 'Producer' },
-		errors: { party: 'Pick who this credit is for.' }
+		values: { name: 'Noor de Vries', role: 'Producer' },
+		errors: { name: 'Noor de Vries already has this credit' }
 	}}
 />

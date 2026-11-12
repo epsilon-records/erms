@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import {
 		confirmRemoval,
 		removedIdentities,
@@ -55,6 +59,12 @@
 		return h ? (field === 'holder' ? h.holder : h.share) : '';
 	};
 	const total = (g: Group) => g.holders.reduce((a, h) => a + Number(h.share), 0);
+	/** Errors shown under the form; a territory error sits under its own input instead. */
+	const formErrors = $derived(
+		Object.entries(errors)
+			.filter(([k]) => k !== 'territory')
+			.map(([k, m]) => (k === 'form' || k === 'shares' ? m : `${k}: ${m}`))
+	);
 </script>
 
 <noscript
@@ -117,43 +127,55 @@
 		<div class="form-grid">
 			<label for="own-territory">Territory</label>
 			<div>
-				<input
+				<Input
 					id="own-territory"
 					name="territory"
-					class="mono"
+					class="w-20 font-mono"
 					bind:value={territory}
-					maxlength="2"
-					style="width: 80px"
-					aria-describedby="own-territory-help"
+					maxlength={2}
+					aria-invalid={errors.territory ? true : undefined}
+					aria-describedby={errors.territory
+						? 'own-territory-help own-territory-error'
+						: 'own-territory-help'}
 				/>
 				<span id="own-territory-help" class="soft" style="margin-left: 8px"
 					>WW for worldwide, or a country code</span
 				>
+				{#if errors.territory}<Field.Error id="own-territory-error">{errors.territory}</Field.Error
+					>{/if}
 			</div>
 		</div>
 		{#key territory}
 			<div class="stack" style="gap: 8px">
 				{#each Array.from({ length: ROWS }, (_, i) => i) as i (i)}
-					<div class="inline-form">
+					<div class="flex flex-wrap items-center gap-2">
 						<label for="holder_{i}" class="sr-only">Holder {i + 1}</label>
-						<select id="holder_{i}" name="holder_{i}" value={rowValue(i, 'holder')}>
-							<option value="">—</option>
-							<optgroup label="Our labels">
-								{#each options.labels as l (l.id)}<option value="l:{l.id}">{l.name}</option>{/each}
-							</optgroup>
-							<optgroup label="Artists and others">
-								{#each options.parties as p (p.id)}<option value="p:{p.id}">{p.name}</option>{/each}
-							</optgroup>
-						</select>
+						<NativeSelect.Root
+							id="holder_{i}"
+							name="holder_{i}"
+							value={rowValue(i, 'holder')}
+							wrapperClass="w-[260px]"
+						>
+							<NativeSelect.Option value="">—</NativeSelect.Option>
+							<NativeSelect.OptGroup label="Our labels">
+								{#each options.labels as l (l.id)}<NativeSelect.Option value="l:{l.id}"
+										>{l.name}</NativeSelect.Option
+									>{/each}
+							</NativeSelect.OptGroup>
+							<NativeSelect.OptGroup label="Artists and others">
+								{#each options.parties as p (p.id)}<NativeSelect.Option value="p:{p.id}"
+										>{p.name}</NativeSelect.Option
+									>{/each}
+							</NativeSelect.OptGroup>
+						</NativeSelect.Root>
 						<label for="share_{i}" class="sr-only">Share {i + 1} (%)</label>
-						<input
+						<Input
 							id="share_{i}"
 							name="share_{i}"
-							class="mono"
+							class="w-[110px] font-mono"
 							inputmode="decimal"
 							placeholder="%"
 							value={rowValue(i, 'share')}
-							style="width: 110px"
 						/>
 					</div>
 				{/each}
@@ -163,13 +185,9 @@
 			Shares replace this territory's current set and must total 100%. Leave every row blank to
 			remove it.
 		</p>
-		<div><button class="btn primary">Save ownership</button></div>
-		{#if failedBefore}
-			<div class="alert error" role="alert">
-				{Object.entries(errors)
-					.map(([k, m]) => (k === 'form' || k === 'shares' ? m : `${k}: ${m}`))
-					.join('\n')}
-			</div>
+		<div><Button type="submit" variant="primary">Save ownership</Button></div>
+		{#if formErrors.length}
+			<div class="alert error" role="alert">{formErrors.join('\n')}</div>
 		{:else if saved}
 			<div class="alert ok" role="status">Ownership saved.</div>
 		{/if}
