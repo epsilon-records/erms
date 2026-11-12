@@ -129,9 +129,14 @@ export function provisioner(config: ProvisionConfig) {
 		return res.json() as Promise<Record<string, unknown>>;
 	}
 
-	async function netlify(change: (aliases: string[]) => string[]) {
+	async function netlify(change: (aliases: string[]) => string[], removing?: string) {
 		const url = `https://api.netlify.com/api/v1/sites/${config.netlifySiteId}`;
 		const site = await call(url, config.netlifyToken!);
+		// The site's primary domain is not an alias, and detaching it would take LabelKit itself
+		// off the site. Refuse, so the domain stays on the retired list for an operator.
+		if (removing && site.custom_domain === removing) {
+			throw new DomainError(409, `${removing} is the site's primary domain on Netlify.`);
+		}
 		const aliases = (site.domain_aliases as string[] | undefined) ?? [];
 		const next = change(aliases);
 		if (next.length === aliases.length && next.every((a, i) => a === aliases[i])) return;
@@ -171,7 +176,7 @@ export function provisioner(config: ProvisionConfig) {
 		},
 		async remove(domain: string) {
 			if (missing.length) return;
-			await netlify((a) => a.filter((x) => x !== domain));
+			await netlify((a) => a.filter((x) => x !== domain), domain);
 			await supabase((a) => a.filter((x) => x !== callbackUrl(domain)));
 		}
 	};

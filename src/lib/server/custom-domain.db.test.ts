@@ -119,8 +119,9 @@ describe('self-serve custom domains (migration 0032)', () => {
 			.from(auditLog)
 			.where(and(eq(auditLog.orgId, id), eq(auditLog.action, 'remove_domain')));
 		expect(removed.before).toMatchObject({ domain: 'e.example.test' });
-		// The removed domain waits on the retired list until it is off Netlify and Supabase Auth.
-		expect((await row(id)).domainRetired).toEqual(['e.example.test']);
+		// The removed domain, and the cancelled request before it, wait on the retired list until
+		// they are off Netlify and Supabase Auth.
+		expect((await row(id)).domainRetired.sort()).toEqual(['e.example.test', 'e2.example.test']);
 	});
 
 	it('cancelling a pending request is audited; cancelling nothing is not', async () => {
@@ -134,6 +135,27 @@ describe('self-serve custom domains (migration 0032)', () => {
 			.from(auditLog)
 			.where(and(eq(auditLog.orgId, id), eq(auditLog.action, 'cancel_domain_request')));
 		expect(entry.before).toMatchObject({ requested: 'g.example.test' });
+	});
+
+	it('a pending domain that is cancelled, replaced or removed is retired, not forgotten', async () => {
+		// Verification may have added it to Netlify or Supabase Auth before failing or being
+		// overtaken, so it must stay reachable by the cleanup.
+		const id = await label('dom-n');
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n1.example.test'));
+		await asUser(db, owner, (tx) => cancelDomainRequest(tx, id));
+		expect((await row(id)).domainRetired).toEqual(['n1.example.test']);
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n2.example.test'));
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n3.example.test'));
+		expect((await row(id)).domainRetired.sort()).toEqual(['n1.example.test', 'n2.example.test']);
+		await asUser(db, owner, (tx) => removeDomain(tx, id));
+		expect((await row(id)).domainRetired.sort()).toEqual([
+			'n1.example.test',
+			'n2.example.test',
+			'n3.example.test'
+		]);
+		// Requesting it again and activating it takes it back off.
+		await claim(id, 'n2.example.test');
+		expect((await row(id)).domainRetired.sort()).toEqual(['n1.example.test', 'n3.example.test']);
 	});
 
 	it('activates only the request whose token was checked', async () => {

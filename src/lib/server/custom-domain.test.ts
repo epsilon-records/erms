@@ -137,6 +137,17 @@ describe('provisioner', () => {
 		await expect(p.remove('x.example.com')).resolves.toBeUndefined();
 	});
 
+	it("refuses to detach the Netlify site's primary domain", async () => {
+		const fetch = (async () =>
+			Response.json({
+				custom_domain: 'erms.example.com',
+				domain_aliases: []
+			})) as unknown as typeof globalThis.fetch;
+		await expect(
+			provisioner({ ...config, fetch }).remove('erms.example.com')
+		).rejects.toMatchObject({ status: 409 });
+	});
+
 	it('reports an unreachable API as a 502, not a crash', async () => {
 		const fetch = (async () => {
 			throw new TypeError('fetch failed');

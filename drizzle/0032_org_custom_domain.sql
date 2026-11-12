@@ -13,9 +13,12 @@ ALTER TABLE "orgs" ADD CONSTRAINT "orgs_domain_status_value" CHECK ("orgs"."doma
 -- custom_domain. labelkit_app keeps SELECT-only on orgs, so these SECURITY DEFINER functions are
 -- the write path; each checks the owner role and writes the audit log.
 --
--- A domain the label stops using (removed, or replaced by a move) goes on domain_retired until
--- the app has taken it off Netlify and Supabase Auth, so a failed or skipped cleanup is retried
--- rather than forgotten. app.clear_retired_domain takes it off the list once that has worked.
+-- A domain the label stops using goes on domain_retired until the app has taken it off Netlify
+-- and Supabase Auth, so a failed or skipped cleanup is retried rather than forgotten. That covers
+-- an active domain that is removed or replaced by a move, and a pending one that is cancelled,
+-- removed or replaced by another request: verification may have provisioned part of it before
+-- failing or being overtaken. Activation takes the domain back off the list.
+-- app.clear_retired_domain takes a domain off the list once its cleanup has worked.
 
 -- Labels that already have a domain (set by hand before this migration) are active.
 UPDATE orgs SET domain_status = 'active' WHERE custom_domain IS NOT NULL;--> statement-breakpoint
@@ -34,7 +37,12 @@ BEGIN
 	END IF;
 	UPDATE public.orgs
 	SET domain_requested = new_domain, domain_token = token, domain_status = 'awaiting_dns',
-		domain_error = NULL
+		domain_error = NULL,
+		domain_retired = CASE
+			WHEN domain_requested IS NOT NULL AND domain_requested <> new_domain
+				THEN array_append(array_remove(domain_retired, domain_requested), domain_requested)
+			ELSE domain_retired
+		END
 	WHERE id = target_org;
 	INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, after)
 	VALUES (gen_random_uuid(), target_org, uid::text, 'user', 'org', target_org::text,
@@ -115,10 +123,11 @@ BEGIN
 	UPDATE public.orgs
 	SET custom_domain = NULL, domain_requested = NULL, domain_token = NULL, domain_status = NULL,
 		domain_error = NULL,
-		domain_retired = CASE
-			WHEN prev IS NULL THEN domain_retired
-			ELSE array_append(array_remove(domain_retired, prev), prev)
-		END
+		domain_retired = (
+			SELECT coalesce(array_agg(DISTINCT d), '{}')
+			FROM unnest(domain_retired || ARRAY[prev, pending]) AS d
+			WHERE d IS NOT NULL
+		)
 	WHERE id = target_org;
 	IF prev IS NOT NULL OR pending IS NOT NULL THEN
 		INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before)
@@ -144,7 +153,12 @@ BEGIN
 	SELECT domain_requested INTO pending FROM public.orgs WHERE id = target_org FOR UPDATE;
 	UPDATE public.orgs
 	SET domain_requested = NULL, domain_token = NULL, domain_error = NULL,
-		domain_status = CASE WHEN custom_domain IS NULL THEN NULL ELSE 'active' END
+		domain_status = CASE WHEN custom_domain IS NULL THEN NULL ELSE 'active' END,
+		domain_retired = CASE
+			WHEN pending IS NOT NULL AND pending IS DISTINCT FROM custom_domain
+				THEN array_append(array_remove(domain_retired, pending), pending)
+			ELSE domain_retired
+		END
 	WHERE id = target_org;
 	IF pending IS NOT NULL THEN
 		INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before)
