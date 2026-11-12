@@ -15,38 +15,24 @@ import { memberships, orgs } from '#lib/server/db/schema.js';
 import { scopedTo } from '#lib/server/db/scoped.js';
 import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
 import { isLandingRequest } from '#lib/server/landing.js';
+import { isMachineRoute, isPublicPath, PUBLIC_PAGES } from '#lib/server/public-paths.js';
 import { keyFromHeader, resolveApiKey } from '#lib/server/api-keys.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
-/**
- * Routes reachable without signing in. `/auth/confirm` is where an invite link lands
- * (EPSILON-87). `/api/audiokit/` holds machine endpoints that
- * verify their own credentials before running (worker/reconcile require the WORKER_SECRET
- * bearer token; webhook verifies AudioKit's X-Signature HMAC), so the login redirect must
- * not intercept them. Every other path stays behind the sign-in redirect.
- */
-const PUBLIC_PATHS = [
-	'/login',
-	'/signup',
-	'/privacy',
-	'/terms',
-	'/auth/callback',
-	'/auth/confirm',
-	'/api/audiokit/',
-	// The daily purge (migration 0027); the route checks the worker bearer secret itself.
-	'/api/internal/purge-orgs',
-	// The background check of uploaded masters (EPSILON-120); worker bearer secret too.
-	'/api/internal/verify-masters'
-];
-
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
-const NO_LABEL_ALLOWED = [...PUBLIC_PATHS, '/logout'];
+const isNoLabelAllowed = (path: string) => isPublicPath(path) || path === '/logout';
 
-/** Routes a member of a closed label can still reach. */
-const CLOSED_ALLOWED = [...PUBLIC_PATHS, '/org/closed', '/org/export', '/logout'];
+/**
+ * Routes a member of a closed label can still reach: the closed page, logout, and the export page
+ * with the downloads under it (each still checks the member's own access).
+ */
+const isClosedAllowed = (path: string) =>
+	isPublicPath(path) ||
+	['/org/closed', '/org/export', '/logout'].includes(path) ||
+	path.startsWith('/org/export/');
 
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
-const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
+const ONBOARDING_EXEMPT = [...PUBLIC_PAGES, '/onboarding', '/logout'];
 
 // Server-side error monitoring (shared decision 0003). A no-op when the DSN is unset.
 Sentry.init({
@@ -125,19 +111,14 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	}
 
 	const isPublic =
-		PUBLIC_PATHS.some((p) => event.url.pathname.startsWith(p)) ||
-		isLandingRequest(event.url.pathname, event.locals.brand);
+		isPublicPath(event.url.pathname) || isLandingRequest(event.url.pathname, event.locals.brand);
 	if (!user && !isPublic) {
 		redirect(303, '/login');
 	}
 
 	// Signed in but in no label (a new self-serve account, or a member who was removed): the only
 	// thing to do is create a label (EPSILON-130), which /signup/label explains when signup is off.
-	if (
-		user &&
-		!event.locals.membership &&
-		!NO_LABEL_ALLOWED.some((p) => event.url.pathname.startsWith(p))
-	) {
+	if (user && !event.locals.membership && !isNoLabelAllowed(event.url.pathname)) {
 		redirect(303, '/signup/label');
 	}
 
@@ -147,13 +128,16 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		event.locals.membership?.closedAt &&
 		// POST /org switches to another label, which must stay possible.
 		event.url.pathname !== '/org' &&
-		!CLOSED_ALLOWED.some((p) => event.url.pathname.startsWith(p))
+		!isClosedAllowed(event.url.pathname)
 	) {
 		redirect(303, '/org/closed');
 	}
 
 	// First run: send a member who hasn't finished onboarding to the welcome page.
-	if (needsOnboarding(event.locals.membership, event.url.pathname, ONBOARDING_EXEMPT)) {
+	if (
+		!isMachineRoute(event.url.pathname) &&
+		needsOnboarding(event.locals.membership, event.url.pathname, ONBOARDING_EXEMPT)
+	) {
 		redirect(303, '/onboarding');
 	}
 

@@ -132,7 +132,7 @@ describe('the mechanisms the cases rely on', () => {
 	});
 
 	// Supabase's side of the premise. A test database is a copy of a template, so these also prove
-	// the template carries Supabase's grants rather than a weaker set (knowledge erms/decisions/0017).
+	// the template carries Supabase's grants rather than a weaker set (knowledge labelkit/decisions/0017).
 	it('service_role bypasses RLS (the one trusted path)', async () => {
 		expect(await bypassOf('service_role')).toBe('true');
 	});

@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { SIGNUP_ENABLED } from '$app/env/private';
 import type { Actions, PageServerLoad } from './$types';
@@ -24,14 +25,30 @@ export const actions: Actions = {
 				shouldCreateUser: false
 			}
 		});
-		if (error?.status === 429) {
-			// Supabase's built-in mailer allows only a few emails per hour per project.
+		// Only failures that do not depend on the address are shown. Supabase refuses an unknown
+		// address with 422 otp_disabled, while the per-address email limit (429
+		// over_email_send_rate_limit) and a failing Send Email hook (500) happen only for an address
+		// that has an account, so all of those answer exactly like a sent link.
+		if (error?.status === 429 && error.code === 'over_request_rate_limit') {
+			// The per-IP request limit: the same answer for every address.
 			return fail(429, {
-				error: 'Too many login emails were sent recently. Wait a while, then try again.'
+				error: 'Too many login attempts right now. Wait a few minutes, then try again.'
 			});
 		}
+		if (error && isAuthRetryableFetchError(error) && !error.status) {
+			// Supabase could not be reached at all, which again does not depend on the address.
+			return fail(503, { error: 'Sign-in is unavailable right now. Try again shortly.' });
+		}
 		if (error) {
-			return fail(400, { error: 'Could not send a login link. Check the address and try again.' });
+			// Status and code only, never the address.
+			console.warn(
+				JSON.stringify({
+					level: 'warn',
+					msg: 'login link not sent',
+					status: error.status ?? null,
+					code: error.code ?? null
+				})
+			);
 		}
 		return { sent: parsed.data };
 	}
