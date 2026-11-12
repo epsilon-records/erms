@@ -119,7 +119,7 @@
 
 <div class="landing">
 	<header>
-		<div class="wrap bar">
+		<div class="wrap masthead">
 			<a href="/" class="logo">
 				<svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
 					<rect x="8" y="8" width="16" height="3.4" fill="currentColor" />
@@ -325,7 +325,8 @@
 		z-index: 5;
 		background: var(--bg);
 	}
-	.bar {
+	/* Not .bar: app.css uses that name for 4 px progress bars, which collapsed this row. */
+	.masthead {
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: space-between;
@@ -408,6 +409,12 @@
 			justify-content: center;
 			margin-top: 12px;
 			border-top: 0;
+		}
+	}
+	@media (max-width: 480px) and (scripting: enabled) {
+		/* Logo, tagline and Menu don't fit on one row on a phone. */
+		.by {
+			display: none;
 		}
 	}
 	.cta,
