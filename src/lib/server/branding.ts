@@ -56,12 +56,16 @@ export async function brandForHost(
 				name: row.displayName ?? row.name,
 				accent: row.accent,
 				orgId: row.id,
-				favicon: icon ? createHash('sha256').update(icon).digest('hex').slice(0, 12) : null
+				favicon: icon ? iconVersion(icon) : null
 			}
 		: DEFAULT_BRAND;
 	cache.set(key, { brand, at: now, icon });
 	return brand;
 }
+
+/** The version string for an icon's bytes: the first 12 hex characters of its sha256. */
+export const iconVersion = (icon: Uint8Array) =>
+	createHash('sha256').update(icon).digest('hex').slice(0, 12);
 
 /**
  * The tab icon brandForHost cached for this host, as PNG bytes; null when the label has none.

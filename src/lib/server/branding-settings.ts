@@ -57,11 +57,17 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		at = end;
 	}
 	if (!ended || idat.length === 0) throw notPng();
+	// Bound the inflated size by what the header allows: per row one filter byte and at most 8
+	// bytes a pixel (16-bit RGBA), doubled for Adam7 interlacing's extra filter bytes. Without it a
+	// 32 KB upload could inflate to tens of MB, synchronously.
+	const maxRaw = 2 * view.getUint32(20) * (1 + view.getUint32(16) * 8);
+	let raw: Buffer;
 	try {
-		if (inflateSync(Buffer.concat(idat)).length === 0) throw notPng();
+		raw = inflateSync(Buffer.concat(idat), { maxOutputLength: maxRaw });
 	} catch {
 		throw notPng();
 	}
+	if (raw.length === 0) throw notPng();
 }
 
 /** Checks a tab icon upload: a square PNG, 32 to 512 px, at most 32 KiB. Returns its size. */

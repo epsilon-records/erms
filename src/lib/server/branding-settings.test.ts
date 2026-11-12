@@ -70,6 +70,22 @@ describe('checkIcon', () => {
 		refused(() => checkIcon(corrupt), /PNG/);
 	});
 
+	it('refuses image data that inflates past what the header allows', () => {
+		// A 32 px header, but 10 MB of zeros compressed behind it: a decompression bomb.
+		const bomb = png(32);
+		const head = bomb.subarray(0, 33);
+		const body = deflateSync(Buffer.alloc(10 * 1024 * 1024));
+		const idat = Buffer.alloc(12 + body.length);
+		idat.writeUInt32BE(body.length, 0);
+		idat.write('IDAT', 4, 'latin1');
+		body.copy(idat, 8);
+		idat.writeUInt32BE(crc32(idat.subarray(4, 8 + body.length)), 8 + body.length);
+		const iend = bomb.subarray(bomb.length - 12);
+		const file = new Uint8Array(Buffer.concat([head, idat, iend]));
+		expect(file.length).toBeLessThan(ICON_MAX_BYTES);
+		refused(() => checkIcon(file), /PNG/);
+	});
+
 	it('names the icon field in its errors, so the page marks that input', () => {
 		try {
 			checkIcon(png(16));
