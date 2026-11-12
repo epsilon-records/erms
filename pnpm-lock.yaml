@@ -50,6 +50,9 @@ importers:
       tailwind-variants:
         specifier: ^4.0.2
         version: 4.0.2
+      tldts:
+        specifier: 7.4.19
+        version: 7.4.19
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -2845,6 +2848,13 @@ packages:
     resolution: {integrity: sha512-u8KszXvGfU68hVcZpRHKG28T0krMuv2G5nDhiHaMLen/gIuFEgIJhaJuO69qjnXg5paSrbPMFfx3brNuN8eVSg==}
     engines: {node: '>=14.0.0'}
 
+  tldts-core@7.4.28:
+    resolution: {integrity: sha512-6qKNYXYQfPNmAcmBpT/MrYPia3X2uBKxduTBSG0gLE9aN8FJTcS1ILsnJ6sqOvR/NZxkORzwGiSUVtnu3HUSqg==}
+
+  tldts@7.4.19:
+    resolution: {integrity: sha512-48dH6aSpQnpbzDUc4vIQZ1VjB8tkK+e8c1yx05/SZK+rkssgjEOlxDd/yU8/a4vGYQ9vRgJr9dwMq9TJ0b3X2Q==}
+    hasBin: true
+
   totalist@3.0.1:
     resolution: {integrity: sha512-sf4i37nQ2LBx4m3wB74y+ubopq6W/dIzXg0FDGjsYnZHVa1Da8FH853wlL2gtUhg+xJXjfk3kUZS3BRoQeoQBQ==}
     engines: {node: '>=6'}
@@ -5423,6 +5433,12 @@ snapshots:
   tinyrainbow@3.2.0: {}
 
   tinyspy@4.0.6: {}
+
+  tldts-core@7.4.28: {}
+
+  tldts@7.4.19:
+    dependencies:
+      tldts-core: 7.4.28
 
   totalist@3.0.1: {}
 

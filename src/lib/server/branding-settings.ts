@@ -77,6 +77,9 @@ function scanlineLayout(view: DataView): Array<{ rows: number; rowBytes: number 
 	);
 }
 
+/** The critical chunk types PNG defines; any other critical chunk is unreadable to a decoder. */
+const CRITICAL = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND']);
+
 const notPng = () => new BrandingError(400, 'The icon must be a PNG file.', 'icon');
 
 /**
@@ -104,6 +107,11 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		// 13 bytes; at most one PLTE, of 1 to 256 three-byte entries, before the image data;
 		// IDAT chunks consecutive; IEND empty and last.
 		if ((index === 0) !== (type === 'IHDR')) throw notPng();
+		// A chunk type is four ASCII letters. An upper-case first letter marks a critical chunk,
+		// which a decoder must understand to show the image, so an unknown one is refused;
+		// unknown ancillary (lower-case) chunks are skipped by decoders and allowed.
+		if (!/^[A-Za-z]{4}$/.test(type)) throw notPng();
+		if (/^[A-Z]/.test(type) && !CRITICAL.has(type)) throw notPng();
 		if (type === 'IHDR' && length !== 13) throw notPng();
 		if (type === 'PLTE') {
 			if (palette || idat.length > 0) throw notPng();
@@ -247,7 +255,8 @@ export async function loadBranding(tx: Database, orgId: string) {
 			domainRequested: orgs.domainRequested,
 			domainToken: orgs.domainToken,
 			domainStatus: orgs.domainStatus,
-			domainError: orgs.domainError
+			domainError: orgs.domainError,
+			domainRetired: orgs.domainRetired
 		})
 		.from(orgs)
 		.where(eq(orgs.id, orgId))

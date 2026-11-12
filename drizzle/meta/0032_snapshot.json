@@ -2336,6 +2336,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "domain_retired": {
+          "name": "domain_retired",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
         "closed_at": {
           "name": "closed_at",
           "type": "timestamp with time zone",

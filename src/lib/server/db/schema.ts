@@ -65,6 +65,11 @@ export const orgs = pgTable(
 		domainStatus: text('domain_status'),
 		/** Why the last verification or provisioning failed, for the settings page. */
 		domainError: text('domain_error'),
+		/** Domains the label stopped using that are still to come off Netlify and Supabase Auth. */
+		domainRetired: text('domain_retired')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
 		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		purgeAfter: timestamp('purge_after', { withTimezone: true })

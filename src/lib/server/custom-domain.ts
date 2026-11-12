@@ -1,5 +1,6 @@
 import { resolveTxt } from 'node:dns/promises';
 import { sql } from 'drizzle-orm';
+import { getDomain } from 'tldts';
 import type { Database } from './audit';
 
 /**
@@ -57,8 +58,12 @@ export function parseDomain(input: string): string {
 	return host;
 }
 
-/** True for a domain with no subdomain part (example.com), which needs A records, not a CNAME. */
-export const isApex = (domain: string) => domain.split('.').length === 2;
+/**
+ * True for a registrable domain with no subdomain part (example.com, yourlabel.co.uk), which
+ * cannot have a CNAME and needs an A record instead. Uses the public suffix list, so a multi-part
+ * suffix such as co.uk is not mistaken for the label's own name.
+ */
+export const isApex = (domain: string) => getDomain(domain) === domain;
 
 type ResolveTxt = (name: string) => Promise<string[][]>;
 
@@ -104,15 +109,23 @@ export function provisioner(config: ProvisionConfig) {
 	].filter(Boolean);
 
 	async function call(url: string, token: string, init?: RequestInit) {
-		const res = await http(url, {
-			...init,
-			headers: {
-				authorization: `Bearer ${token}`,
-				'content-type': 'application/json',
-				...init?.headers
-			}
-		});
-		if (!res.ok) throw new DomainError(502, `${new URL(url).host} answered HTTP ${res.status}.`);
+		const host = new URL(url).host;
+		let res: Response;
+		try {
+			res = await http(url, {
+				// Bounded, because the caller holds the provisioning lock (and a transaction) meanwhile.
+				signal: AbortSignal.timeout(10_000),
+				...init,
+				headers: {
+					authorization: `Bearer ${token}`,
+					'content-type': 'application/json',
+					...init?.headers
+				}
+			});
+		} catch {
+			throw new DomainError(502, `${host} did not answer.`);
+		}
+		if (!res.ok) throw new DomainError(502, `${host} answered HTTP ${res.status}.`);
 		return res.json() as Promise<Record<string, unknown>>;
 	}
 
@@ -189,8 +202,11 @@ export function requestDomain(tx: Database, orgId: string, domain: string) {
 	});
 }
 
-export function activateDomain(tx: Database, orgId: string, domain: string) {
-	return run(() => tx.execute(sql`select app.activate_org_domain(${orgId}::uuid, ${domain})`));
+/** Activates the request only if it still carries the token whose TXT record was checked. */
+export function activateDomain(tx: Database, orgId: string, domain: string, token: string) {
+	return run(() =>
+		tx.execute(sql`select app.activate_org_domain(${orgId}::uuid, ${domain}, ${token})`)
+	);
 }
 
 export function failDomain(tx: Database, orgId: string, domain: string, reason: string) {
@@ -210,4 +226,53 @@ export function removeDomain(tx: Database, orgId: string) {
 
 export function cancelDomainRequest(tx: Database, orgId: string) {
 	return run(() => tx.execute(sql`select app.cancel_org_domain_request(${orgId}::uuid)`));
+}
+
+/**
+ * Serialises changes to the Netlify alias list and the Supabase Auth redirect list. Both APIs take
+ * the whole list, so two owners provisioning at once would otherwise each write back a list
+ * without the other's domain. The lock is transaction-scoped: it is released when `tx` ends.
+ */
+export async function lockProvisioning(tx: Database) {
+	await tx.execute(sql`select pg_advisory_xact_lock(hashtext('labelkit:domain-provisioning'))`);
+}
+
+type Provisioner = ReturnType<typeof provisioner>;
+
+/**
+ * Takes the label's retired domains off Netlify and Supabase Auth and off the retired list. A
+ * domain some label serves again is only taken off the list. A failed removal stays on it, to be
+ * retried by the next domain action or the page's retry button; without provisioning tokens
+ * nothing is removed and everything stays. Call with the provisioning lock held. Returns the
+ * domains still waiting.
+ */
+export async function cleanUpRetiredDomains(
+	tx: Database,
+	orgId: string,
+	provision: Pick<Provisioner, 'configured' | 'remove'>
+): Promise<string[]> {
+	const retired = await run(
+		async () =>
+			(await tx.execute(
+				sql`select domain, in_use from app.retired_org_domains(${orgId}::uuid)`
+			)) as unknown as Array<{ domain: string; in_use: boolean }>
+	);
+	const waiting: string[] = [];
+	for (const { domain, in_use } of retired) {
+		if (!in_use) {
+			if (!provision.configured) {
+				waiting.push(domain);
+				continue;
+			}
+			try {
+				await provision.remove(domain);
+			} catch (e) {
+				if (!(e instanceof DomainError)) throw e;
+				waiting.push(domain);
+				continue;
+			}
+		}
+		await run(() => tx.execute(sql`select app.clear_retired_domain(${orgId}::uuid, ${domain})`));
+	}
+	return waiting;
 }

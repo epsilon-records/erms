@@ -14,10 +14,12 @@ import {
 import {
 	activateDomain,
 	cancelDomainRequest,
+	cleanUpRetiredDomains,
 	DomainError,
 	failDomain,
 	hasVerificationRecord,
 	isApex,
+	lockProvisioning,
 	parseDomain,
 	removeDomain,
 	requestDomain,
@@ -61,7 +63,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						apexA: ROUTING.apexA
 					}
 				: null,
-			provisioning: domainProvisioner().configured
+			provisioning: domainProvisioner().configured,
+			// Domains the label stopped using that are still on Netlify or Supabase Auth.
+			retired: b.domainRetired
 		},
 		saved: url.searchParams.has('saved')
 	};
@@ -142,27 +146,34 @@ export const actions: Actions = {
 		const m = requireScope(locals, 'roles:manage');
 		const b = await locals.db((tx) => loadBranding(tx, m.orgId));
 		const domain = b?.domainRequested;
-		if (!domain || !b?.domainToken) return fail(409, { domainError: 'Add a domain first.' });
+		const token = b?.domainToken;
+		if (!domain || !token) return fail(409, { domainError: 'Add a domain first.' });
 		try {
-			if (!(await hasVerificationRecord(domain, b.domainToken))) {
+			if (!(await hasVerificationRecord(domain, token))) {
 				const reason = `No TXT record ${txtName(domain)} with the expected value yet. DNS changes can take a few minutes, sometimes longer.`;
 				await locals.db((tx) => failDomain(tx, m.orgId, domain, reason));
 				return fail(409, { domainError: reason });
 			}
 			const provision = domainProvisioner();
-			try {
-				await provision.add(domain);
-			} catch (e) {
-				if (!(e instanceof DomainError)) throw e;
-				await locals.db((tx) => failDomain(tx, m.orgId, domain, e.message));
-				return fail(e.status, { domainError: e.message });
+			const outcome = await locals.db(async (tx) => {
+				await lockProvisioning(tx);
+				try {
+					await provision.add(domain);
+				} catch (e) {
+					if (!(e instanceof DomainError)) throw e;
+					await failDomain(tx, m.orgId, domain, e.message);
+					return { failed: e, waiting: [] as string[] };
+				}
+				// Activates only the request whose token was just checked; a newer request waits for
+				// its own TXT record. A domain this replaces goes on the retired list and is cleaned up.
+				await activateDomain(tx, m.orgId, domain, token);
+				return { failed: null, waiting: await cleanUpRetiredDomains(tx, m.orgId, provision) };
+			});
+			if (outcome.failed) {
+				return fail(outcome.failed.status, { domainError: outcome.failed.message });
 			}
-			const previous = b.customDomain;
-			await locals.db((tx) => activateDomain(tx, m.orgId, domain));
 			clearBrandCache();
-			// Moving to a new domain: the old one stops being served for this label.
-			if (previous && previous !== domain) await provision.remove(previous).catch(() => {});
-			return { domainActivated: domain };
+			return { domainActivated: domain, cleanupWaiting: outcome.waiting };
 		} catch (e) {
 			return domainFail(e);
 		}
@@ -179,14 +190,35 @@ export const actions: Actions = {
 		}
 	},
 
-	/** Removes the label's domain (or a pending request) and takes it off Netlify and Supabase Auth. */
+	/**
+	 * Removes the label's domain (or a pending request) and takes it off Netlify and Supabase Auth.
+	 * If that cleanup fails, or the provisioning tokens are not set, the domain stays on the retired
+	 * list and the page offers to retry.
+	 */
 	removeDomain: async ({ locals }) => {
 		const m = requireScope(locals, 'roles:manage');
 		try {
-			const removed = await locals.db((tx) => removeDomain(tx, m.orgId));
+			const waiting = await locals.db(async (tx) => {
+				await lockProvisioning(tx);
+				await removeDomain(tx, m.orgId);
+				return cleanUpRetiredDomains(tx, m.orgId, domainProvisioner());
+			});
 			clearBrandCache();
-			if (removed) await domainProvisioner().remove(removed);
-			return { domainRemoved: true };
+			return { domainRemoved: true, cleanupWaiting: waiting };
+		} catch (e) {
+			return domainFail(e);
+		}
+	},
+
+	/** Retries taking the label's retired domains off Netlify and Supabase Auth. */
+	cleanUpDomains: async ({ locals }) => {
+		const m = requireScope(locals, 'roles:manage');
+		try {
+			const waiting = await locals.db(async (tx) => {
+				await lockProvisioning(tx);
+				return cleanUpRetiredDomains(tx, m.orgId, domainProvisioner());
+			});
+			return { cleanupWaiting: waiting };
 		} catch (e) {
 			return domainFail(e);
 		}

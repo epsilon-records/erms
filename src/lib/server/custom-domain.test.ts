@@ -38,6 +38,9 @@ describe('parseDomain', () => {
 	it('tells an apex domain from a subdomain', () => {
 		expect(isApex('yourlabel.com')).toBe(true);
 		expect(isApex('catalogue.yourlabel.com')).toBe(false);
+		// A multi-part public suffix is not the label's name: yourlabel.co.uk is still the apex.
+		expect(isApex('yourlabel.co.uk')).toBe(true);
+		expect(isApex('catalogue.yourlabel.co.uk')).toBe(false);
 	});
 });
 
@@ -132,6 +135,16 @@ describe('provisioner', () => {
 			/NETLIFY_API_TOKEN, SUPABASE_ACCESS_TOKEN/
 		);
 		await expect(p.remove('x.example.com')).resolves.toBeUndefined();
+	});
+
+	it('reports an unreachable API as a 502, not a crash', async () => {
+		const fetch = (async () => {
+			throw new TypeError('fetch failed');
+		}) as unknown as typeof globalThis.fetch;
+		await expect(provisioner({ ...config, fetch }).remove('x.example.com')).rejects.toMatchObject({
+			status: 502,
+			message: 'api.netlify.com did not answer.'
+		});
 	});
 
 	it('reports an API failure as a 502', async () => {

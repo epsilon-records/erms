@@ -243,6 +243,27 @@
 				<Button type="submit" variant="link">Stop using {data.domain.active}</Button>
 			</form>
 		{/if}
+
+		{#if data.domain.retired.length > 0}
+			<div class="alert" role="status">
+				<p>
+					{data.domain.retired.join(', ')}
+					{data.domain.retired.length === 1 ? 'is' : 'are'} no longer used by your label but
+					{data.domain.retired.length === 1 ? 'is' : 'are'} still set up on LabelKit's hosting.
+					{#if data.domain.provisioning}
+						Removing {data.domain.retired.length === 1 ? 'it' : 'them'} failed last time.
+					{:else}
+						{data.domain.retired.length === 1 ? 'It' : 'They'} will be removed once domain setup is switched
+						on for this site.
+					{/if}
+				</p>
+				{#if data.domain.provisioning}
+					<form method="POST" action="?/cleanUpDomains">
+						<Button type="submit">Try again</Button>
+					</form>
+				{/if}
+			</div>
+		{/if}
 	</section>
 </div>
 
