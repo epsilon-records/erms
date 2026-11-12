@@ -14,16 +14,18 @@ export const PUBLIC_PAGES: readonly string[] = [
 ];
 
 /**
- * Machine endpoints verify their own credentials before running (worker, reconcile and the daily
- * purge require the WORKER_SECRET bearer token; the webhooks verify AudioKit's X-Signature HMAC),
- * so the login redirect must not intercept them.
+ * Machine endpoints verify their own credentials before running (worker, reconcile, the daily
+ * purge and the master check require the WORKER_SECRET bearer token; the webhooks verify
+ * AudioKit's X-Signature HMAC), so the login redirect must not intercept them.
  */
 export const MACHINE_ROUTES: readonly string[] = [
 	'/api/audiokit/worker',
 	'/api/audiokit/reconcile',
 	'/api/audiokit/webhook',
 	// The daily purge (migration 0027).
-	'/api/internal/purge-orgs'
+	'/api/internal/purge-orgs',
+	// The background check of uploaded masters (EPSILON-120).
+	'/api/internal/verify-masters'
 ];
 
 /** `/api/audiokit/webhook/[client_id]`: exactly one non-empty segment after the prefix. */

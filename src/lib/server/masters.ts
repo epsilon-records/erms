@@ -1,20 +1,18 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-	isWavHeader,
 	MAX_MASTER_BYTES,
 	MULTIPART_THRESHOLD,
 	PART_SIZE,
 	partCount,
 	WAV_CONTENT_TYPES,
-	WAV_HEADER_BYTES,
 	wavProblem
 } from '../masters';
 import { type Actor, type Database, withAudit } from './audit';
 import { type Master, masters, type Role, recordings } from './db/schema';
 import { uuidv7 } from './db/uuidv7';
 import { hasScope } from './rbac';
-import type { MasterStorage, Part } from './storage/r2';
+import { CREATE_ONCE_HEADERS, type MasterStorage, type Part } from './storage/r2';
 
 /**
  * Master uploads (EPSILON-29, decision 0011). The browser sends the file straight to R2
@@ -78,7 +76,7 @@ export const StartUpload = z.object({
 });
 
 export type StartResult =
-	| { masterId: string; mode: 'single'; url: string }
+	| { masterId: string; mode: 'single'; url: string; headers: Record<string, string> }
 	| { masterId: string; mode: 'multipart'; partSize: number; partCount: number };
 
 function parseStart(input: unknown) {
@@ -150,7 +148,9 @@ export async function startMasterUpload(
 		return {
 			masterId: id,
 			mode: 'single',
-			url: await storage.presignPut(objectKey, URL_TTL_SECONDS)
+			url: await storage.presignPut(objectKey, URL_TTL_SECONDS),
+			// Signed into the URL: the browser must send them as they are.
+			headers: { ...CREATE_ONCE_HEADERS }
 		};
 	});
 }
@@ -214,12 +214,14 @@ const Complete = z.object({
 });
 
 export type CompleteResult =
-	{ status: 'ready'; master: Master } | { status: 'rejected'; reason: string };
+	{ status: 'verifying'; master: Master } | { status: 'rejected'; reason: string };
 
 /**
- * Finish an upload: complete the multipart upload, then check what R2 actually holds
- * (size matches what was declared, the bytes start with a WAV header) before recording
- * the master. An object that fails is deleted and the row marked rejected.
+ * Finish an upload. Completes the multipart upload, then does only the cheap check here: R2 has
+ * an object of the declared size. A wrong size is rejected without reading the file. Otherwise the
+ * master becomes `verifying`, with the SHA-256 the browser reported kept as `claimedSha256`, and a
+ * background step (master-verify.ts) reads the object, checks the WAV header and its own SHA-256,
+ * and sets it to `ready` or rejects it (EPSILON-120). Until then nothing uses the master.
  */
 export async function completeMasterUpload(
 	db: Database,
@@ -231,7 +233,7 @@ export async function completeMasterUpload(
 	assertCanUpload(ctx);
 	const parsed = Complete.safeParse(input);
 	if (!parsed.success) throw new MasterError(400, 'Invalid completion request.');
-	const { sha256, parts } = parsed.data;
+	const { sha256: claimed, parts } = parsed.data;
 
 	return withAudit(db, ctx, async (tx, audit) => {
 		const row = await pendingMaster(tx, ctx, masterId, true);
@@ -242,20 +244,21 @@ export async function completeMasterUpload(
 			if (sorted.length !== total || sorted.some((p, i) => p.partNumber !== i + 1)) {
 				throw new MasterError(400, `Send all ${total} parts, numbered 1 to ${total}.`);
 			}
-			await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
+			try {
+				await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
+			} catch (e) {
+				// A retry after R2 already completed the upload: the upload id is gone, but the object is
+				// there. Carry on if it has the declared size; the background check reads it either way.
+				const there = await storage.head(row.objectKey);
+				if (there?.size !== row.sizeBytes) throw e;
+			}
 		}
 
 		const head = await storage.head(row.objectKey);
 		if (!head) throw new MasterError(409, 'The file has not arrived in storage yet.');
 
-		let reason: string | null = null;
 		if (head.size !== row.sizeBytes) {
-			reason = `Stored file is ${head.size} bytes, expected ${row.sizeBytes}.`;
-		} else if (!isWavHeader(await storage.readStart(row.objectKey, WAV_HEADER_BYTES))) {
-			reason = 'The uploaded file is not a WAV file.';
-		}
-
-		if (reason) {
+			const reason = `Stored file is ${head.size} bytes, expected ${row.sizeBytes}.`;
 			await storage.remove(row.objectKey);
 			await tx
 				.update(masters)
@@ -271,10 +274,9 @@ export async function completeMasterUpload(
 			return { status: 'rejected' as const, reason };
 		}
 
-		const completedAt = new Date();
 		const [updated] = await tx
 			.update(masters)
-			.set({ status: 'ready', sha256, completedAt, uploadId: null })
+			.set({ status: 'verifying', claimedSha256: claimed, uploadId: null })
 			.where(eq(masters.id, row.id))
 			.returning();
 		await audit({
@@ -282,9 +284,9 @@ export async function completeMasterUpload(
 			entityId: row.id,
 			action: 'upload_complete',
 			before: { status: 'pending' },
-			after: { status: 'ready', sha256, sizeBytes: head.size, completedAt }
+			after: { status: 'verifying', claimedSha256: claimed, sizeBytes: head.size }
 		});
-		return { status: 'ready' as const, master: updated };
+		return { status: 'verifying' as const, master: updated };
 	});
 }
 
@@ -298,8 +300,10 @@ export async function abortMasterUpload(
 	assertCanUpload(ctx);
 	return withAudit(db, ctx, async (tx, audit) => {
 		const row = await pendingMaster(tx, ctx, masterId, true);
+		// A multipart upload R2 already completed has no upload id left to abort, so the object is
+		// removed as well. Removing a key that is not there is harmless.
 		if (row.uploadId) await storage.abortMultipart(row.objectKey, row.uploadId);
-		else await storage.remove(row.objectKey);
+		await storage.remove(row.objectKey);
 		await tx
 			.update(masters)
 			.set({ status: 'aborted', uploadId: null })
@@ -339,11 +343,12 @@ export async function deleteMaster(
 		// Defence in depth: the database check already ties the key to the org.
 		if (!keyInOrg(row.objectKey, ctx.orgId)) throw new MasterError(403, 'Master not in this org');
 
+		// Abort an unfinished multipart upload, and remove the object either way: R2 may already
+		// have completed the upload.
 		if (row.status === 'pending' && row.uploadId) {
 			await storage.abortMultipart(row.objectKey, row.uploadId);
-		} else {
-			await storage.remove(row.objectKey);
 		}
+		await storage.remove(row.objectKey);
 
 		await tx.delete(masters).where(eq(masters.id, row.id));
 		await audit({

@@ -42,12 +42,14 @@ function put(
 	body: Blob,
 	onSent: (n: number) => void,
 	signal: AbortSignal,
-	contentType?: string
+	contentType?: string,
+	headers: Record<string, string> = {}
 ) {
 	return new Promise<string>((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
 		xhr.open('PUT', url);
 		if (contentType) xhr.setRequestHeader('Content-Type', contentType);
+		for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
 		xhr.upload.onprogress = (e) => onSent(e.loaded);
 		xhr.onload = () => {
 			if (xhr.status < 200 || xhr.status >= 300) {
@@ -64,11 +66,12 @@ function put(
 }
 
 type Start =
-	| { masterId: string; mode: 'single'; url: string }
+	| { masterId: string; mode: 'single'; url: string; headers?: Record<string, string> }
 	| { masterId: string; mode: 'multipart'; partSize: number; partCount: number };
 
+/** `verifying`: uploaded and the right size; the server is still checking its contents. */
 export type Finished =
-	{ status: 'ready'; masterId: string } | { status: 'rejected'; reason: string };
+	{ status: 'verifying'; masterId: string } | { status: 'rejected'; reason: string };
 
 export async function uploadMaster(
 	recordingId: string,
@@ -107,7 +110,9 @@ export async function uploadMaster(
 				file,
 				(n) => (sent.set(1, n), report()),
 				signal,
-				file.type || 'audio/wav'
+				file.type || 'audio/wav',
+				// Signed into the URL (create-once): R2 refuses the PUT without them.
+				start.headers
 			);
 		} else {
 			parts = await uploadParts(at, file, start.partCount, start.partSize, sent, report, signal);

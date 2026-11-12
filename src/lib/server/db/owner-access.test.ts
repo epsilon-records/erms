@@ -15,6 +15,9 @@ const ALLOWED = new Set([
 	'src/routes/api/audiokit/webhook/[client_id]/+server.ts',
 	// Deletes closed labels after their grace period (migration 0027); worker bearer secret.
 	'src/routes/api/internal/purge-orgs/+server.ts',
+	// Leases uploaded masters for the background check and records it (EPSILON-120); worker bearer
+	// secret.
+	'src/routes/api/internal/verify-masters/+server.ts',
 	// Issues a label's AudioKit client; no other role can touch the credentials table.
 	'src/routes/org/audiokit-client/+server.ts'
 ]);

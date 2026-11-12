@@ -36,7 +36,8 @@ describe('auth hook allowlist', () => {
 		'/api/audiokit/webhook',
 		'/api/audiokit/reconcile',
 		'/api/audiokit/webhook/client-123',
-		'/api/internal/purge-orgs'
+		'/api/internal/purge-orgs',
+		'/api/internal/verify-masters'
 	])('lets the machine endpoint %s reach its handler without a Supabase user', async (pathname) => {
 		const { response, resolved } = await runHook(pathname);
 		expect(resolved).toBe(true);
@@ -76,6 +77,8 @@ describe('auth hook allowlist', () => {
 		'/api/audiokit/webhook/client-123/extra',
 		'/api/internal/purge-orgsx',
 		'/api/internal/purge-orgs/extra',
+		'/api/internal/verify-mastersx',
+		'/api/internal/verify-masters/extra',
 		'/loginx',
 		'/login/extra',
 		'/signupx',

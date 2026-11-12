@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { and, eq } from 'drizzle-orm';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isWavHeader, MULTIPART_THRESHOLD, PART_SIZE, wavProblem } from '../masters';
 import { auditLog, masters, memberships, orgs, recordings, type Role } from './db/schema';
 import { asUser } from './db/scoped';
@@ -20,6 +20,14 @@ import {
 	signMasterParts,
 	startMasterUpload
 } from './masters';
+import { queueAudioKitJob } from './audiokit-jobs';
+import {
+	leaseVerifications,
+	MAX_ATTEMPTS,
+	recordVerification,
+	UNREADABLE,
+	type VerifyResult
+} from './master-verify';
 import type { MasterStorage, Part } from './storage/r2';
 import { createTestDb } from './test-db';
 
@@ -41,7 +49,12 @@ const SHA = 'ab'.repeat(32);
 
 /** In-memory stand-in for R2 that records which keys it was asked to sign. */
 class FakeStorage implements MasterStorage {
-	objects = new Map<string, { size: number; start: Uint8Array }>();
+	/** `sha256` is the hash of what R2 holds; the tests set it apart from what the upload claims. */
+	objects = new Map<string, { size: number; start: Uint8Array; sha256: string }>();
+	/** Set to make completeMultipart fail, as it does when R2 already completed the upload. */
+	failComplete = false;
+	/** Keys whose delete fails, as R2 might during an outage. */
+	failRemove = new Set<string>();
 	uploads = new Map<string, { key: string; completed?: Part[] }>();
 	signed: string[] = [];
 	removed: string[] = [];
@@ -62,6 +75,7 @@ class FakeStorage implements MasterStorage {
 		return `https://r2.test/${key}?partNumber=${n}&uploadId=${uploadId}`;
 	}
 	async completeMultipart(key: string, uploadId: string, parts: Part[]) {
+		if (this.failComplete) throw new Error('NoSuchUpload');
 		const u = this.uploads.get(uploadId);
 		if (!u || u.key !== key) throw new Error('no such upload');
 		u.completed = parts;
@@ -73,10 +87,8 @@ class FakeStorage implements MasterStorage {
 		const o = this.objects.get(key);
 		return o ? { size: o.size } : null;
 	}
-	async readStart(key: string, length: number) {
-		return (this.objects.get(key)?.start ?? new Uint8Array()).slice(0, length);
-	}
 	async remove(key: string) {
+		if (this.failRemove.has(key)) throw new Error('R2 delete failed');
 		this.removed.push(key);
 		this.objects.delete(key);
 	}
@@ -84,8 +96,8 @@ class FakeStorage implements MasterStorage {
 		return [...this.objects.keys()].filter((k) => k.startsWith(prefix));
 	}
 	/** What the browser's PUT would do. */
-	put(key: string, size: number, start = WAV) {
-		this.objects.set(key, { size, start });
+	put(key: string, size: number, start = WAV, sha256 = SHA) {
+		this.objects.set(key, { size, start, sha256 });
 	}
 }
 
@@ -162,6 +174,36 @@ describe('master uploads', () => {
 	beforeEach(() => {
 		storage = new FakeStorage();
 	});
+
+	/**
+	 * What the background check would report for each leased master: a read of the fake object,
+	 * or an error when this test's storage does not hold it (rows left by earlier tests).
+	 */
+	const readOf = (job: { id: string; token: string; url: string }): VerifyResult => {
+		const key = new URL(job.url).pathname.slice(1);
+		const o = storage.objects.get(key);
+		if (!o) return { id: job.id, token: job.token, error: 'not found' };
+		return {
+			id: job.id,
+			token: job.token,
+			sha256: o.sha256,
+			size: o.size,
+			header: Buffer.from(o.start.slice(0, 12)).toString('hex')
+		};
+	};
+	/**
+	 * Run the background check once for the masters this test uploaded. Masters left `verifying`
+	 * by earlier tests are leased but not reported, so their retries and rejections cannot touch
+	 * this test's storage.
+	 */
+	const verifyNow = async () => {
+		const outcomes: Record<string, string> = {};
+		for (const job of await leaseVerifications(db, storage, { limit: 100 })) {
+			if (!storage.objects.has(new URL(job.url).pathname.slice(1))) continue;
+			outcomes[job.id] = await recordVerification(db, storage, readOf(job));
+		}
+		return outcomes;
+	};
 
 	describe('role check', () => {
 		it('only roles with catalog:write can upload', () => {
@@ -397,8 +439,17 @@ describe('master uploads', () => {
 			const res = await asUser(db, ownerA, (tx) =>
 				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
 			);
-			expect(res).toEqual({ status: 'rejected', reason: 'The uploaded file is not a WAV file.' });
+			expect(res.status).toBe('verifying');
+			expect((await verifyNow())[start.masterId]).toBe('rejected');
 			expect(storage.removed).toEqual([objectKey]);
+			const [reject] = await db
+				.select({ after: auditLog.after })
+				.from(auditLog)
+				.where(and(eq(auditLog.entityId, start.masterId), eq(auditLog.action, 'upload_reject')));
+			expect(reject.after).toEqual({
+				status: 'rejected',
+				reason: 'The uploaded file is not a WAV file.'
+			});
 			const row = await keyOf(start.masterId);
 			expect(row.status).toBe('rejected');
 			expect(row.sha256).toBeNull();
@@ -413,8 +464,32 @@ describe('master uploads', () => {
 			const res = await asUser(db, ownerA, (tx) =>
 				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
 			);
+			// Refused from the HEAD alone, without queueing a read.
 			expect(res.status).toBe('rejected');
 			expect(storage.objects.has(objectKey)).toBe(false);
+			expect((await keyOf(start.masterId)).status).toBe('rejected');
+		});
+
+		it('rejects and deletes an upload whose stored bytes do not match the reported sha256', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(1000))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, 1000, WAV, 'cd'.repeat(32));
+			const res = await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			expect(res.status).toBe('verifying');
+			expect((await verifyNow())[start.masterId]).toBe('rejected');
+			expect(storage.objects.has(objectKey)).toBe(false);
+			const row = await keyOf(start.masterId);
+			expect(row.status).toBe('rejected');
+			expect(row.sha256).toBeNull();
+			const [reject] = await db
+				.select({ action: auditLog.action })
+				.from(auditLog)
+				.where(and(eq(auditLog.entityId, start.masterId), eq(auditLog.action, 'upload_reject')));
+			expect(reject).toBeDefined();
 		});
 
 		it('recognises WAV headers and file names', () => {
@@ -432,11 +507,11 @@ describe('master uploads', () => {
 	});
 
 	describe('recording the master', () => {
-		it('single PUT: records key, sha256, size and format, with an audit trail', async () => {
+		it('single PUT: verifying until the background check, then ready with the server hash', async () => {
 			const start = await asUser(db, managerA, (tx) =>
 				startMasterUpload(tx, storage, ctx(managerA, 'catalog_manager'), recA, wav(2048))
 			);
-			expect(start.mode).toBe('single');
+			expect(start).toMatchObject({ mode: 'single', headers: { 'If-None-Match': '*' } });
 			const { objectKey } = await keyOf(start.masterId);
 			storage.put(objectKey, 2048);
 			const res = await asUser(db, managerA, (tx) =>
@@ -444,7 +519,16 @@ describe('master uploads', () => {
 					sha256: SHA
 				})
 			);
-			expect(res.status).toBe('ready');
+			expect(res.status).toBe('verifying');
+			// The browser's hash is kept as a claim only; nothing is recorded as checked yet.
+			expect(await keyOf(start.masterId)).toMatchObject({
+				status: 'verifying',
+				claimedSha256: SHA,
+				sha256: null,
+				completedAt: null
+			});
+
+			expect((await verifyNow())[start.masterId]).toBe('ready');
 			const row = await keyOf(start.masterId);
 			expect(row).toMatchObject({
 				objectKey,
@@ -452,14 +536,19 @@ describe('master uploads', () => {
 				sizeBytes: 2048,
 				format: 'wav',
 				status: 'ready',
-				uploadedBy: managerA
+				uploadedBy: managerA,
+				verifyToken: null
 			});
 			expect(row.completedAt).toBeInstanceOf(Date);
 			const trail = await db
 				.select({ action: auditLog.action })
 				.from(auditLog)
 				.where(and(eq(auditLog.entity, 'master'), eq(auditLog.entityId, start.masterId)));
-			expect(trail.map((t) => t.action).sort()).toEqual(['upload_complete', 'upload_start']);
+			expect(trail.map((t) => t.action).sort()).toEqual([
+				'upload_complete',
+				'upload_start',
+				'upload_verified'
+			]);
 
 			await refused(
 				asUser(db, managerA, (tx) =>
@@ -469,6 +558,220 @@ describe('master uploads', () => {
 				),
 				409
 			);
+		});
+
+		/** Upload and complete a single-PUT master, leaving it `verifying`. */
+		const startVerifying = async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(2048))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, 2048);
+			await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			return { id: start.masterId, objectKey };
+		};
+		/** Lease, with no backoff after a failed read unless one is given. */
+		const leaseOf = async (id: string, leaseMs?: number, backoffSeconds = 0) =>
+			(await leaseVerifications(db, storage, { limit: 100, leaseMs, backoffSeconds })).find(
+				(j) => j.id === id
+			);
+		const rejection = async (id: string) =>
+			(
+				await db
+					.select({ after: auditLog.after })
+					.from(auditLog)
+					.where(and(eq(auditLog.entityId, id), eq(auditLog.action, 'upload_reject')))
+			)[0]?.after;
+
+		it(`rejects a master whose read fails ${MAX_ATTEMPTS} times`, async () => {
+			const { id, objectKey } = await startVerifying();
+			for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+				const job = await leaseOf(id);
+				expect(
+					await recordVerification(db, storage, { id, token: job!.token, error: 'TimeoutError' })
+				).toBe('retry');
+				expect((await keyOf(id)).status).toBe('verifying');
+			}
+			const last = await leaseOf(id);
+			expect(
+				await recordVerification(db, storage, { id, token: last!.token, error: 'TimeoutError' })
+			).toBe('rejected');
+			expect(await keyOf(id)).toMatchObject({
+				status: 'rejected',
+				sha256: null,
+				verifyAttempts: MAX_ATTEMPTS
+			});
+			expect(storage.objects.has(objectKey)).toBe(false);
+			expect(await rejection(id)).toEqual({
+				status: 'rejected',
+				reason: UNREADABLE,
+				attempts: MAX_ATTEMPTS
+			});
+			// Nothing is left to lease.
+			expect(await leaseOf(id, 0)).toBeUndefined();
+		});
+
+		it('rejects a master whose last allowed read never reported back', async () => {
+			const { id, objectKey } = await startVerifying();
+			for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+				// Each lease runs out without a result, as when the function is killed.
+				expect(await leaseOf(id, 0)).toBeDefined();
+			}
+			expect(await leaseOf(id, 0)).toBeUndefined();
+			expect((await keyOf(id)).status).toBe('rejected');
+			expect(storage.objects.has(objectKey)).toBe(false);
+			expect(await rejection(id)).toMatchObject({ reason: UNREADABLE });
+		});
+
+		it('rejects at once when the stored object is gone, by its own HEAD as well', async () => {
+			const { id, objectKey } = await startVerifying();
+			const job = await leaseOf(id);
+			storage.objects.delete(objectKey);
+			expect(
+				await recordVerification(db, storage, {
+					id,
+					token: job!.token,
+					error: 'Error: storage answered HTTP 404',
+					status: 404
+				})
+			).toBe('rejected');
+			expect(await keyOf(id)).toMatchObject({ status: 'rejected', verifyAttempts: 1 });
+			expect(await rejection(id)).toEqual({ status: 'rejected', reason: UNREADABLE, attempts: 1 });
+		});
+
+		it("retries a reader's 404 when its own HEAD still finds the object", async () => {
+			// R2 also answers 404 for a missing bucket: a misconfigured reader must not reject.
+			const { id, objectKey } = await startVerifying();
+			const job = await leaseOf(id);
+			expect(
+				await recordVerification(db, storage, {
+					id,
+					token: job!.token,
+					error: 'Error: storage answered HTTP 404',
+					status: 404
+				})
+			).toBe('retry');
+			expect((await keyOf(id)).status).toBe('verifying');
+			expect(storage.objects.has(objectKey)).toBe(true);
+		});
+
+		it('waits longer after each failed read before trying again', async () => {
+			const { id } = await startVerifying();
+			const first = await leaseOf(id, undefined, 60);
+			const failed = new Date();
+			expect(
+				await recordVerification(db, storage, { id, token: first!.token, error: 'HTTP 503' })
+			).toBe('retry');
+			const row = await keyOf(id);
+			// The lease ends, but the time of the failure is kept for the backoff.
+			expect(row.verifyToken).toBeNull();
+			expect(row.verifyStartedAt!.getTime()).toBeGreaterThanOrEqual(failed.getTime() - 5_000);
+			// 2^1 minutes have not passed: not leased again, even with an expired-lease setting.
+			expect(await leaseOf(id, 0, 60)).toBeUndefined();
+			// Once the backoff has passed (here: none), it is.
+			const again = await leaseOf(id, 0, 0);
+			expect(again).toBeDefined();
+			expect((await keyOf(id)).verifyAttempts).toBe(2);
+
+			// The backoff doubles: after a second failure, 2^2 minutes. Pretend 3 have passed.
+			await recordVerification(db, storage, { id, token: again!.token, error: 'HTTP 503' });
+			await db
+				.update(masters)
+				.set({ verifyStartedAt: new Date(Date.now() - 3 * 60_000) })
+				.where(eq(masters.id, id));
+			expect(await leaseOf(id, 0, 60)).toBeUndefined();
+			await db
+				.update(masters)
+				.set({ verifyStartedAt: new Date(Date.now() - 5 * 60_000) })
+				.where(eq(masters.id, id));
+			expect(await leaseOf(id, 0, 60)).toBeDefined();
+		});
+
+		it('an exhausted master whose file cannot be deleted does not block leasing', async () => {
+			const stuck = await startVerifying();
+			for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) await leaseOf(stuck.id, 0);
+			storage.failRemove.add(stuck.objectKey);
+			const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const other = await startVerifying();
+			// The sweep fails for the stuck master, and leasing still goes ahead.
+			expect(await leaseOf(other.id, 0)).toBeDefined();
+			error.mockRestore();
+			expect((await keyOf(stuck.id)).status).toBe('verifying');
+			// Once the delete works, the next run rejects it.
+			storage.failRemove.clear();
+			await leaseOf(other.id, 0);
+			expect((await keyOf(stuck.id)).status).toBe('rejected');
+		});
+
+		it('nothing uses a master while it is verifying', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(2048))
+			);
+			storage.put((await keyOf(start.masterId)).objectKey, 2048);
+			await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			const jobCtx = {
+				orgId: orgA,
+				role: 'owner' as const,
+				actor: { id: ownerA, kind: 'user' as const }
+			};
+			const err = await asUser(db, ownerA, (tx) =>
+				queueAudioKitJob(tx, jobCtx, recA, start.masterId, { operation: 'loudness' })
+			).then(
+				() => null,
+				(e) => e
+			);
+			expect(err?.status).toBe(409);
+		});
+
+		it('leases a master once, ignores a stale result, and retries a failed or stalled check', async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(2048))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, 2048);
+			await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			const mine = <T extends { id: string }>(jobs: T[]) =>
+				jobs.filter((j) => j.id === start.masterId);
+
+			const [first] = mine(await leaseVerifications(db, storage, { limit: 100 }));
+			expect(first).toBeDefined();
+			// While the lease runs, the master is not handed out again.
+			expect(mine(await leaseVerifications(db, storage, { limit: 100 }))).toEqual([]);
+
+			// A check that crashed never reports; once its lease runs out the master is leased again.
+			const [second] = mine(await leaseVerifications(db, storage, { limit: 100, leaseMs: 0 }));
+			expect(second.token).not.toBe(first.token);
+			expect((await keyOf(start.masterId)).verifyAttempts).toBe(2);
+
+			// The first lease's late result changes nothing.
+			expect(await recordVerification(db, storage, readOf(first))).toBe('stale');
+			expect((await keyOf(start.masterId)).status).toBe('verifying');
+
+			// A read that failed or hit its deadline ends the lease early; the master is not trusted.
+			expect(
+				await recordVerification(db, storage, {
+					id: second.id,
+					token: second.token,
+					error: 'TimeoutError: The operation was aborted due to timeout'
+				})
+			).toBe('retry');
+			expect(await keyOf(start.masterId)).toMatchObject({
+				status: 'verifying',
+				sha256: null,
+				verifyToken: null
+			});
+
+			const [third] = mine(
+				await leaseVerifications(db, storage, { limit: 100, backoffSeconds: 0 })
+			);
+			expect(await recordVerification(db, storage, readOf(third))).toBe('ready');
+			expect((await keyOf(start.masterId)).sha256).toBe(SHA);
 		});
 
 		it('multipart: signs parts within range and needs every part to complete', async () => {
@@ -510,7 +813,7 @@ describe('master uploads', () => {
 					parts: [...parts].reverse()
 				})
 			);
-			expect(res.status).toBe('ready');
+			expect(res.status).toBe('verifying');
 			expect(storage.uploads.get(uploadId!)?.completed).toEqual(parts);
 			const row = await keyOf(start.masterId);
 			expect(row.uploadId).toBeNull();
@@ -552,6 +855,49 @@ describe('master uploads', () => {
 			expect((await keyOf(start.masterId)).status).toBe('pending');
 		});
 
+		it('finishes a retried multipart completion when R2 already has the object', async () => {
+			const size = MULTIPART_THRESHOLD + 1;
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(size))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			const parts = [1, 2].map((n) => ({ partNumber: n, etag: `"etag${n}"` }));
+			storage.failComplete = true;
+			// No object yet: the failure stands and the upload stays pending.
+			await expect(
+				asUser(db, ownerA, (tx) =>
+					completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, {
+						sha256: SHA,
+						parts
+					})
+				)
+			).rejects.toThrow('NoSuchUpload');
+			expect((await keyOf(start.masterId)).status).toBe('pending');
+			// The object of the declared size is there: carry on.
+			storage.put(objectKey, size);
+			const res = await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, {
+					sha256: SHA,
+					parts
+				})
+			);
+			expect(res.status).toBe('verifying');
+		});
+
+		it('abort removes an object R2 already completed', async () => {
+			const size = MULTIPART_THRESHOLD + 1;
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(size))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, size);
+			await asUser(db, ownerA, (tx) =>
+				abortMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId)
+			);
+			expect(storage.objects.has(objectKey)).toBe(false);
+			expect((await keyOf(start.masterId)).status).toBe('aborted');
+		});
+
 		it('abort cancels the multipart upload', async () => {
 			const start = await asUser(db, ownerA, (tx) =>
 				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(MULTIPART_THRESHOLD + 1))
@@ -576,6 +922,7 @@ describe('master uploads', () => {
 			await asUser(db, userId, (tx) =>
 				completeMasterUpload(tx, storage, ctx(userId, role), start.masterId, { sha256: SHA })
 			);
+			expect((await verifyNow())[start.masterId]).toBe('ready');
 			return start.masterId;
 		};
 
@@ -639,7 +986,7 @@ describe('master uploads', () => {
 			expect((await keyOf(id))?.objectKey).toBe(row.objectKey);
 		});
 
-		it('aborts a pending multipart upload instead of removing the object', async () => {
+		it('aborts a pending multipart upload and removes its key', async () => {
 			const start = await asUser(db, ownerA, (tx) =>
 				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(MULTIPART_THRESHOLD + 1))
 			);
@@ -650,7 +997,8 @@ describe('master uploads', () => {
 				deleteMaster(tx, storage, ctx(ownerA, 'owner'), start.masterId)
 			);
 			expect(storage.uploads.has(row.uploadId!)).toBe(false);
-			expect(storage.removed).toEqual([]);
+			// The key is removed too, in case R2 had already completed the upload.
+			expect(storage.removed).toEqual([row.objectKey]);
 			expect(await keyOf(start.masterId)).toBeUndefined();
 		});
 

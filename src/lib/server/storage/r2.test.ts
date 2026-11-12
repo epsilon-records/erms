@@ -31,6 +31,19 @@ describe('R2 storage', () => {
 		expect(url.toString()).not.toContain('test-secret');
 	});
 
+	it('signs a single PUT as create-once, so it cannot replace a stored file', async () => {
+		const url = new URL(await createR2Storage(config).presignPut(key, 900));
+		// R2 answers 412 to a PUT with If-None-Match: * once the key exists. The header is signed,
+		// so a PUT that leaves it out fails the signature instead.
+		expect(url.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toContain('if-none-match');
+		expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	it('does not make GET URLs conditional', async () => {
+		const url = new URL(await createR2Storage(config).presignGet(key, 900));
+		expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host');
+	});
+
 	it('presigns parts with the upload id and part number', async () => {
 		const url = new URL(await createR2Storage(config).presignPart(key, 'up-1', 3, 900));
 		expect(url.searchParams.get('partNumber')).toBe('3');
@@ -62,16 +75,12 @@ describe('R2 storage', () => {
 		).rejects.toThrow();
 	});
 
-	it('HEADs and reads only the first bytes', async () => {
-		const { calls, fetchImpl } = recorder((req) =>
-			req.method === 'HEAD'
-				? new Response(null, { headers: { 'content-length': '1234' } })
-				: new Response(new Uint8Array([82, 73, 70, 70]), { status: 206 })
+	it('HEADs an object for its size', async () => {
+		const { calls, fetchImpl } = recorder(
+			() => new Response(null, { headers: { 'content-length': '1234' } })
 		);
-		const r2 = createR2Storage(config, fetchImpl);
-		expect(await r2.head(key)).toEqual({ size: 1234 });
-		expect(await r2.readStart(key, 4)).toEqual(new Uint8Array([82, 73, 70, 70]));
-		expect(calls[1].headers.get('range')).toBe('bytes=0-3');
+		expect(await createR2Storage(config, fetchImpl).head(key)).toEqual({ size: 1234 });
+		expect(calls.map((c) => c.method)).toEqual(['HEAD']);
 	});
 
 	it('returns null for a missing object', async () => {

@@ -642,11 +642,14 @@ export type ProcessingPurpose = (typeof processingPurposeEnum.enumValues)[number
 /* ------------------------------------------------------------------------- */
 
 /**
- * pending: URLs signed, upload not confirmed. ready: object checked and recorded.
+ * pending: URLs signed, upload not confirmed. verifying: the upload is complete and the right size;
+ * a background step is hashing what R2 holds (EPSILON-120). ready: object checked and recorded.
  * rejected: the uploaded object failed a check and was deleted. aborted: cancelled.
+ * Only `ready` masters are used for anything: jobs, exports and downloads all filter on it.
  */
 export const masterStatusEnum = pgEnum('master_status', [
 	'pending',
+	'verifying',
 	'ready',
 	'rejected',
 	'aborted'
@@ -670,8 +673,17 @@ export const masters = pgTable(
 		format: text('format').notNull().default('wav'),
 		/** Declared before upload, confirmed against R2 before the master is ready. */
 		sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
-		/** Hex SHA-256 of the file, computed in the browser while uploading. */
+		/**
+		 * Hex SHA-256 of the file, as the server computed it from R2. Set only when the master
+		 * becomes ready, and only if it matches `claimedSha256` (EPSILON-120).
+		 */
 		sha256: text('sha256'),
+		/** The SHA-256 the browser reported when it finished uploading. Never trusted on its own. */
+		claimedSha256: text('claimed_sha256'),
+		/** Lease for the background check: who holds it, since when, and how many tries so far. */
+		verifyToken: uuid('verify_token'),
+		verifyStartedAt: timestamp('verify_started_at', { withTimezone: true }),
+		verifyAttempts: integer('verify_attempts').notNull().default(0),
 		fileName: text('file_name').notNull(),
 		status: masterStatusEnum('status').notNull().default('pending'),
 		/** R2 multipart upload id while a multipart upload is in progress. */
@@ -690,6 +702,15 @@ export const masters = pgTable(
 		check('masters_format_wav', sql`${t.format} = 'wav'`),
 		check('masters_size_positive', sql`${t.sizeBytes} > 0`),
 		check('masters_sha256_format', sql`${t.sha256} IS NULL OR ${t.sha256} ~ '^[0-9a-f]{64}$'`),
+		check(
+			'masters_claimed_sha256_format',
+			sql`${t.claimedSha256} IS NULL OR ${t.claimedSha256} ~ '^[0-9a-f]{64}$'`
+		),
+		// Compared as text: the migration that adds 'verifying' cannot use it as an enum value yet.
+		check(
+			'masters_verifying_claimed',
+			sql`${t.status}::text <> 'verifying' OR ${t.claimedSha256} IS NOT NULL`
+		),
 		check(
 			'masters_ready_complete',
 			sql`${t.status} <> 'ready' OR (${t.sha256} IS NOT NULL AND ${t.completedAt} IS NOT NULL)`

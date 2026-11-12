@@ -385,19 +385,34 @@ An owner closes a label at `/org/close`, by typing its name (migration 0027,
 
 A recording page uploads a WAV master straight from the browser to R2. ERMS never handles the file body:
 
-1. `POST /recordings/:id/masters` (owner or catalog manager) checks the file is a WAV (name, type, size up to 4 GiB), records a pending master, and returns a presigned PUT URL. Files over 100 MiB start a multipart upload instead, in 64 MiB parts.
+1. `POST /recordings/:id/masters` (owner or catalog manager) checks the file is a WAV (name, type, size up to 4 GiB), records a pending master, and returns a presigned PUT URL with the headers the browser must send. The single PUT is signed with `If-None-Match: *`, so R2 accepts it only while the key is empty: once the file is stored, the URL cannot replace it. Files over 100 MiB start a multipart upload instead, in 64 MiB parts.
 2. `POST …/masters/:masterId/parts` signs part URLs, up to 16 at a time. URLs last 15 minutes.
-3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete`. ERMS completes the multipart upload, HEADs the object to confirm its size, reads its first 12 bytes to confirm a WAV header, and records the key, SHA-256, size and format. A file that fails is deleted and marked rejected.
-4. `POST …/masters/:masterId/abort` cancels a pending upload.
-5. `DELETE …/masters/:masterId` (owner or catalog manager) removes the object from R2 and
+3. The browser computes the file's SHA-256 while it uploads, then calls `POST …/masters/:masterId/complete` with it. ERMS completes the multipart upload and HEADs the object. A wrong size is rejected at once, without reading the file. Otherwise the master becomes `verifying`, and the browser's hash is kept only as `claimed_sha256`. If R2 already completed the multipart upload (a retry), a HEAD showing the declared size is enough to carry on.
+4. The background check (below) reads the object, and the master becomes `ready` with ERMS's own SHA-256, or it is rejected and deleted. The recording page shows it as **Checking** until then.
+5. `POST …/masters/:masterId/abort` cancels a pending upload, and removes the object in case R2 had already completed it.
+6. `DELETE …/masters/:masterId` (owner or catalog manager) removes the object from R2 and
    deletes the row in one transaction, audited as `master_delete`. A pending multipart upload
    is aborted first. The request must carry `{ "removalConfirmed": "yes" }` (decision 0023);
    the recording page sends it only after its inline confirm step, and without it the route
    answers 400 and touches nothing.
 
+Only `ready` masters are used: analysis jobs, the export and master downloads all require it.
+
+### The background check (EPSILON-120)
+
+A master can be up to 4 GiB, which is too much to read inside a request. So:
+
+- `netlify/functions/master-verify.mjs` runs every minute. It calls `POST /api/internal/verify-masters` with the worker secret, which leases up to 5 `verifying` masters and returns a presigned GET for each. It then starts one `master-verify-background` invocation per master, all at once, so the run stays under Netlify's 30-second limit for scheduled functions.
+- `netlify/functions/master-verify-background.mjs` is a Netlify background function, which can run for up to 15 minutes. It holds no database or R2 credentials. It streams the object through the GET with a 12-minute overall deadline, computes its SHA-256, size and first 12 bytes, and posts them back to the same route.
+- The route decides. The size must match, the header must be WAV, and the hash must equal the claimed one; then the master becomes `ready`, audited as `upload_verified`. Otherwise it is rejected and deleted, audited as `upload_reject`.
+- A lease lasts 20 minutes, longer than a background function can run. A check that crashes or never reports keeps the master `verifying`, and it is leased again, with a new token, once the lease runs out. A late result for an old lease is ignored. A read that fails or hits its deadline ends the lease, and the next try waits 2, 4, 8, then 16 minutes, so a short outage cannot use up every attempt. After 5 reads that failed or never reported, or at once if the reader gets 404 and the route's own HEAD finds no object either, the master is rejected and its object deleted, with the reason _LabelKit could not read the stored file; upload it again._ A master is never trusted because its check went missing.
+- Netlify's `URL` is the production address in every context. On a deploy preview or branch deploy, both functions call the deploy's own permalink, `https://<deploy id>--<SITE_NAME>.netlify.app`, built from the runtime `context.deploy.id` and `SITE_NAME`. If those are missing outside production, they fail rather than call production. The background function retries a failed result post up to 3 times.
+
+Masters that became ready before this check carry the browser's hash. `scripts/reverify-ready-masters.mjs` is a one-off, read-only re-check of them, run with the owner `DATABASE_URL` and the R2 variables. It reports any mismatch and changes nothing.
+
 Org isolation: object keys are `orgs/{org_id}/recordings/{recording_id}/masters/{master_id}.wav`, built on the server from the signed-in user's active org and never taken from the request. The `masters_key_in_org` check ties each key to its row, RLS limits rows to the user's orgs, and `labelkit_app` can only update an upload's progress, not its key, org or size.
 
-Configuration: set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_MASTERS_BUCKET` in Netlify (and Supabase secrets for later Edge Functions). Uploads stay off until all four are set. The bucket must be private, with a CORS rule allowing `PUT` from the ERMS origins, the `Content-Type` request header, and exposing `ETag`. The CSP allows `connect-src https://*.r2.cloudflarestorage.com` for the uploads.
+Configuration: set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_MASTERS_BUCKET` in Netlify (and Supabase secrets for later Edge Functions). Uploads stay off until all four are set. The bucket must be private, with a CORS rule allowing `PUT` from the ERMS origins, the `Content-Type` and `If-None-Match` request headers, and exposing `ETag`. Without `If-None-Match` in the rule, browsers refuse single-PUT uploads. The CSP allows `connect-src https://*.r2.cloudflarestorage.com` for the uploads.
 
 ## Roadmap
 
