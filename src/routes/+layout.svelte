@@ -3,7 +3,7 @@
 	import '../tailwind.css';
 	import { onMount } from 'svelte';
 	import { beforeNavigate, replaceState } from '$app/navigation';
-	import { page, updated } from '$app/state';
+	import { navigating, page, updated } from '$app/state';
 	import { browser } from '$app/env';
 	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
 	import AppMetrics from '#lib/AppMetrics.svelte';
@@ -42,25 +42,21 @@
 	});
 
 	// After a deploy, an open tab still points at JS chunks the new build no longer serves
-	// (Sentry LABELKIT-8, EPSILON-191). Once SvelteKit sees a new version, the next in-app
-	// navigation becomes a full page load; a chunk that still fails to load reloads the page,
-	// at most once a minute so a real outage can't cause a reload loop.
+	// (Sentry LABELKIT-8, EPSILON-191). Once SvelteKit sees a new version, or a chunk has failed to
+	// load, the next in-app navigation becomes a full page load. A chunk that fails during a
+	// navigation sends the browser to that page with a full load. A chunk that fails while a link is
+	// only being preloaded on hover never reloads the current page, so unsaved form state survives.
+	let staleChunks = false;
 	beforeNavigate(({ willUnload, to }) => {
-		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+		if ((updated.current || staleChunks) && !willUnload && to?.url) location.href = to.url.href;
 	});
 	onMount(() => {
 		const onPreloadError = (event: Event) => {
-			// Without a working throttle we don't reload at all (storage blocked or full):
-			// the error surfaces as before rather than risking a reload loop.
-			try {
-				const last = Number(sessionStorage.getItem('chunk-reload-at') ?? 0);
-				if (Date.now() - last < 60_000) return;
-				sessionStorage.setItem('chunk-reload-at', String(Date.now()));
-			} catch {
-				return;
-			}
+			staleChunks = true;
+			const target = navigating.to?.url;
+			if (!target) return;
 			event.preventDefault();
-			location.reload();
+			location.href = target.href;
 		};
 		window.addEventListener('vite:preloadError', onPreloadError);
 		return () => window.removeEventListener('vite:preloadError', onPreloadError);

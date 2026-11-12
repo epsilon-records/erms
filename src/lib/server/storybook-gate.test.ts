@@ -43,6 +43,13 @@ describe('storybook gate', () => {
 		expect(res.headers.get('cache-control')).toBe('private, no-store');
 	});
 
+	it('decodes UTF-8 credentials', async () => {
+		const utf8 = (text: string) =>
+			`Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(text)))}`;
+		expect(await passwordMatches(utf8('u:é'), 'é')).toBe(true);
+		expect(await passwordMatches(utf8('u:e'), 'é')).toBe(false);
+	});
+
 	it('allows colons in the password', async () => {
 		expect(await passwordMatches(basic('u', 'a:b'), 'a:b')).toBe(true);
 		expect(await passwordMatches(basic('u', 'a'), 'a:b')).toBe(false);

@@ -20,7 +20,9 @@ export async function passwordMatches(header, expected) {
 	if (!expected || !header?.startsWith('Basic ')) return false;
 	let decoded;
 	try {
-		decoded = atob(header.slice(6));
+		// RFC 7617 with charset="UTF-8": the base64 carries UTF-8 bytes, not Latin-1 characters.
+		const bytes = Uint8Array.from(atob(header.slice(6)), (c) => c.charCodeAt(0));
+		decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 	} catch {
 		return false;
 	}
