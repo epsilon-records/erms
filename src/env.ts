@@ -171,5 +171,20 @@ export const variables = defineEnvVars({
 	R2_MASTERS_BUCKET: {
 		schema: (value) => value || undefined,
 		description: 'Name of the private R2 bucket that holds masters'
+	},
+	// PostHog EU, server-side only (shared 0052): feature flags (EPSILON-133), later usage events.
+	// Without the keys, every feature falls back to its default in features.ts.
+	POSTHOG_HOST: {
+		schema: z.string().url().default('https://eu.i.posthog.com'),
+		description: 'PostHog ingestion host; the EU cloud by default'
+	},
+	POSTHOG_PROJECT_API_KEY: {
+		schema: (value) => value || undefined,
+		description: 'PostHog project API key (phc_...)'
+	},
+	POSTHOG_PERSONAL_API_KEY: {
+		schema: (value) => value || undefined,
+		description:
+			'PostHog key for local flag evaluation (phx_ feature-flags read, or phs_); server only'
 	}
 });
