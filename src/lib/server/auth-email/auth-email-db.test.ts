@@ -59,7 +59,7 @@ describe('erms_auth_email', () => {
 			'anon',
 			'authenticated',
 			'service_role',
-			'erms_app',
+			'labelkit_app',
 			'erms_metrics_ingest'
 		]) {
 			const [row] =

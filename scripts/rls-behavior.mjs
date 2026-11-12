@@ -142,8 +142,8 @@ try {
 			-- The jsonb lookup spans majors: pg_roles.rolbypassrls was renamed in PostgreSQL 18, and
 			-- has_bypassrls_privilege() does not exist on 17, so either single spelling would pin this
 			-- check to one version.
-			(coalesce((select (to_jsonb(r) ->> 'rolbypassrls') from pg_roles r where rolname = 'erms_app'),
-			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'erms_app')))
+			(coalesce((select (to_jsonb(r) ->> 'rolbypassrls') from pg_roles r where rolname = 'labelkit_app'),
+			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'labelkit_app')))
 				= 'false' AS app_no_bypass,
 			(coalesce((select (to_jsonb(r) ->> 'rolbypassrls') from pg_roles r where rolname = 'service_role'),
 			          (select (to_jsonb(r) ->> 'bypassrls')      from pg_roles r where rolname = 'service_role')))
@@ -158,13 +158,13 @@ try {
 			  WHERE grantee = 'authenticated' AND table_schema = 'public'
 			    AND privilege_type = 'INSERT') AS grantee_can_insert,
 			-- The asymmetry every case above encodes: reads carry no TO clause (they reach PUBLIC,
-			-- which is why authenticated reads its own org, writes are addressed to erms_app only.
+			-- which is why authenticated reads its own org, writes are addressed to labelkit_app only.
 			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
 			  AND cmd <> 'SELECT' AND roles::text[] && array['anon', 'authenticated']) AS foreign_writes,
 			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
 			  AND cmd = 'SELECT' AND roles::text[] @> array['public']) AS public_reads,
 			(SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
-			  AND cmd <> 'SELECT' AND roles::text[] @> array['erms_app']) AS scoped_writes
+			  AND cmd <> 'SELECT' AND roles::text[] @> array['labelkit_app']) AS scoped_writes
 	`;
 	const row = structural[0];
 
@@ -174,7 +174,7 @@ try {
 	const isSupabase = hasSupabaseRoles;
 	const checks = [
 		{
-			label: 'erms_app cannot bypass RLS',
+			label: 'labelkit_app cannot bypass RLS',
 			applies: true,
 			ok: row.app_no_bypass === true || row.app_no_bypass === 't'
 		},
@@ -201,7 +201,7 @@ try {
 			ok: Number(row.foreign_writes) === 0
 		},
 		{
-			label: 'reads reach PUBLIC while writes reach only erms_app',
+			label: 'reads reach PUBLIC while writes reach only labelkit_app',
 			applies: true,
 			ok: Number(row.public_reads) > 0 && Number(row.scoped_writes) > 0
 		}

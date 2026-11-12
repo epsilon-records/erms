@@ -12,7 +12,7 @@ export function db() {
 /**
  * The Send Email auth hook's runner (EPSILON-147): each call is one transaction as erms_auth_email,
  * which can only read the org ids of one account through app_auth_email.member_org_ids(). The hook
- * has no signed-in user, so it cannot run as erms_app, and it never gets the owner connection.
+ * has no signed-in user, so it cannot run as labelkit_app, and it never gets the owner connection.
  */
 export function authEmailRunner(): Scoped {
 	return (fn) =>

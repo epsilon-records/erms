@@ -48,7 +48,7 @@ try {
 		'anon',
 		'authenticated',
 		'service_role',
-		'erms_app',
+		'labelkit_app',
 		'erms_metrics_ingest',
 		'erms_metrics_prune'
 	]) {

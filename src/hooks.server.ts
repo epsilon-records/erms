@@ -85,7 +85,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	event.locals.db = () => error(401, 'Sign in first.');
 
 	if (user) {
-		// Every query for this request runs as erms_app on behalf of this user, under RLS.
+		// Every query for this request runs as labelkit_app on behalf of this user, under RLS.
 		const scoped = scopedTo(db(), user.id);
 		event.locals.db = scoped;
 		const rows = await scoped((tx) =>
