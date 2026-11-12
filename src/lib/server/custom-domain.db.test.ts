@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
 	activateDomain,
+	beginProvisioning,
 	cancelDomainRequest,
 	cleanUpRetiredDomains,
 	DomainError,
@@ -119,9 +120,9 @@ describe('self-serve custom domains (migration 0032)', () => {
 			.from(auditLog)
 			.where(and(eq(auditLog.orgId, id), eq(auditLog.action, 'remove_domain')));
 		expect(removed.before).toMatchObject({ domain: 'e.example.test' });
-		// The removed domain, and the cancelled request before it, wait on the retired list until
-		// they are off Netlify and Supabase Auth.
-		expect((await row(id)).domainRetired.sort()).toEqual(['e.example.test', 'e2.example.test']);
+		// The removed domain waits on the retired list until it is off Netlify and Supabase Auth.
+		// The cancelled request was never verified, so LabelKit never provisioned it: not retired.
+		expect((await row(id)).domainRetired).toEqual(['e.example.test']);
 	});
 
 	it('cancelling a pending request is audited; cancelling nothing is not', async () => {
@@ -137,16 +138,23 @@ describe('self-serve custom domains (migration 0032)', () => {
 		expect(entry.before).toMatchObject({ requested: 'g.example.test' });
 	});
 
-	it('a pending domain that is cancelled, replaced or removed is retired, not forgotten', async () => {
+	it('a pending domain is retired only once its provisioning has begun', async () => {
 		// Verification may have added it to Netlify or Supabase Auth before failing or being
-		// overtaken, so it must stay reachable by the cleanup.
+		// overtaken, so from then on it must stay reachable by the cleanup.
 		const id = await label('dom-n');
+		const begin = async (domain: string) => {
+			const token = (await row(id)).domainToken!;
+			await asUser(db, owner, (tx) => beginProvisioning(tx, id, domain, token));
+		};
 		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n1.example.test'));
+		await begin('n1.example.test');
 		await asUser(db, owner, (tx) => cancelDomainRequest(tx, id));
 		expect((await row(id)).domainRetired).toEqual(['n1.example.test']);
 		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n2.example.test'));
+		await begin('n2.example.test');
 		await asUser(db, owner, (tx) => requestDomain(tx, id, 'n3.example.test'));
 		expect((await row(id)).domainRetired.sort()).toEqual(['n1.example.test', 'n2.example.test']);
+		await begin('n3.example.test');
 		await asUser(db, owner, (tx) => removeDomain(tx, id));
 		expect((await row(id)).domainRetired.sort()).toEqual([
 			'n1.example.test',
@@ -156,6 +164,31 @@ describe('self-serve custom domains (migration 0032)', () => {
 		// Requesting it again and activating it takes it back off.
 		await claim(id, 'n2.example.test');
 		expect((await row(id)).domainRetired.sort()).toEqual(['n1.example.test', 'n3.example.test']);
+	});
+
+	it('requesting and dropping a name never puts it up for removal', async () => {
+		// Without a verified TXT record LabelKit has not touched the name, which may be an alias an
+		// operator configured. Cancelling, replacing or removing the request must not retire it.
+		const id = await label('dom-o');
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'o1.example.test'));
+		await asUser(db, owner, (tx) => cancelDomainRequest(tx, id));
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'o2.example.test'));
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'o3.example.test'));
+		await asUser(db, owner, (tx) => removeDomain(tx, id));
+		expect((await row(id)).domainRetired).toEqual([]);
+	});
+
+	it('provisioning begins only for the request carrying the verified token', async () => {
+		const id = await label('dom-p');
+		const old = await asUser(db, owner, (tx) => requestDomain(tx, id, 'p.example.test'));
+		await asUser(db, owner, (tx) => requestDomain(tx, id, 'p.example.test'));
+		await expect(
+			asUser(db, owner, (tx) => beginProvisioning(tx, id, 'p.example.test', old))
+		).rejects.toMatchObject({ status: 409 });
+		await expect(
+			asUser(db, viewer, (tx) => beginProvisioning(tx, id, 'p.example.test', old))
+		).rejects.toMatchObject({ status: 403 });
+		expect((await row(id)).domainProvisioning).toBe(false);
 	});
 
 	it('activates only the request whose token was checked', async () => {

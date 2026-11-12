@@ -2343,6 +2343,13 @@
           "notNull": true,
           "default": "'{}'::text[]"
         },
+        "domain_provisioning": {
+          "name": "domain_provisioning",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "closed_at": {
           "name": "closed_at",
           "type": "timestamp with time zone",

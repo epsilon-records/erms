@@ -70,6 +70,8 @@ export const orgs = pgTable(
 			.array()
 			.notNull()
 			.default(sql`'{}'::text[]`),
+		/** The pending domain's TXT record was verified and LabelKit may have provisioned it. */
+		domainProvisioning: boolean('domain_provisioning').notNull().default(false),
 		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		purgeAfter: timestamp('purge_after', { withTimezone: true })

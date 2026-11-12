@@ -13,6 +13,7 @@ import {
 } from '#lib/server/branding-settings.js';
 import {
 	activateDomain,
+	beginProvisioning,
 	cancelDomainRequest,
 	cleanUpRetiredDomains,
 	DomainError,
@@ -155,8 +156,12 @@ export const actions: Actions = {
 				return fail(409, { domainError: reason });
 			}
 			const provision = domainProvisioner();
+			// Committed first, so a crash while provisioning still leaves the domain retireable.
+			await locals.db((tx) => beginProvisioning(tx, m.orgId, domain, token));
 			const outcome = await locals.db(async (tx) => {
 				await lockProvisioning(tx);
+				// Re-checked under the lock: a request cancelled or replaced meanwhile is not provisioned.
+				await beginProvisioning(tx, m.orgId, domain, token);
 				try {
 					await provision.add(domain);
 				} catch (e) {

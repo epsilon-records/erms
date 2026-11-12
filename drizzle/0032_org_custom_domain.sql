@@ -3,6 +3,7 @@ ALTER TABLE "orgs" ADD COLUMN "domain_token" text;--> statement-breakpoint
 ALTER TABLE "orgs" ADD COLUMN "domain_status" text;--> statement-breakpoint
 ALTER TABLE "orgs" ADD COLUMN "domain_error" text;--> statement-breakpoint
 ALTER TABLE "orgs" ADD COLUMN "domain_retired" text[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
+ALTER TABLE "orgs" ADD COLUMN "domain_provisioning" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "orgs" ADD CONSTRAINT "orgs_domain_requested_format" CHECK ("orgs"."domain_requested" IS NULL OR "orgs"."domain_requested" ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$');--> statement-breakpoint
 ALTER TABLE "orgs" ADD CONSTRAINT "orgs_domain_status_value" CHECK ("orgs"."domain_status" IS NULL OR "orgs"."domain_status" IN ('awaiting_dns', 'active', 'failed'));--> statement-breakpoint
 -- Self-serve custom domains (knowledge labelkit 0034, 0036): any label's owners set the domain the
@@ -16,8 +17,11 @@ ALTER TABLE "orgs" ADD CONSTRAINT "orgs_domain_status_value" CHECK ("orgs"."doma
 -- A domain the label stops using goes on domain_retired until the app has taken it off Netlify
 -- and Supabase Auth, so a failed or skipped cleanup is retried rather than forgotten. That covers
 -- an active domain that is removed or replaced by a move, and a pending one that is cancelled,
--- removed or replaced by another request: verification may have provisioned part of it before
--- failing or being overtaken. Activation takes the domain back off the list.
+-- removed or replaced by another request once its provisioning has begun (domain_provisioning):
+-- verification may have provisioned part of it before failing or being overtaken. A pending
+-- domain whose TXT record was never verified is not retired, because LabelKit never touched it
+-- on Netlify or Supabase, and an owner must not be able to have an alias someone else configured
+-- removed just by requesting its name. Activation takes the domain back off the list.
 -- app.clear_retired_domain takes a domain off the list once its cleanup has worked.
 
 -- Labels that already have a domain (set by hand before this migration) are active.
@@ -39,10 +43,11 @@ BEGIN
 	SET domain_requested = new_domain, domain_token = token, domain_status = 'awaiting_dns',
 		domain_error = NULL,
 		domain_retired = CASE
-			WHEN domain_requested IS NOT NULL AND domain_requested <> new_domain
+			WHEN domain_provisioning AND domain_requested <> new_domain
 				THEN array_append(array_remove(domain_retired, domain_requested), domain_requested)
 			ELSE domain_retired
-		END
+		END,
+		domain_provisioning = domain_provisioning AND domain_requested = new_domain
 	WHERE id = target_org;
 	INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, after)
 	VALUES (gen_random_uuid(), target_org, uid::text, 'user', 'org', target_org::text,
@@ -74,7 +79,7 @@ BEGIN
 	END IF;
 	UPDATE public.orgs
 	SET custom_domain = verified_domain, domain_requested = NULL, domain_token = NULL,
-		domain_status = 'active', domain_error = NULL,
+		domain_status = 'active', domain_error = NULL, domain_provisioning = false,
 		-- The domain it replaces still needs cleaning up; the one it activates no longer does.
 		domain_retired = CASE
 			WHEN prev IS NOT NULL AND prev <> verified_domain
@@ -119,10 +124,11 @@ BEGIN
 	IF uid IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	SELECT custom_domain, domain_requested INTO prev, pending FROM public.orgs WHERE id = target_org FOR UPDATE;
+	SELECT custom_domain, CASE WHEN domain_provisioning THEN domain_requested END
+	INTO prev, pending FROM public.orgs WHERE id = target_org FOR UPDATE;
 	UPDATE public.orgs
 	SET custom_domain = NULL, domain_requested = NULL, domain_token = NULL, domain_status = NULL,
-		domain_error = NULL,
+		domain_error = NULL, domain_provisioning = false,
 		domain_retired = (
 			SELECT coalesce(array_agg(DISTINCT d), '{}')
 			FROM unnest(domain_retired || ARRAY[prev, pending]) AS d
@@ -146,16 +152,19 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
 	uid uuid := app.current_user_id();
 	pending text;
+	provisioning boolean;
 BEGIN
 	IF uid IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	SELECT domain_requested INTO pending FROM public.orgs WHERE id = target_org FOR UPDATE;
+	SELECT domain_requested, domain_provisioning INTO pending, provisioning
+	FROM public.orgs WHERE id = target_org FOR UPDATE;
 	UPDATE public.orgs
 	SET domain_requested = NULL, domain_token = NULL, domain_error = NULL,
 		domain_status = CASE WHEN custom_domain IS NULL THEN NULL ELSE 'active' END,
+		domain_provisioning = false,
 		domain_retired = CASE
-			WHEN pending IS NOT NULL AND pending IS DISTINCT FROM custom_domain
+			WHEN provisioning AND pending IS DISTINCT FROM custom_domain
 				THEN array_append(array_remove(domain_retired, pending), pending)
 			ELSE domain_retired
 		END
@@ -169,6 +178,28 @@ END
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app.cancel_org_domain_request(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app.cancel_org_domain_request(uuid) TO labelkit_app;;--> statement-breakpoint
+
+-- Marks the pending request as being provisioned. The app calls it only after the TXT record has
+-- proved control of the domain, once on its own (so the mark survives a crash during provisioning)
+-- and again under the provisioning lock right before it touches Netlify and Supabase: that second
+-- call also re-checks the request still carries the verified token and locks the row, so a cancel
+-- either retires the domain first, and provisioning is skipped, or waits for it to finish.
+CREATE FUNCTION app.begin_domain_provisioning(target_org uuid, verified_domain text, verified_token text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+	IF app.current_user_id() IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
+		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
+	END IF;
+	UPDATE public.orgs SET domain_provisioning = true
+	WHERE id = target_org AND domain_requested = verified_domain AND domain_token = verified_token;
+	IF NOT FOUND THEN
+		RAISE EXCEPTION 'no pending request for that domain' USING ERRCODE = '22023';
+	END IF;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app.begin_domain_provisioning(uuid, text, text) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app.begin_domain_provisioning(uuid, text, text) TO labelkit_app;--> statement-breakpoint
 
 -- The label's retired domains, each with whether any label (this one included) serves it now.
 -- One in use must stay on Netlify and Supabase Auth; the app only takes it off the list.

@@ -207,6 +207,17 @@ export function requestDomain(tx: Database, orgId: string, domain: string) {
 	});
 }
 
+/**
+ * Marks the verified request as being provisioned, after its TXT record has proved control of the
+ * domain. Only then may a cancelled or replaced request be retired and its name taken off Netlify
+ * and Supabase Auth. Refuses (409) if the request no longer carries the verified token.
+ */
+export function beginProvisioning(tx: Database, orgId: string, domain: string, token: string) {
+	return run(() =>
+		tx.execute(sql`select app.begin_domain_provisioning(${orgId}::uuid, ${domain}, ${token})`)
+	);
+}
+
 /** Activates the request only if it still carries the token whose TXT record was checked. */
 export function activateDomain(tx: Database, orgId: string, domain: string, token: string) {
 	return run(() =>
