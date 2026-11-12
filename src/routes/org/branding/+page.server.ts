@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { clearBrandCache } from '#lib/server/branding.js';
 import {
 	BrandingError,
@@ -19,7 +19,7 @@ import type { Actions, PageServerLoad } from './$types';
  * for every label; they show on the label's own domain. The domain itself is set up with us,
  * because it needs DNS and TLS.
  */
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const m = requireScope(locals, 'roles:manage');
 	const b = await locals.db((tx) => loadBranding(tx, m.orgId));
 	if (!b) error(404, 'Label not found.');
@@ -31,7 +31,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		icon: b.faviconPng ? `data:image/png;base64,${b.faviconPng}` : null,
 		customDomain: b.customDomain,
 		iconMin: ICON_MIN_PX,
-		iconMax: ICON_MAX_PX
+		iconMax: ICON_MAX_PX,
+		saved: url.searchParams.has('saved')
 	};
 };
 
@@ -55,7 +56,6 @@ export const actions: Actions = {
 			}
 			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, icon }));
 			clearBrandCache();
-			return { saved: true };
 		} catch (e) {
 			if (e instanceof BrandingError) {
 				return fail(e.status, {
@@ -67,5 +67,8 @@ export const actions: Actions = {
 			}
 			throw e;
 		}
+		// A fresh request, so the hook resolves the brand again and the header, accent and tab
+		// icon show what was just saved (this request's locals.brand predates the save).
+		redirect(303, '/org/branding?saved');
 	}
 };

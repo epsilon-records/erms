@@ -153,6 +153,84 @@ describe('checkIcon', () => {
 		expect(checkIcon(parts(true))).toEqual({ size: 32 });
 	});
 
+	describe('chunk structure (PNG spec 5.6)', () => {
+		const chunk = (type: string, data: Uint8Array | Buffer = new Uint8Array()) => {
+			const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+			const out = Buffer.alloc(12 + data.length);
+			out.writeUInt32BE(data.length, 0);
+			body.copy(out, 4);
+			out.writeUInt32BE(crc32(body), 8 + data.length);
+			return out;
+		};
+		const SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		const ihdr = (colour = 0, size = 32) => {
+			const d = Buffer.alloc(13);
+			d.writeUInt32BE(size, 0);
+			d.writeUInt32BE(size, 4);
+			d.set([8, colour, 0, 0, 0], 8);
+			return d;
+		};
+		const rows = () => deflateSync(Buffer.alloc(33 * 32));
+		const file = (...parts: Buffer[]) => new Uint8Array(Buffer.concat([SIG, ...parts]));
+		const plte = (n: number) => chunk('PLTE', Buffer.alloc(n));
+
+		it('accepts the reference layout, with an ancillary chunk and IDAT split in two', () => {
+			const data = rows();
+			const half = Math.floor(data.length / 2);
+			const ok = file(
+				chunk('IHDR', ihdr(3)),
+				chunk('tEXt', Buffer.from('a\0b')),
+				plte(3),
+				chunk('IDAT', data.subarray(0, half)),
+				chunk('IDAT', data.subarray(half)),
+				chunk('IEND')
+			);
+			expect(checkIcon(ok)).toEqual({ size: 32 });
+		});
+
+		it('refuses an IHDR that is not 13 bytes', () => {
+			// 12 bytes of IHDR: the first CRC byte would otherwise be read as the interlace method.
+			const short = ihdr().subarray(0, 12);
+			refused(
+				() => checkIcon(file(chunk('IHDR', short), chunk('IDAT', rows()), chunk('IEND'))),
+				/PNG/
+			);
+		});
+
+		it('refuses a PLTE that is empty, ragged, too long, repeated or after the image data', () => {
+			const withPalette = (...mid: Buffer[]) => file(chunk('IHDR', ihdr(3)), ...mid, chunk('IEND'));
+			for (const bad of [
+				withPalette(plte(0), chunk('IDAT', rows())),
+				withPalette(plte(4), chunk('IDAT', rows())),
+				withPalette(plte(771), chunk('IDAT', rows())),
+				withPalette(plte(3), plte(3), chunk('IDAT', rows())),
+				withPalette(chunk('IDAT', rows()), plte(3))
+			]) {
+				refused(() => checkIcon(bad), /PNG/);
+			}
+			expect(checkIcon(withPalette(plte(768), chunk('IDAT', rows())))).toEqual({ size: 32 });
+		});
+
+		it('refuses IDAT chunks that are not consecutive', () => {
+			const data = rows();
+			const half = Math.floor(data.length / 2);
+			const split = file(
+				chunk('IHDR', ihdr()),
+				chunk('IDAT', data.subarray(0, half)),
+				chunk('tEXt', Buffer.from('a\0b')),
+				chunk('IDAT', data.subarray(half)),
+				chunk('IEND')
+			);
+			refused(() => checkIcon(split), /PNG/);
+		});
+
+		it('refuses an IEND with data, or bytes after IEND', () => {
+			const base = [chunk('IHDR', ihdr()), chunk('IDAT', rows())];
+			refused(() => checkIcon(file(...base, chunk('IEND', Buffer.from([0])))), /PNG/);
+			refused(() => checkIcon(file(...base, chunk('IEND'), Buffer.from([1, 2, 3]))), /PNG/);
+		});
+	});
+
 	it('names the icon field in its errors, so the page marks that input', () => {
 		try {
 			checkIcon(png(16));
