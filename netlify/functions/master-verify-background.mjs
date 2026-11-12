@@ -1,4 +1,5 @@
 import { inspectUrl, isR2Url, isWorkerBearer, toHex } from '../lib/inspect-stream.mjs';
+import { siteUrlFor } from '../lib/site-url.mjs';
 
 /**
  * Background check of uploaded masters (EPSILON-120). A Netlify background function: the caller
@@ -17,10 +18,12 @@ const WAV_HEADER_BYTES = 12;
 
 /**
  * @param {Request} req
- * @param {{ fetchImpl?: typeof fetch }} [deps]
+ * @param {{ deploy?: { context?: string }; fetchImpl?: typeof fetch }} [context]
  */
-export default async (req, { fetchImpl = fetch } = {}) => {
-	const siteUrl = process.env.URL;
+export default async (req, context = {}) => {
+	const fetchImpl = context.fetchImpl ?? fetch;
+	// On a deploy preview, report to the preview, not production.
+	const siteUrl = siteUrlFor(req, context);
 	const workerSecret = process.env.WORKER_SECRET;
 	if (!siteUrl || !isWorkerBearer(req.headers.get('authorization'), workerSecret)) {
 		return new Response(null, { status: 401 });
@@ -45,7 +48,13 @@ export default async (req, { fetchImpl = fetch } = {}) => {
 				header: toHex(read.start)
 			};
 		} catch (e) {
-			result = { id: job.id, token: job.token, error: String(e).slice(0, 200) };
+			const status = /** @type {{ status?: unknown }} */ (e)?.status;
+			result = {
+				id: job.id,
+				token: job.token,
+				error: String(e).slice(0, 200),
+				...(typeof status === 'number' ? { status } : {})
+			};
 		}
 		// One post per master, so a slow master never holds back the others' results.
 		const res = await fetchImpl(new URL('/api/internal/verify-masters', siteUrl), {

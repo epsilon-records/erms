@@ -10,6 +10,7 @@ import background, {
 	READ_DEADLINE_MS
 } from '../../../netlify/functions/master-verify-background.mjs';
 import schedule, { config } from '../../../netlify/functions/master-verify.mjs';
+import { siteUrlFor } from '../../../netlify/lib/site-url.mjs';
 
 /**
  * The background check of uploaded masters (EPSILON-120): the Netlify functions that lease
@@ -189,7 +190,10 @@ describe('master-verify-background', () => {
 		const { posted, fetchImpl } = storageAndSite(() => new Response('denied', { status: 403 }));
 		await background(bearer(), { fetchImpl });
 		expect(posted[0].body).toMatchObject({ results: [{ id: job.id, token: job.token }] });
-		expect((posted[0].body as { results: { error?: string }[] }).results[0].error).toMatch(/403/);
+		const [result] = (posted[0].body as { results: { error?: string; status?: number }[] }).results;
+		expect(result.error).toMatch(/403/);
+		// The storage status goes with it, so a missing object (404) can be rejected at once.
+		expect(result.status).toBe(403);
 	});
 
 	it('will not read a URL that is not R2', async () => {
@@ -203,6 +207,41 @@ describe('master-verify-background', () => {
 		expect((posted[0].body as { results: { error?: string }[] }).results[0].error).toMatch(
 			/not a storage URL/
 		);
+	});
+});
+
+describe('siteUrlFor', () => {
+	const env = { URL: 'https://labelkit.co', SITE_NAME: 'labelkit' };
+	const preview = new Request(
+		'https://deploy-preview-87--labelkit.netlify.app/.netlify/functions/x'
+	);
+
+	it("uses a preview's own address, so a preview test never reaches production", () => {
+		expect(siteUrlFor(preview, { deploy: { context: 'deploy-preview' } }, env)).toBe(
+			'https://deploy-preview-87--labelkit.netlify.app'
+		);
+		expect(siteUrlFor(preview, { deploy: { context: 'branch-deploy' } }, env)).toBe(
+			'https://deploy-preview-87--labelkit.netlify.app'
+		);
+	});
+
+	it('uses the main address in production, or when the context is unknown', () => {
+		expect(siteUrlFor(preview, { deploy: { context: 'production' } }, env)).toBe(env.URL);
+		expect(siteUrlFor(preview, undefined, env)).toBe(env.URL);
+		expect(siteUrlFor(undefined, { deploy: { context: 'deploy-preview' } }, env)).toBe(env.URL);
+	});
+
+	it("never sends the secret to a host that is not one of this site's deploys", () => {
+		for (const url of [
+			'https://deploy-preview-1--other-site.netlify.app/x',
+			'https://labelkit.netlify.app.example.com/x',
+			'http://deploy-preview-87--labelkit.netlify.app/x'
+		]) {
+			expect(
+				siteUrlFor(new Request(url), { deploy: { context: 'deploy-preview' } }, env),
+				url
+			).toBe(env.URL);
+		}
 	});
 });
 
@@ -237,6 +276,23 @@ describe('master-verify schedule', () => {
 			expect(call.headers.get('origin')).toBe(SITE_URL);
 		}
 		expect(JSON.parse(calls[1].body)).toEqual({ jobs: [job] });
+	});
+
+	it('starts the background reads in parallel, so the run stays short', async () => {
+		let inFlight = 0;
+		let most = 0;
+		const fetchImpl = (async (input: string | URL) => {
+			if (String(input).endsWith('/api/internal/verify-masters')) {
+				return Response.json({ jobs: [1, 2, 3].map((n) => ({ ...job, id: String(n) })) });
+			}
+			inFlight++;
+			most = Math.max(most, inFlight);
+			await new Promise((r) => setTimeout(r, 20));
+			inFlight--;
+			return new Response(null, { status: 202 });
+		}) as typeof fetch;
+		await schedule(new Request(SITE_URL), { fetchImpl });
+		expect(most).toBe(3);
 	});
 
 	it('fails loudly when a background read could not be started', async () => {

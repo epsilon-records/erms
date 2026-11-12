@@ -44,8 +44,8 @@ export async function inspectStream(body, headerBytes, signal) {
 
 /**
  * GET `url` and inspect the body, giving up after `deadlineMs` in all (connect, headers and
- * every byte). A timeout or a non-2xx answer throws; the caller reports it and the master is
- * retried later, never trusted.
+ * every byte). A timeout or a non-2xx answer throws (with `status` for the latter); the caller
+ * reports it, and the master is retried or, in the end, rejected. It is never trusted.
  *
  * @param {string} url
  * @param {{ deadlineMs: number; headerBytes: number; fetchImpl?: typeof fetch }} options
@@ -55,7 +55,8 @@ export async function inspectUrl(url, { deadlineMs, headerBytes, fetchImpl = fet
 	const res = await fetchImpl(url, { signal });
 	if (!res.ok || !res.body) {
 		await res.body?.cancel().catch(() => {});
-		throw new Error(`storage answered HTTP ${res.status}`);
+		// `status` lets the caller tell a missing object (404, final) from a passing failure.
+		throw Object.assign(new Error(`storage answered HTTP ${res.status}`), { status: res.status });
 	}
 	return inspectStream(res.body, headerBytes, signal);
 }

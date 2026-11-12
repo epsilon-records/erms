@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { isWavHeader } from '../masters';
-import { recordSystemAudit, type Database } from './audit';
+import { recordSystemAudit, type Database, type Tx } from './audit';
 import { masters } from './db/schema';
 import type { MasterStorage } from './storage/r2';
 
@@ -24,12 +24,40 @@ export const LEASE_MS = 20 * 60_000;
 export const READ_URL_TTL_SECONDS = 15 * 60;
 /** Masters leased per run. */
 export const LEASE_BATCH = 5;
+/** Failed reads before a master is rejected, so a file that cannot be read is not retried forever. */
+export const MAX_ATTEMPTS = 5;
+export const UNREADABLE = 'LabelKit could not read the stored file; upload it again.';
 
 export type VerifyJob = { id: string; token: string; url: string };
 
+/** Reject a master that is being checked: delete its object, mark it rejected, audit why. */
+async function rejectVerifying(
+	tx: Tx,
+	storage: MasterStorage,
+	row: { id: string; orgId: string; objectKey: string },
+	reason: string,
+	detail: Record<string, unknown> = {}
+) {
+	await storage.remove(row.objectKey);
+	await tx
+		.update(masters)
+		.set({ status: 'rejected', verifyToken: null, verifyStartedAt: null })
+		.where(eq(masters.id, row.id));
+	await recordSystemAudit(tx, {
+		orgId: row.orgId,
+		actorId: ACTOR,
+		entity: 'master',
+		entityId: row.id,
+		action: 'upload_reject',
+		before: { status: 'verifying' },
+		after: { status: 'rejected', reason, ...detail }
+	});
+	return 'rejected' as const;
+}
+
 /**
  * Lease up to `limit` masters waiting to be checked: those never leased, and those whose lease ran
- * out without a result. Each lease gets a fresh token, so a late result from an older lease is
+ * out without a result (after MAX_ATTEMPTS of those, the master is rejected instead). Each lease gets a fresh token, so a late result from an older lease is
  * ignored. Returns a presigned GET for each.
  */
 export async function leaseVerifications(
@@ -37,6 +65,32 @@ export async function leaseVerifications(
 	storage: MasterStorage,
 	{ limit = LEASE_BATCH, leaseMs = LEASE_MS }: { limit?: number; leaseMs?: number } = {}
 ): Promise<VerifyJob[]> {
+	// A master whose last allowed read never reported back (the function crashed or timed out
+	// every time) is rejected here rather than leased again.
+	await db.transaction(async (tx) => {
+		const exhausted = (await tx.execute(sql`
+			select id, org_id, object_key, verify_attempts from masters
+			where status = 'verifying' and verify_attempts >= ${MAX_ATTEMPTS}
+				and verify_started_at < now() - make_interval(secs => ${leaseMs / 1000})
+			order by created_at
+			limit ${limit}
+			for update skip locked`)) as unknown as {
+			id: string;
+			org_id: string;
+			object_key: string;
+			verify_attempts: number;
+		}[];
+		for (const row of exhausted) {
+			await rejectVerifying(
+				tx,
+				storage,
+				{ id: row.id, orgId: row.org_id, objectKey: row.object_key },
+				UNREADABLE,
+				{ attempts: row.verify_attempts }
+			);
+		}
+	});
+
 	const leased = (await db.execute(sql`
 		update masters set
 			verify_token = gen_random_uuid(),
@@ -45,6 +99,7 @@ export async function leaseVerifications(
 		where id in (
 			select id from masters
 			where status = 'verifying'
+				and verify_attempts < ${MAX_ATTEMPTS}
 				and (verify_started_at is null
 					or verify_started_at < now() - make_interval(secs => ${leaseMs / 1000}))
 			order by created_at
@@ -75,7 +130,13 @@ export const VerifyResult = z.union([
 		size: z.number().int().nonnegative(),
 		header: z.string().regex(/^(?:[0-9a-f]{2}){0,12}$/)
 	}),
-	z.object({ id: z.uuid(), token: z.uuid(), error: z.string().max(200) })
+	z.object({
+		id: z.uuid(),
+		token: z.uuid(),
+		error: z.string().max(200),
+		/** The storage answer, when there was one. 404: the object is gone, which is final. */
+		status: z.number().int().optional()
+	})
 ]);
 export type VerifyResult = z.infer<typeof VerifyResult>;
 
@@ -106,7 +167,8 @@ export type VerifyOutcome = 'ready' | 'rejected' | 'retry' | 'stale';
 /**
  * Record one background read. A result for a lease that is no longer current (a newer lease, or
  * the master was deleted or already decided) changes nothing. A read that failed ends the lease
- * early, so the master is leased again on the next run.
+ * early, so the master is leased again on the next run, up to MAX_ATTEMPTS reads; after that, or
+ * at once if the object is gone, the master is rejected.
  */
 export async function recordVerification(
 	db: Database,
@@ -127,7 +189,15 @@ export async function recordVerification(
 			.for('update');
 		if (!row || !row.claimedSha256) return 'stale';
 
+		const reject = (reason: string, detail?: Record<string, unknown>) =>
+			rejectVerifying(tx, storage, row, reason, detail);
+
 		if ('error' in result) {
+			// A missing object will not come back, and a file that has failed MAX_ATTEMPTS reads is
+			// not going to be checked: reject it, so the upload ends and the person is told why.
+			if (result.status === 404 || row.verifyAttempts >= MAX_ATTEMPTS) {
+				return reject(UNREADABLE, { attempts: row.verifyAttempts });
+			}
 			await tx
 				.update(masters)
 				.set({ verifyToken: null, verifyStartedAt: null })
@@ -148,23 +218,7 @@ export async function recordVerification(
 			{ sizeBytes: row.sizeBytes, claimedSha256: row.claimedSha256 },
 			{ sha256: result.sha256, size: result.size, header: Buffer.from(result.header, 'hex') }
 		);
-		if (!verdict.ok) {
-			await storage.remove(row.objectKey);
-			await tx
-				.update(masters)
-				.set({ status: 'rejected', verifyToken: null, verifyStartedAt: null })
-				.where(eq(masters.id, row.id));
-			await recordSystemAudit(tx, {
-				orgId: row.orgId,
-				actorId: ACTOR,
-				entity: 'master',
-				entityId: row.id,
-				action: 'upload_reject',
-				before: { status: 'verifying' },
-				after: { status: 'rejected', reason: verdict.reason }
-			});
-			return 'rejected';
-		}
+		if (!verdict.ok) return reject(verdict.reason);
 
 		const completedAt = new Date();
 		await tx

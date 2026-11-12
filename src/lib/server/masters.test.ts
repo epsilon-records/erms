@@ -21,7 +21,13 @@ import {
 	startMasterUpload
 } from './masters';
 import { queueAudioKitJob } from './audiokit-jobs';
-import { leaseVerifications, recordVerification, type VerifyResult } from './master-verify';
+import {
+	leaseVerifications,
+	MAX_ATTEMPTS,
+	recordVerification,
+	UNREADABLE,
+	type VerifyResult
+} from './master-verify';
 import type { MasterStorage, Part } from './storage/r2';
 import { createTestDb } from './test-db';
 
@@ -544,6 +550,83 @@ describe('master uploads', () => {
 				),
 				409
 			);
+		});
+
+		/** Upload and complete a single-PUT master, leaving it `verifying`. */
+		const startVerifying = async () => {
+			const start = await asUser(db, ownerA, (tx) =>
+				startMasterUpload(tx, storage, ctx(ownerA, 'owner'), recA, wav(2048))
+			);
+			const { objectKey } = await keyOf(start.masterId);
+			storage.put(objectKey, 2048);
+			await asUser(db, ownerA, (tx) =>
+				completeMasterUpload(tx, storage, ctx(ownerA, 'owner'), start.masterId, { sha256: SHA })
+			);
+			return { id: start.masterId, objectKey };
+		};
+		const leaseOf = async (id: string, leaseMs?: number) =>
+			(await leaseVerifications(db, storage, { limit: 100, leaseMs })).find((j) => j.id === id);
+		const rejection = async (id: string) =>
+			(
+				await db
+					.select({ after: auditLog.after })
+					.from(auditLog)
+					.where(and(eq(auditLog.entityId, id), eq(auditLog.action, 'upload_reject')))
+			)[0]?.after;
+
+		it(`rejects a master whose read fails ${MAX_ATTEMPTS} times`, async () => {
+			const { id, objectKey } = await startVerifying();
+			for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+				const job = await leaseOf(id);
+				expect(
+					await recordVerification(db, storage, { id, token: job!.token, error: 'TimeoutError' })
+				).toBe('retry');
+				expect((await keyOf(id)).status).toBe('verifying');
+			}
+			const last = await leaseOf(id);
+			expect(
+				await recordVerification(db, storage, { id, token: last!.token, error: 'TimeoutError' })
+			).toBe('rejected');
+			expect(await keyOf(id)).toMatchObject({
+				status: 'rejected',
+				sha256: null,
+				verifyAttempts: MAX_ATTEMPTS
+			});
+			expect(storage.objects.has(objectKey)).toBe(false);
+			expect(await rejection(id)).toEqual({
+				status: 'rejected',
+				reason: UNREADABLE,
+				attempts: MAX_ATTEMPTS
+			});
+			// Nothing is left to lease.
+			expect(await leaseOf(id, 0)).toBeUndefined();
+		});
+
+		it('rejects a master whose last allowed read never reported back', async () => {
+			const { id, objectKey } = await startVerifying();
+			for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+				// Each lease runs out without a result, as when the function is killed.
+				expect(await leaseOf(id, 0)).toBeDefined();
+			}
+			expect(await leaseOf(id, 0)).toBeUndefined();
+			expect((await keyOf(id)).status).toBe('rejected');
+			expect(storage.objects.has(objectKey)).toBe(false);
+			expect(await rejection(id)).toMatchObject({ reason: UNREADABLE });
+		});
+
+		it('rejects at once when the stored object is gone', async () => {
+			const { id } = await startVerifying();
+			const job = await leaseOf(id);
+			expect(
+				await recordVerification(db, storage, {
+					id,
+					token: job!.token,
+					error: 'Error: storage answered HTTP 404',
+					status: 404
+				})
+			).toBe('rejected');
+			expect(await keyOf(id)).toMatchObject({ status: 'rejected', verifyAttempts: 1 });
+			expect(await rejection(id)).toEqual({ status: 'rejected', reason: UNREADABLE, attempts: 1 });
 		});
 
 		it('nothing uses a master while it is verifying', async () => {
