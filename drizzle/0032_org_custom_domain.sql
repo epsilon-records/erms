@@ -16,7 +16,7 @@ ALTER TABLE "orgs" ADD CONSTRAINT "orgs_domain_status_value" CHECK ("orgs"."doma
 UPDATE orgs SET domain_status = 'active' WHERE custom_domain IS NOT NULL;--> statement-breakpoint
 
 CREATE FUNCTION app.request_org_domain(target_org uuid, new_domain text) RETURNS text
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
 	uid uuid := app.current_user_id();
 	token text := replace(gen_random_uuid()::text, '-', '');
@@ -24,14 +24,14 @@ BEGIN
 	IF uid IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	IF EXISTS (SELECT 1 FROM orgs WHERE custom_domain = new_domain AND id <> target_org) THEN
+	IF EXISTS (SELECT 1 FROM public.orgs WHERE custom_domain = new_domain AND id <> target_org) THEN
 		RAISE EXCEPTION 'that domain belongs to another label' USING ERRCODE = '23505';
 	END IF;
-	UPDATE orgs
+	UPDATE public.orgs
 	SET domain_requested = new_domain, domain_token = token, domain_status = 'awaiting_dns',
 		domain_error = NULL
 	WHERE id = target_org;
-	INSERT INTO audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, after)
+	INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, after)
 	VALUES (gen_random_uuid(), target_org, uid::text, 'user', 'org', target_org::text,
 		'request_domain', jsonb_build_object('domain', new_domain));
 	RETURN token;
@@ -42,7 +42,7 @@ GRANT EXECUTE ON FUNCTION app.request_org_domain(uuid, text) TO labelkit_app;-->
 
 -- Called by the app only after it has read the TXT record and provisioned the domain.
 CREATE FUNCTION app.activate_org_domain(target_org uuid, verified_domain text) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
 	uid uuid := app.current_user_id();
 	prev text;
@@ -50,19 +50,19 @@ BEGIN
 	IF uid IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	SELECT custom_domain INTO prev FROM orgs
+	SELECT custom_domain INTO prev FROM public.orgs
 	WHERE id = target_org AND domain_requested = verified_domain FOR UPDATE;
 	IF NOT FOUND THEN
 		RAISE EXCEPTION 'no pending request for that domain' USING ERRCODE = '22023';
 	END IF;
-	IF EXISTS (SELECT 1 FROM orgs WHERE custom_domain = verified_domain AND id <> target_org) THEN
+	IF EXISTS (SELECT 1 FROM public.orgs WHERE custom_domain = verified_domain AND id <> target_org) THEN
 		RAISE EXCEPTION 'that domain belongs to another label' USING ERRCODE = '23505';
 	END IF;
-	UPDATE orgs
+	UPDATE public.orgs
 	SET custom_domain = verified_domain, domain_requested = NULL, domain_token = NULL,
 		domain_status = 'active', domain_error = NULL
 	WHERE id = target_org;
-	INSERT INTO audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before, after)
+	INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before, after)
 	VALUES (gen_random_uuid(), target_org, uid::text, 'user', 'org', target_org::text,
 		'activate_domain', jsonb_build_object('domain', prev),
 		jsonb_build_object('domain', verified_domain));
@@ -73,12 +73,12 @@ GRANT EXECUTE ON FUNCTION app.activate_org_domain(uuid, text) TO labelkit_app;--
 
 -- Records why a verification or provisioning attempt failed, for the settings page.
 CREATE FUNCTION app.fail_org_domain(target_org uuid, failed_domain text, reason text) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
 	IF app.current_user_id() IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	UPDATE orgs SET domain_status = 'failed', domain_error = left(reason, 300)
+	UPDATE public.orgs SET domain_status = 'failed', domain_error = left(reason, 300)
 	WHERE id = target_org AND domain_requested = failed_domain;
 END
 $$;--> statement-breakpoint
@@ -88,7 +88,7 @@ GRANT EXECUTE ON FUNCTION app.fail_org_domain(uuid, text, text) TO labelkit_app;
 -- Removes the label's domain and any pending request. Returns the domain that was active, so the
 -- app can take it off Netlify and Supabase Auth.
 CREATE FUNCTION app.remove_org_domain(target_org uuid) RETURNS text
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
 	uid uuid := app.current_user_id();
 	prev text;
@@ -97,13 +97,13 @@ BEGIN
 	IF uid IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	SELECT custom_domain, domain_requested INTO prev, pending FROM orgs WHERE id = target_org FOR UPDATE;
-	UPDATE orgs
+	SELECT custom_domain, domain_requested INTO prev, pending FROM public.orgs WHERE id = target_org FOR UPDATE;
+	UPDATE public.orgs
 	SET custom_domain = NULL, domain_requested = NULL, domain_token = NULL, domain_status = NULL,
 		domain_error = NULL
 	WHERE id = target_org;
 	IF prev IS NOT NULL OR pending IS NOT NULL THEN
-		INSERT INTO audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before)
+		INSERT INTO public.audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, before)
 		VALUES (gen_random_uuid(), target_org, uid::text, 'user', 'org', target_org::text,
 			'remove_domain', jsonb_build_object('domain', prev, 'requested', pending));
 	END IF;
@@ -115,12 +115,12 @@ GRANT EXECUTE ON FUNCTION app.remove_org_domain(uuid) TO labelkit_app;--> statem
 
 -- Drops a pending request only; an active domain stays as it is.
 CREATE FUNCTION app.cancel_org_domain_request(target_org uuid) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
 	IF app.current_user_id() IS NULL OR NOT app.has_role(target_org, ARRAY['owner']) THEN
 		RAISE EXCEPTION 'only an owner can set the domain' USING ERRCODE = '42501';
 	END IF;
-	UPDATE orgs
+	UPDATE public.orgs
 	SET domain_requested = NULL, domain_token = NULL, domain_error = NULL,
 		domain_status = CASE WHEN custom_domain IS NULL THEN NULL ELSE 'active' END
 	WHERE id = target_org;
