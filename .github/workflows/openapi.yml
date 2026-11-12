@@ -1,0 +1,40 @@
+name: OpenAPI contract
+
+# Fails a pull request whose docs/openapi.yaml would break existing API clients,
+# compared with the base branch. A deliberate breaking change carries the
+# `api-breaking` label; that PR must also open a board issue for the consumers.
+
+on:
+  pull_request:
+    paths: [docs/openapi.yaml, .github/workflows/openapi.yml]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  breaking:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the base branch
+        run: git fetch --depth=1 origin "${{ github.base_ref }}"
+
+      - name: Changelog
+        uses: oasdiff/oasdiff-action/changelog@v0.0.43
+        with:
+          base: origin/${{ github.base_ref }}:docs/openapi.yaml
+          revision: HEAD:docs/openapi.yaml
+
+      - name: Breaking changes (fail)
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'api-breaking') }}
+        uses: oasdiff/oasdiff-action/breaking@v0.0.43
+        with:
+          base: origin/${{ github.base_ref }}:docs/openapi.yaml
+          revision: HEAD:docs/openapi.yaml
+          fail-on: ERR
+
+      - name: Breaking changes (allowed by label)
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'api-breaking') }}
+        run: echo "::warning::api-breaking label set, so breaking changes are allowed. Open the consumer board issue before merging."
