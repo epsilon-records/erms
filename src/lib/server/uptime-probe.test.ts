@@ -4,6 +4,7 @@ import handler, {
 	ENDPOINTS,
 	extraEndpoints,
 	failureEvent,
+	monitorSlug,
 	parseDsn,
 	probe,
 	probeWithRetry,
@@ -309,6 +310,73 @@ describe('uptime prober (shared decision 0010)', () => {
 		const out = await run({ fetchImpl: slowSentry, env, ...fast });
 		expect(peak).toBe(2);
 		expect(out.reported).toEqual(['https://console.audiokit.ai', 'https://audiokit.ai']);
+	});
+
+	describe('heartbeat (UPTIME_PROBE_MONITOR_SLUG)', () => {
+		const withSlug = { ...env, UPTIME_PROBE_MONITOR_SLUG: 'uptime-probe' };
+		const checkIns = (f: ReturnType<typeof fakeFetch>) =>
+			f.envelopes.filter((e) => (e.items[1] as { type: string }).type === 'check_in');
+
+		it('sends no check-in when the variable is unset or empty', async () => {
+			const f = fakeFetch();
+			const out = await run({ fetchImpl: f.impl, env, ...fast });
+			await run({ fetchImpl: f.impl, env: { ...env, UPTIME_PROBE_MONITOR_SLUG: ' ' }, ...fast });
+			expect(f.envelopes).toEqual([]);
+			expect(out.heartbeat).toBeNull();
+		});
+
+		it('checks in once per run, ok, in production, without creating a monitor', async () => {
+			const f = fakeFetch();
+			const out = await run({ fetchImpl: f.impl, env: withSlug, ...fast });
+			const sent = checkIns(f);
+			expect(sent).toHaveLength(1);
+			const [header, itemHeader, item] = sent[0].items as [
+				{ dsn: string },
+				{ type: string },
+				Record<string, unknown>
+			];
+			expect(header.dsn).toBe(DSN);
+			expect(itemHeader).toEqual({ type: 'check_in' });
+			expect(item).toMatchObject({
+				monitor_slug: 'uptime-probe',
+				status: 'ok',
+				environment: 'production',
+				check_in_id: out.heartbeat
+			});
+			expect(item.check_in_id).toMatch(/^[0-9a-f]{32}$/);
+			expect(typeof item.duration).toBe('number');
+			// No upsert: the monitor is made in Sentry by hand, never from code.
+			expect(item).not.toHaveProperty('monitor_config');
+			expect(sent[0].headers['x-sentry-auth']).toContain('sentry_key=publickey123');
+		});
+
+		it('still checks in when an endpoint is down, next to that endpoint’s event', async () => {
+			const f = fakeFetch({ 'https://audiokit.ai': 503 });
+			const out = await run({ fetchImpl: f.impl, env: withSlug, ...fast });
+			expect(checkIns(f)).toHaveLength(1);
+			expect(out.reported).toEqual(['https://audiokit.ai']);
+		});
+
+		it('logs a refused check-in without failing a run that found nothing down', async () => {
+			const f = fakeFetch({}, 429);
+			const out = await run({ fetchImpl: f.impl, env: withSlug, ...fast });
+			expect(out.heartbeat).toBeNull();
+			expect(console.error).toHaveBeenCalledWith(expect.stringContaining('heartbeat'));
+		});
+
+		it('refuses a slug Sentry would not accept, before probing anything', async () => {
+			expect(monitorSlug({ UPTIME_PROBE_MONITOR_SLUG: 'uptime-probe' })).toBe('uptime-probe');
+			expect(monitorSlug({})).toBeNull();
+			const f = fakeFetch();
+			await expect(
+				run({
+					fetchImpl: f.impl,
+					env: { ...env, UPTIME_PROBE_MONITOR_SLUG: 'Uptime Probe' },
+					...fast
+				})
+			).rejects.toThrow(/UPTIME_PROBE_MONITOR_SLUG/);
+			expect(f.probes).toEqual([]);
+		});
 	});
 
 	it('parses the DSN into the envelope endpoint', () => {
