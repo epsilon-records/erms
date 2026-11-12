@@ -10,9 +10,9 @@
 @import 'tw-animate-css';
 
 @source './lib/components/ui';
-/* Utilities the migrated pages (login, members, API keys) use in their own markup. Listed instead of
+/* Utilities the migrated pages (login, members, API keys, release edit, recording) use in their own markup. Listed instead of
    scanning those routes, so their legacy class names can't pick up Tailwind rules. */
-@source inline('flex items-center gap-2 gap-2.5 gap-4 font-mono w-fit max-w-[480px] sm:pl-[160px]');
+@source inline('flex items-center gap-2 gap-2.5 gap-4 font-mono w-auto w-fit w-[170px] max-w-[480px] sm:pl-[160px]');
 
 @theme inline {
 	--color-background: var(--bg);

@@ -15,6 +15,10 @@ vi.mock('$app/state', () => state);
 const { default: LoginPage } = await import('../../../routes/login/+page.svelte');
 const { default: MembersPage } = await import('../../../routes/members/+page.svelte');
 const { default: ApiKeysPage } = await import('../../../routes/org/api-keys/+page.svelte');
+const { default: ReleaseEditPage } =
+	await import('../../../routes/releases/[id]/edit/+page.svelte');
+const { default: RecordingPage } = await import('../../../routes/recordings/[id]/+page.svelte');
+const { analysisEmpty } = await import('../fixtures.stories-data.js');
 
 const html = (component: unknown, props: Record<string, unknown>) =>
 	render(component as never, { props: props as never }).body;
@@ -80,6 +84,19 @@ describe('members forms', () => {
 		expectSubmitButtons(body);
 	});
 
+	it("server-renders each member's current role as selected", () => {
+		// A role form submitted before hydration (or without JavaScript) must post the current role,
+		// not the first option, "owner".
+		const body = html(MembersPage, { data: members, form: null });
+		const select = (id: string) =>
+			body.match(new RegExp(`<select[^>]*id="${id}"[\\s\\S]*?</select>`))?.[0] ?? '';
+		const selected = (id: string) =>
+			[...select(id).matchAll(/<option[^>]*value="([^"]+)"[^>]*selected/g)].map((m) => m[1]);
+		expect(selected('role-u2')).toEqual(['viewer']);
+		expect(selected('role-u1')).toEqual(['owner']);
+		expect(selected('role')).toEqual(['viewer']);
+	});
+
 	it('shows an invite error on its field and a form error under the form', () => {
 		const body = html(MembersPage, {
 			data: members,
@@ -126,5 +143,151 @@ describe('API key form', () => {
 		const input = tagWithId(body, 'key-name');
 		expect(input).toContain('value="Sync"');
 		expect(input).toContain('aria-describedby="create-error"');
+	});
+});
+
+/** A save form's controls post the names its action reads; a refused save keeps what was typed. */
+function expectFields(body: string, names: string[]) {
+	for (const name of names) {
+		expect(body, name).toMatch(new RegExp(`<label[^>]*for="${name}"`));
+		expect(tagWithId(body, name), name).toContain(`name="${name}"`);
+		expect(tagWithId(body, name), name).not.toContain(' aria-invalid=');
+	}
+}
+
+describe('release edit form', () => {
+	const release = {
+		id: '00000000-0000-4000-8000-000000000001',
+		title: 'Night Drive',
+		versionTitle: null,
+		type: 'ep',
+		releaseDate: '2026-03-06',
+		labelId: 'l2',
+		catalogNumber: 'EPS042',
+		upc: '196000000017',
+		genre: 'Electronic',
+		subgenre: 'Techno',
+		updatedAt: new Date('2026-11-01T10:00:00Z'),
+		artists: []
+	};
+	const data = {
+		release,
+		labels: [
+			{ id: 'l1', name: 'Epsilon Records' },
+			{ id: 'l2', name: 'Epsilon Deep' }
+		],
+		can: { approve: false }
+	};
+	const FIELDS = [
+		'title',
+		'versionTitle',
+		'type',
+		'releaseDate',
+		'labelId',
+		'catalogNumber',
+		'upc',
+		'genre',
+		'subgenre'
+	];
+
+	it('posts every field from a labelled control, with the stored values selected', () => {
+		const body = html(ReleaseEditPage, { data, form: null });
+		expectFields(body, FIELDS);
+		expect(body).toMatch(/<input[^>]*type="hidden"[^>]*name="updatedAt"/);
+		expect(tagWithId(body, 'title')).toContain('value="Night Drive"');
+		expect(body).toMatch(/<option[^>]*value="ep"[^>]*selected/);
+		expect(body).toMatch(/<option[^>]*value="l2"[^>]*selected/);
+		expect(body).not.toMatch(/<option[^>]*value="l1"[^>]*selected/);
+		expectSubmitButtons(body);
+	});
+
+	it('puts a field error under its field and keeps what was typed', () => {
+		const form = {
+			action: 'save',
+			ok: false,
+			errors: { upc: 'UPC already used by "Other"', form: 'Someone changed this record.' },
+			values: { title: 'Night Drive II', upc: '196000000024', type: 'album', labelId: 'l1' }
+		};
+		const body = html(ReleaseEditPage, { data, form });
+		const upc = tagWithId(body, 'upc');
+		expect(upc).toContain('aria-invalid="true"');
+		expect(upc).toContain('aria-describedby="upc-error"');
+		expect(upc).toContain('value="196000000024"');
+		expect(body).toMatch(
+			/role="alert"[^>]*id="upc-error"[^>]*>(<!--[^>]*-->)*UPC already used by (&quot;|")Other/
+		);
+		expect(tagWithId(body, 'title')).toContain('value="Night Drive II"');
+		expect(tagWithId(body, 'title')).not.toContain(' aria-invalid=');
+		expect(body).toMatch(/<option[^>]*value="album"[^>]*selected/);
+		// An error that names no field stays under the form, once.
+		expect(body.match(/Someone changed this record\./g)).toHaveLength(1);
+	});
+});
+
+describe('recording forms', () => {
+	const recording = {
+		id: '00000000-0000-4000-8000-000000000002',
+		title: 'Night Drive',
+		versionTitle: 'Extended Mix',
+		isrc: 'NLA1G2600001',
+		durationMs: 395_000,
+		genre: 'Electronic',
+		subgenre: 'Techno',
+		updatedAt: new Date('2026-11-01T10:00:00Z')
+	};
+	const data = {
+		recording,
+		releases: [],
+		credits: [],
+		compositions: [],
+		compositionChoices: [{ id: 'c1', title: 'Night Drive', iswc: 'T-123.456.789-0' }],
+		masters: [],
+		analysis: analysisEmpty,
+		ownership: null,
+		holders: [],
+		previewPlayable: false,
+		uploadsEnabled: false,
+		can: {
+			uploadMaster: false,
+			deleteMaster: false,
+			edit: true,
+			approve: false,
+			rights: true,
+			runAnalysis: false
+		}
+	};
+	const FIELDS = ['title', 'versionTitle', 'isrc', 'duration', 'genre', 'subgenre'];
+
+	it('posts the details from labelled controls', () => {
+		const body = html(RecordingPage, { data, form: null });
+		expectFields(body, FIELDS);
+		expect(tagWithId(body, 'duration')).toContain('value="06:35"');
+		expectSubmitButtons(body);
+	});
+
+	it('puts a field error under its field', () => {
+		const form = {
+			action: 'save',
+			ok: false,
+			errors: { duration: 'Duration must be mm:ss' },
+			values: { title: 'Night Drive', isrc: 'NLA1G2600001', duration: '6m35' }
+		};
+		const body = html(RecordingPage, { data, form });
+		const duration = tagWithId(body, 'duration');
+		expect(duration).toContain('aria-describedby="duration-error"');
+		expect(duration).toContain('value="6m35"');
+		expect(body).toMatch(
+			/role="alert"[^>]*id="duration-error"[^>]*>(<!--[^>]*-->)*Duration must be mm:ss/
+		);
+	});
+
+	it('keeps the composition forms posting what their actions read', () => {
+		const body = html(RecordingPage, { data, form: null });
+		expect(tagWithId(body, 'comp-title')).toContain('name="title"');
+		expect(tagWithId(body, 'comp-iswc')).toContain('name="iswc"');
+		const link = tagWithId(body, 'comp-link');
+		expect(link).toContain('name="compositionId"');
+		expect(link).toContain('required');
+		expect(body).toMatch(/<option[^>]*value="c1"[^>]*>(<!---->)?Night Drive \(T-123\.456\.789-0\)/);
 	});
 });

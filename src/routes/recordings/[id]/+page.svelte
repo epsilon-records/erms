@@ -3,6 +3,10 @@
 	import Masters from '#lib/components/Masters.svelte';
 	import Ownership from '#lib/components/Ownership.svelte';
 	import RecordingAnalysis from '#lib/components/RecordingAnalysis.svelte';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -31,6 +35,21 @@
 	const v = (field: string, fallback: string | null) =>
 		failed('save') ? (values[field] ?? '') : (fallback ?? '');
 
+	/** A save error that names a field, shown under that field; the rest go under the form. */
+	const FIELDS = ['title', 'versionTitle', 'isrc', 'duration', 'genre', 'subgenre'];
+	const fieldError = (field: string) => (failed('save') ? errors[field] : undefined);
+	const invalid = (field: string) =>
+		fieldError(field)
+			? { 'aria-invalid': true as const, 'aria-describedby': `${field}-error` }
+			: {};
+	const saveFormErrors = $derived(
+		failed('save')
+			? Object.entries(errors)
+					.filter(([k]) => !FIELDS.includes(k))
+					.map(([, m]) => m)
+			: []
+	);
+
 	const ROLES = [
 		'main',
 		'featured',
@@ -43,6 +62,10 @@
 	];
 	const mains = $derived(data.credits.filter((c) => c.role === 'main'));
 </script>
+
+{#snippet error(field: string)}
+	{#if fieldError(field)}<Field.Error id="{field}-error">{fieldError(field)}</Field.Error>{/if}
+{/snippet}
 
 <div class="container">
 	<section class="stack">
@@ -84,39 +107,75 @@
 				<form method="POST" action="?/save" class="stack" aria-labelledby="details-h">
 					<h2 id="details-h" class="h2">Details</h2>
 					<input type="hidden" name="updatedAt" value={rec.updatedAt.toISOString()} />
-					<div class="form-grid">
-						<label for="title">Title</label>
-						<input id="title" name="title" value={v('title', rec.title)} required />
-						<label for="versionTitle">Version</label>
-						<input
-							id="versionTitle"
-							name="versionTitle"
-							value={v('versionTitle', rec.versionTitle)}
-							placeholder="e.g. Extended Mix"
-						/>
-						<label for="isrc">ISRC</label>
-						<input id="isrc" name="isrc" class="mono" value={v('isrc', rec.isrc)} required />
-						<label for="duration">Length</label>
-						<input
-							id="duration"
-							name="duration"
-							class="mono"
-							value={v('duration', fmt(rec.durationMs))}
-							placeholder="mm:ss"
-						/>
-						<label for="genre">Genre</label>
-						<input id="genre" name="genre" value={v('genre', rec.genre)} />
-						<label for="subgenre">Subgenre</label>
-						<input id="subgenre" name="subgenre" value={v('subgenre', rec.subgenre)} />
-						<span></span>
-						<div><button class="btn primary">Save</button></div>
-					</div>
-					{#if failed('save')}
-						<div class="alert error" role="alert">
-							{Object.entries(errors)
-								.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
-								.join('\n')}
+					<Field.Group class="gap-2.5">
+						<Field.Field orientation="responsive">
+							<Field.Label for="title">Title</Field.Label>
+							<Input
+								id="title"
+								name="title"
+								value={v('title', rec.title)}
+								required
+								{...invalid('title')}
+							/>
+							{@render error('title')}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="versionTitle">Version</Field.Label>
+							<Input
+								id="versionTitle"
+								name="versionTitle"
+								value={v('versionTitle', rec.versionTitle)}
+								placeholder="e.g. Extended Mix"
+								{...invalid('versionTitle')}
+							/>
+							{@render error('versionTitle')}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="isrc">ISRC</Field.Label>
+							<Input
+								id="isrc"
+								name="isrc"
+								class="font-mono"
+								value={v('isrc', rec.isrc)}
+								required
+								{...invalid('isrc')}
+							/>
+							{@render error('isrc')}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="duration">Length</Field.Label>
+							<Input
+								id="duration"
+								name="duration"
+								class="font-mono"
+								value={v('duration', fmt(rec.durationMs))}
+								placeholder="mm:ss"
+								{...invalid('duration')}
+							/>
+							{@render error('duration')}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="genre">Genre</Field.Label>
+							<Input id="genre" name="genre" value={v('genre', rec.genre)} {...invalid('genre')} />
+							{@render error('genre')}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="subgenre">Subgenre</Field.Label>
+							<Input
+								id="subgenre"
+								name="subgenre"
+								value={v('subgenre', rec.subgenre)}
+								{...invalid('subgenre')}
+							/>
+							{@render error('subgenre')}
+						</Field.Field>
+						<!-- Lines the button up with the controls: the 140 px label column plus the 20 px gap. -->
+						<div class="sm:pl-[160px]">
+							<Button type="submit" variant="primary">Save</Button>
 						</div>
+					</Field.Group>
+					{#if saveFormErrors.length}
+						<div class="alert error" role="alert">{saveFormErrors.join('\n')}</div>
 					{:else if saved}
 						<div class="alert ok" role="status">Saved.</div>
 					{/if}
@@ -141,33 +200,35 @@
 					<div class="row" style="flex-wrap: wrap; gap: 24px; align-items: flex-end">
 						<form method="POST" action="?/newComposition" class="inline-form">
 							<label for="comp-title" class="sr-only">New composition title</label>
-							<input
+							<Input
 								id="comp-title"
 								name="title"
+								class="w-auto"
 								value={failed('newComposition') ? values.title : rec.title}
 								required
 							/>
 							<label for="comp-iswc" class="sr-only">ISWC</label>
-							<input
+							<Input
 								id="comp-iswc"
 								name="iswc"
-								class="mono"
+								class="w-[170px] font-mono"
 								placeholder="ISWC (optional)"
 								value={failed('newComposition') ? values.iswc : ''}
-								style="width: 170px"
 							/>
-							<button class="btn small">New composition</button>
+							<Button type="submit" size="small">New composition</Button>
 						</form>
 						{#if data.compositionChoices.length}
 							<form method="POST" action="?/linkComposition" class="inline-form">
 								<label for="comp-link" class="sr-only">Existing composition</label>
-								<select id="comp-link" name="compositionId" required>
-									<option value="">Link existing…</option>
+								<NativeSelect.Root id="comp-link" name="compositionId" required size="sm">
+									<NativeSelect.Option value="">Link existing…</NativeSelect.Option>
 									{#each data.compositionChoices.filter((c) => !data.compositions.some((x) => x.id === c.id)) as c (c.id)}
-										<option value={c.id}>{c.title}{c.iswc ? ` (${c.iswc})` : ''}</option>
+										<NativeSelect.Option value={c.id}
+											>{c.title}{c.iswc ? ` (${c.iswc})` : ''}</NativeSelect.Option
+										>
 									{/each}
-								</select>
-								<button class="btn small">Link</button>
+								</NativeSelect.Root>
+								<Button type="submit" size="small">Link</Button>
 							</form>
 						{/if}
 					</div>
