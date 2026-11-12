@@ -2,8 +2,8 @@
 	import '../app.css';
 	import '../tailwind.css';
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
-	import { page } from '$app/state';
+	import { beforeNavigate, replaceState } from '$app/navigation';
+	import { page, updated } from '$app/state';
 	import { browser } from '$app/env';
 	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
 	import AppMetrics from '#lib/AppMetrics.svelte';
@@ -39,6 +39,31 @@
 			url.searchParams.delete('signed-in');
 			replaceState(url.pathname + url.search + url.hash, {});
 		}
+	});
+
+	// After a deploy, an open tab still points at JS chunks the new build no longer serves
+	// (Sentry LABELKIT-8, EPSILON-191). Once SvelteKit sees a new version, the next in-app
+	// navigation becomes a full page load; a chunk that still fails to load reloads the page,
+	// at most once a minute so a real outage can't cause a reload loop.
+	beforeNavigate(({ willUnload, to }) => {
+		if (updated.current && !willUnload && to?.url) location.href = to.url.href;
+	});
+	onMount(() => {
+		const onPreloadError = (event: Event) => {
+			// Without a working throttle we don't reload at all (storage blocked or full):
+			// the error surfaces as before rather than risking a reload loop.
+			try {
+				const last = Number(sessionStorage.getItem('chunk-reload-at') ?? 0);
+				if (Date.now() - last < 60_000) return;
+				sessionStorage.setItem('chunk-reload-at', String(Date.now()));
+			} catch {
+				return;
+			}
+			event.preventDefault();
+			location.reload();
+		};
+		window.addEventListener('vite:preloadError', onPreloadError);
+		return () => window.removeEventListener('vite:preloadError', onPreloadError);
 	});
 
 	const canImport = $derived(

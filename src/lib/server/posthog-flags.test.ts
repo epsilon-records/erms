@@ -86,4 +86,34 @@ describe('posthogFlagSource', () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it('retries registration after a rejection, but not while one is still in flight', async () => {
+		let calls = 0;
+		const identifyImmediate = vi.fn(async () => {
+			calls++;
+			if (calls === 1) throw new Error('PostHog down');
+		});
+		const source = posthogFlagSource(() => client({ identifyImmediate }))!;
+		await source.isEnabled('a', 'o1');
+		await source.isEnabled('a', 'o1');
+		await source.isEnabled('a', 'o1');
+		expect(identifyImmediate).toHaveBeenCalledTimes(2);
+	});
+
+	it('reuses a still-pending registration after the first wait budget runs out', async () => {
+		vi.useFakeTimers();
+		try {
+			const identifyImmediate = vi.fn(() => new Promise<void>(() => {}));
+			const source = posthogFlagSource(() => client({ identifyImmediate }))!;
+			const first = source.isEnabled('a', 'o1');
+			await vi.advanceTimersByTimeAsync(REGISTER_BUDGET_MS);
+			expect(await first).toBe(true);
+			const second = source.isEnabled('a', 'o1');
+			await vi.advanceTimersByTimeAsync(REGISTER_BUDGET_MS);
+			expect(await second).toBe(true);
+			expect(identifyImmediate).toHaveBeenCalledOnce();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
