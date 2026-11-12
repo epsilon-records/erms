@@ -1,5 +1,5 @@
 [build]
-  command = "pnpm build"
+  command = "pnpm build && pnpm build-storybook -o build/_storybook"
   publish = "build"
 
 [build.environment]
@@ -16,3 +16,14 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+
+# Storybook (shared 0060): built into build/_storybook, gated by edge-functions/storybook.mjs.
+[[edge_functions]]
+  path = "/_storybook/*"
+  function = "storybook"
+
+[[edge_functions]]
+  path = "/*"
+  function = "storybook"
+  [edge_functions.header]
+  host = "^storybook\\.labelkit\\.co$"
