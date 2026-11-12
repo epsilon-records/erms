@@ -7,12 +7,12 @@ import { siteUrlFor } from '../lib/site-url.mjs';
  * and one whose check never reported back is leased again once its lease runs out.
  *
  * @param {Request} [req]
- * @param {{ deploy?: { context?: string }; fetchImpl?: typeof fetch }} [context]
+ * @param {{ deploy?: { context?: string; id?: string }; fetchImpl?: typeof fetch }} [context]
  */
 export default async (req, context = {}) => {
 	const fetchImpl = context.fetchImpl ?? fetch;
 	// On a deploy preview ("Run now"), call the preview, not production.
-	const siteUrl = siteUrlFor(req, context);
+	const siteUrl = siteUrlFor(context);
 	const workerSecret = process.env.WORKER_SECRET;
 	if (!siteUrl || !workerSecret) {
 		throw new Error('Netlify URL and WORKER_SECRET are required to check uploaded masters');

@@ -7,6 +7,7 @@ import {
 	isWorkerBearer
 } from '../../../netlify/lib/inspect-stream.mjs';
 import background, {
+	POST_TRIES,
 	READ_DEADLINE_MS
 } from '../../../netlify/functions/master-verify-background.mjs';
 import schedule, { config } from '../../../netlify/functions/master-verify.mjs';
@@ -196,6 +197,43 @@ describe('master-verify-background', () => {
 		expect(result.status).toBe(403);
 	});
 
+	it('retries a failed result post with the same result, and never throws', async () => {
+		let posts = 0;
+		const bodies: string[] = [];
+		const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+			if (String(input).startsWith('https://acct.r2.cloudflarestorage.com/'))
+				return new Response(WAV);
+			posts++;
+			bodies.push(String(init?.body));
+			return new Response('deploying', { status: posts < 3 ? 503 : 200 });
+		}) as typeof fetch;
+		const res = await background(bearer(), { fetchImpl, retryMs: 1 });
+		expect(res.status).toBe(204);
+		expect(posts).toBe(3);
+		expect(new Set(bodies).size).toBe(1);
+	});
+
+	it('gives up after three tries, or at once on a 4xx, without throwing', async () => {
+		for (const [status, expected] of [
+			[503, POST_TRIES],
+			[400, 1]
+		] as const) {
+			let posts = 0;
+			const fetchImpl = (async (input: string | URL) => {
+				if (String(input).startsWith('https://acct.r2.cloudflarestorage.com/'))
+					return new Response(WAV);
+				posts++;
+				return new Response(null, { status });
+			}) as typeof fetch;
+			const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+			await expect(background(bearer(), { fetchImpl, retryMs: 1 })).resolves.toBeInstanceOf(
+				Response
+			);
+			error.mockRestore();
+			expect(posts, String(status)).toBe(expected);
+		}
+	});
+
 	it('will not read a URL that is not R2', async () => {
 		const { posted, fetchImpl } = storageAndSite(() => new Response(WAV));
 		const req = new Request(`${SITE_URL}/.netlify/functions/master-verify-background`, {
@@ -212,35 +250,30 @@ describe('master-verify-background', () => {
 
 describe('siteUrlFor', () => {
 	const env = { URL: 'https://labelkit.co', SITE_NAME: 'labelkit' };
-	const preview = new Request(
-		'https://deploy-preview-87--labelkit.netlify.app/.netlify/functions/x'
-	);
+	const deployId = '5b243e66dd6a547b4fee73ae';
 
-	it("uses a preview's own address, so a preview test never reaches production", () => {
-		expect(siteUrlFor(preview, { deploy: { context: 'deploy-preview' } }, env)).toBe(
-			'https://deploy-preview-87--labelkit.netlify.app'
-		);
-		expect(siteUrlFor(preview, { deploy: { context: 'branch-deploy' } }, env)).toBe(
-			'https://deploy-preview-87--labelkit.netlify.app'
-		);
+	it("calls a preview's own permalink, built from the deploy id and site name", () => {
+		for (const context of ['deploy-preview', 'branch-deploy']) {
+			expect(siteUrlFor({ deploy: { context, id: deployId } }, env)).toBe(
+				`https://${deployId}--labelkit.netlify.app`
+			);
+		}
 	});
 
-	it('uses the main address in production, or when the context is unknown', () => {
-		expect(siteUrlFor(preview, { deploy: { context: 'production' } }, env)).toBe(env.URL);
-		expect(siteUrlFor(preview, undefined, env)).toBe(env.URL);
-		expect(siteUrlFor(undefined, { deploy: { context: 'deploy-preview' } }, env)).toBe(env.URL);
+	it('uses the main address in production, or with no deploy context at all', () => {
+		expect(siteUrlFor({ deploy: { context: 'production', id: deployId } }, env)).toBe(env.URL);
+		expect(siteUrlFor(undefined, env)).toBe(env.URL);
+		expect(siteUrlFor({}, env)).toBe(env.URL);
 	});
 
-	it("never sends the secret to a host that is not one of this site's deploys", () => {
-		for (const url of [
-			'https://deploy-preview-1--other-site.netlify.app/x',
-			'https://labelkit.netlify.app.example.com/x',
-			'http://deploy-preview-87--labelkit.netlify.app/x'
-		]) {
-			expect(
-				siteUrlFor(new Request(url), { deploy: { context: 'deploy-preview' } }, env),
-				url
-			).toBe(env.URL);
+	it('refuses, rather than calling production, when a preview cannot name itself', () => {
+		for (const [context, e] of [
+			[{ deploy: { context: 'deploy-preview' } }, env],
+			[{ deploy: { context: 'deploy-preview', id: deployId } }, { URL: env.URL }],
+			[{ deploy: { context: 'deploy-preview', id: 'x.example.com/' } }, env],
+			[{ deploy: { context: 'deploy-preview', id: deployId } }, { ...env, SITE_NAME: 'a.b' }]
+		] as const) {
+			expect(() => siteUrlFor(context, e), JSON.stringify(context)).toThrow(/refusing/);
 		}
 	});
 });

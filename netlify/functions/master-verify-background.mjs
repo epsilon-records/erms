@@ -12,22 +12,69 @@ import { siteUrlFor } from '../lib/site-url.mjs';
  * reported as an error; the master stays `verifying` and is leased again on a later run.
  */
 
+/** Tries for each result post, and the wait before each retry. */
+export const POST_TRIES = 3;
+export const POST_RETRY_MS = 2_000;
+
+/**
+ * POST one result to LabelKit, trying up to POST_TRIES times. Never throws.
+ *
+ * @param {typeof fetch} fetchImpl
+ * @param {string} siteUrl
+ * @param {string | undefined} workerSecret
+ * @param {unknown} result
+ * @returns {Promise<{ ok: boolean; status?: number | string }>}
+ */
+export async function postResult(
+	fetchImpl,
+	siteUrl,
+	workerSecret,
+	result,
+	retryMs = POST_RETRY_MS
+) {
+	/** @type {number | string | undefined} */
+	let status;
+	for (let attempt = 1; attempt <= POST_TRIES; attempt++) {
+		if (attempt > 1) await new Promise((r) => setTimeout(r, retryMs));
+		try {
+			const res = await fetchImpl(new URL('/api/internal/verify-masters', siteUrl), {
+				method: 'POST',
+				headers: {
+					authorization: `Bearer ${workerSecret}`,
+					origin: siteUrl,
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ results: [result] }),
+				signal: AbortSignal.timeout(25_000)
+			});
+			if (res.ok) return { ok: true };
+			status = res.status;
+			// A 4xx will not change on a retry.
+			if (res.status >= 400 && res.status < 500) break;
+		} catch (e) {
+			status = String(e);
+		}
+	}
+	return { ok: false, status };
+}
+
 /** Below Netlify's 15-minute limit, with room to post the result. */
 export const READ_DEADLINE_MS = 12 * 60_000;
 const WAV_HEADER_BYTES = 12;
 
 /**
  * @param {Request} req
- * @param {{ deploy?: { context?: string }; fetchImpl?: typeof fetch }} [context]
+ * @param {{ deploy?: { context?: string; id?: string }; fetchImpl?: typeof fetch; retryMs?: number }} [context]
  */
 export default async (req, context = {}) => {
 	const fetchImpl = context.fetchImpl ?? fetch;
-	// On a deploy preview, report to the preview, not production.
-	const siteUrl = siteUrlFor(req, context);
 	const workerSecret = process.env.WORKER_SECRET;
-	if (!siteUrl || !isWorkerBearer(req.headers.get('authorization'), workerSecret)) {
+	if (!isWorkerBearer(req.headers.get('authorization'), workerSecret)) {
 		return new Response(null, { status: 401 });
 	}
+	// On a deploy preview, report to the preview, never production.
+	const siteUrl = siteUrlFor(context);
+	if (!siteUrl) return new Response(null, { status: 500 });
 	const { jobs } = await req.json().catch(() => ({ jobs: null }));
 	if (!Array.isArray(jobs)) return new Response(null, { status: 400 });
 
@@ -56,24 +103,17 @@ export default async (req, context = {}) => {
 				...(typeof status === 'number' ? { status } : {})
 			};
 		}
-		// One post per master, so a slow master never holds back the others' results.
-		const res = await fetchImpl(new URL('/api/internal/verify-masters', siteUrl), {
-			method: 'POST',
-			headers: {
-				authorization: `Bearer ${workerSecret}`,
-				origin: siteUrl,
-				'content-type': 'application/json'
-			},
-			body: JSON.stringify({ results: [result] }),
-			signal: AbortSignal.timeout(25_000)
-		}).catch((e) => ({ ok: false, status: String(e) }));
-		if (!res.ok) {
+		// One post per master, so a slow master never holds back the others' results. A failed
+		// post is retried a few times with the same result: dropping it would cost the master an
+		// attempt, and throwing would make Netlify re-run the whole invocation.
+		const recorded = await postResult(fetchImpl, siteUrl, workerSecret, result, context.retryMs);
+		if (!recorded.ok) {
 			console.error(
 				JSON.stringify({
 					level: 'error',
 					msg: 'master check not recorded',
 					id: job.id,
-					status: res.status
+					status: recorded.status
 				})
 			);
 		}

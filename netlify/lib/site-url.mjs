@@ -1,26 +1,24 @@
 /**
  * The site a machine function should call back. Netlify's `URL` is the site's main (production)
  * address in every deploy context, so on a deploy preview or branch deploy a function would reach
- * production instead of its own deploy. Outside production, use the origin the function itself was
- * called on, but only when it is one of this site's own deploy hostnames
- * (`<prefix>--<SITE_NAME>.netlify.app`), because the worker secret is sent to it.
+ * production instead of its own deploy. Outside production, call the deploy's own permalink,
+ * `https://<deploy id>--<SITE_NAME>.netlify.app`, built from values Netlify documents as available
+ * to functions at runtime (`context.deploy.id`, `SITE_NAME`), never from the request. If they are
+ * missing outside production, fail rather than send the worker secret to production.
  *
- * @param {Request | undefined} req
- * @param {{ deploy?: { context?: string } } | undefined} context
+ * Without a deploy context at all, the main address is used, as before this existed.
+ *
+ * @param {{ deploy?: { context?: string; id?: string } } | undefined} context
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string | undefined}
  */
-export function siteUrlFor(req, context, env = process.env) {
+export function siteUrlFor(context, env = process.env) {
 	const deployContext = context?.deploy?.context;
-	if (deployContext && deployContext !== 'production' && req?.url && env.SITE_NAME) {
-		try {
-			const own = new URL(req.url);
-			if (own.protocol === 'https:' && own.hostname.endsWith(`--${env.SITE_NAME}.netlify.app`)) {
-				return own.origin;
-			}
-		} catch {
-			// Not a URL: fall back to the main address.
-		}
+	if (!deployContext || deployContext === 'production') return env.URL;
+	const id = context?.deploy?.id;
+	const site = env.SITE_NAME;
+	if (!id || !/^[0-9a-z]+$/.test(id) || !site || !/^[a-z0-9-]+$/.test(site)) {
+		throw new Error(`Cannot find this ${deployContext}'s own address; refusing to call production`);
 	}
-	return env.URL;
+	return `https://${id}--${site}.netlify.app`;
 }

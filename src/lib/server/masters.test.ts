@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { and, eq } from 'drizzle-orm';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isWavHeader, MULTIPART_THRESHOLD, PART_SIZE, wavProblem } from '../masters';
 import { auditLog, masters, memberships, orgs, recordings, type Role } from './db/schema';
 import { asUser } from './db/scoped';
@@ -53,6 +53,8 @@ class FakeStorage implements MasterStorage {
 	objects = new Map<string, { size: number; start: Uint8Array; sha256: string }>();
 	/** Set to make completeMultipart fail, as it does when R2 already completed the upload. */
 	failComplete = false;
+	/** Keys whose delete fails, as R2 might during an outage. */
+	failRemove = new Set<string>();
 	uploads = new Map<string, { key: string; completed?: Part[] }>();
 	signed: string[] = [];
 	removed: string[] = [];
@@ -86,6 +88,7 @@ class FakeStorage implements MasterStorage {
 		return o ? { size: o.size } : null;
 	}
 	async remove(key: string) {
+		if (this.failRemove.has(key)) throw new Error('R2 delete failed');
 		this.removed.push(key);
 		this.objects.delete(key);
 	}
@@ -569,8 +572,11 @@ describe('master uploads', () => {
 			);
 			return { id: start.masterId, objectKey };
 		};
-		const leaseOf = async (id: string, leaseMs?: number) =>
-			(await leaseVerifications(db, storage, { limit: 100, leaseMs })).find((j) => j.id === id);
+		/** Lease, with no backoff after a failed read unless one is given. */
+		const leaseOf = async (id: string, leaseMs?: number, backoffSeconds = 0) =>
+			(await leaseVerifications(db, storage, { limit: 100, leaseMs, backoffSeconds })).find(
+				(j) => j.id === id
+			);
 		const rejection = async (id: string) =>
 			(
 				await db
@@ -619,9 +625,10 @@ describe('master uploads', () => {
 			expect(await rejection(id)).toMatchObject({ reason: UNREADABLE });
 		});
 
-		it('rejects at once when the stored object is gone', async () => {
-			const { id } = await startVerifying();
+		it('rejects at once when the stored object is gone, by its own HEAD as well', async () => {
+			const { id, objectKey } = await startVerifying();
 			const job = await leaseOf(id);
+			storage.objects.delete(objectKey);
 			expect(
 				await recordVerification(db, storage, {
 					id,
@@ -632,6 +639,70 @@ describe('master uploads', () => {
 			).toBe('rejected');
 			expect(await keyOf(id)).toMatchObject({ status: 'rejected', verifyAttempts: 1 });
 			expect(await rejection(id)).toEqual({ status: 'rejected', reason: UNREADABLE, attempts: 1 });
+		});
+
+		it("retries a reader's 404 when its own HEAD still finds the object", async () => {
+			// R2 also answers 404 for a missing bucket: a misconfigured reader must not reject.
+			const { id, objectKey } = await startVerifying();
+			const job = await leaseOf(id);
+			expect(
+				await recordVerification(db, storage, {
+					id,
+					token: job!.token,
+					error: 'Error: storage answered HTTP 404',
+					status: 404
+				})
+			).toBe('retry');
+			expect((await keyOf(id)).status).toBe('verifying');
+			expect(storage.objects.has(objectKey)).toBe(true);
+		});
+
+		it('waits longer after each failed read before trying again', async () => {
+			const { id } = await startVerifying();
+			const first = await leaseOf(id, undefined, 60);
+			const failed = new Date();
+			expect(
+				await recordVerification(db, storage, { id, token: first!.token, error: 'HTTP 503' })
+			).toBe('retry');
+			const row = await keyOf(id);
+			// The lease ends, but the time of the failure is kept for the backoff.
+			expect(row.verifyToken).toBeNull();
+			expect(row.verifyStartedAt!.getTime()).toBeGreaterThanOrEqual(failed.getTime() - 5_000);
+			// 2^1 minutes have not passed: not leased again, even with an expired-lease setting.
+			expect(await leaseOf(id, 0, 60)).toBeUndefined();
+			// Once the backoff has passed (here: none), it is.
+			const again = await leaseOf(id, 0, 0);
+			expect(again).toBeDefined();
+			expect((await keyOf(id)).verifyAttempts).toBe(2);
+
+			// The backoff doubles: after a second failure, 2^2 minutes. Pretend 3 have passed.
+			await recordVerification(db, storage, { id, token: again!.token, error: 'HTTP 503' });
+			await db
+				.update(masters)
+				.set({ verifyStartedAt: new Date(Date.now() - 3 * 60_000) })
+				.where(eq(masters.id, id));
+			expect(await leaseOf(id, 0, 60)).toBeUndefined();
+			await db
+				.update(masters)
+				.set({ verifyStartedAt: new Date(Date.now() - 5 * 60_000) })
+				.where(eq(masters.id, id));
+			expect(await leaseOf(id, 0, 60)).toBeDefined();
+		});
+
+		it('an exhausted master whose file cannot be deleted does not block leasing', async () => {
+			const stuck = await startVerifying();
+			for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) await leaseOf(stuck.id, 0);
+			storage.failRemove.add(stuck.objectKey);
+			const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const other = await startVerifying();
+			// The sweep fails for the stuck master, and leasing still goes ahead.
+			expect(await leaseOf(other.id, 0)).toBeDefined();
+			error.mockRestore();
+			expect((await keyOf(stuck.id)).status).toBe('verifying');
+			// Once the delete works, the next run rejects it.
+			storage.failRemove.clear();
+			await leaseOf(other.id, 0);
+			expect((await keyOf(stuck.id)).status).toBe('rejected');
 		});
 
 		it('nothing uses a master while it is verifying', async () => {
@@ -696,7 +767,9 @@ describe('master uploads', () => {
 				verifyToken: null
 			});
 
-			const [third] = mine(await leaseVerifications(db, storage, { limit: 100 }));
+			const [third] = mine(
+				await leaseVerifications(db, storage, { limit: 100, backoffSeconds: 0 })
+			);
 			expect(await recordVerification(db, storage, readOf(third))).toBe('ready');
 			expect((await keyOf(start.masterId)).sha256).toBe(SHA);
 		});
@@ -849,7 +922,7 @@ describe('master uploads', () => {
 			await asUser(db, userId, (tx) =>
 				completeMasterUpload(tx, storage, ctx(userId, role), start.masterId, { sha256: SHA })
 			);
-			await verifyNow();
+			expect((await verifyNow())[start.masterId]).toBe('ready');
 			return start.masterId;
 		};
 
