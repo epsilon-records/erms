@@ -135,7 +135,7 @@
 		</div>
 	</header>
 
-	<main>
+	<div class="landing-body">
 		<section class="wrap hero">
 			<div class="copy">
 				<p class="kicker">Label software for independent labels</p>
@@ -260,7 +260,7 @@
 				<a href="/signup" class="dark">Start free</a>
 			</div>
 		</section>
-	</main>
+	</div>
 
 	<footer class="wrap">
 		<span>© 2015–2026 Epsilon Records · Amsterdam</span>
