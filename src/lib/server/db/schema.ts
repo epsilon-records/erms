@@ -54,6 +54,17 @@ export const orgs = pgTable(
 		 * (migration 0031). Null keeps the product's icon.
 		 */
 		faviconPng: text('favicon_png'),
+		/**
+		 * Self-serve custom domain (migration 0032, knowledge labelkit 0036). An owner requests a
+		 * domain; it becomes customDomain once its TXT record proves control and it is provisioned.
+		 */
+		domainRequested: text('domain_requested'),
+		/** The value the TXT record at _labelkit-verify.<domain> must hold. */
+		domainToken: text('domain_token'),
+		/** awaiting_dns | active | failed; null when the label has no domain. */
+		domainStatus: text('domain_status'),
+		/** Why the last verification or provisioning failed, for the settings page. */
+		domainError: text('domain_error'),
 		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		purgeAfter: timestamp('purge_after', { withTimezone: true })
@@ -73,6 +84,14 @@ export const orgs = pgTable(
 		check(
 			'orgs_favicon_png_format',
 			sql`${t.faviconPng} IS NULL OR (${t.faviconPng} LIKE 'iVBORw0KGgo%' AND length(${t.faviconPng}) <= 44000)`
+		),
+		check(
+			'orgs_domain_requested_format',
+			sql`${t.domainRequested} IS NULL OR ${t.domainRequested} ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'`
+		),
+		check(
+			'orgs_domain_status_value',
+			sql`${t.domainStatus} IS NULL OR ${t.domainStatus} IN ('awaiting_dns', 'active', 'failed')`
 		),
 		check(
 			'orgs_custom_domain_format',

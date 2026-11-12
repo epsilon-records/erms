@@ -100,7 +100,11 @@ export async function loadBranding(tx: Database, orgId: string) {
 			displayName: orgs.displayName,
 			accent: orgs.accentColor,
 			faviconPng: orgs.faviconPng,
-			customDomain: orgs.customDomain
+			customDomain: orgs.customDomain,
+			domainRequested: orgs.domainRequested,
+			domainToken: orgs.domainToken,
+			domainStatus: orgs.domainStatus,
+			domainError: orgs.domainError
 		})
 		.from(orgs)
 		.where(eq(orgs.id, orgId))
