@@ -30,7 +30,11 @@
 	} = $props();
 
 	/** The add form's errors: name and role sit under their control, anything else under the form. */
-	const formError = $derived(errors.name || errors.role ? undefined : errors.form);
+	const formErrors = $derived(
+		Object.entries(errors)
+			.filter(([k]) => k !== 'name' && k !== 'role')
+			.map(([, m]) => m)
+	);
 </script>
 
 <noscript
@@ -133,6 +137,6 @@
 	</form>
 	<p class="muted" style="margin: 0; font-size: 13px">New credits stay pending until approved.</p>
 {/if}
-{#if formError}
-	<div class="alert error" role="alert">{formError}</div>
+{#if formErrors.length}
+	<div class="alert error" role="alert">{formErrors.join('\n')}</div>
 {/if}

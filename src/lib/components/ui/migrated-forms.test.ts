@@ -328,6 +328,12 @@ describe('credits add form', () => {
 		);
 	});
 
+	it('shows an error that names no field of the add form under the form', () => {
+		const body = html(Credits, { ...props, errors: { partyId: 'Unknown artist' } });
+		expect(body).toMatch(/role="alert"[^>]*>Unknown artist/);
+		expect(tagWithId(body, 'credit-name')).not.toContain(' aria-invalid=');
+	});
+
 	it('sends a single role as a hidden field', () => {
 		const body = html(Credits, { ...props, roles: ['main'] });
 		expect(body).toMatch(/<input type="hidden" name="role" value="main"/);
