@@ -172,7 +172,9 @@
 					{/if}
 				</Field.Field>
 				<!-- Lines the button up with the controls: the 140 px label column plus the 20 px gap. -->
-				<div class="sm:pl-[160px]"><Button type="submit">Send invite</Button></div>
+				<div class="sm:pl-[160px]">
+					<Button type="submit" variant="primary">Send invite</Button>
+				</div>
 			</Field.Group>
 		{:else}
 			<p class="soft" style="margin: 0">

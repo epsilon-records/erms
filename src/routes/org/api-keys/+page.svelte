@@ -67,7 +67,7 @@
 					</Field.Field>
 				{/each}
 			</Field.Set>
-			<div><Button type="submit">Create key</Button></div>
+			<div><Button type="submit" variant="primary">Create key</Button></div>
 		</form>
 	</section>
 
@@ -95,7 +95,7 @@
 								<td>
 									<form method="POST" action="?/revoke">
 										<input type="hidden" name="id" value={key.id} />
-										<Button type="submit" variant="ghost">Revoke</Button>
+										<Button type="submit" variant="link">Revoke</Button>
 									</form>
 								</td>
 							</tr>

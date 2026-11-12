@@ -43,7 +43,7 @@
 					aria-describedby={error ? 'login-error' : undefined}
 				/>
 			</Field.Field>
-			<div><Button type="submit">Send login link</Button></div>
+			<div><Button type="submit" variant="primary">Send login link</Button></div>
 			{#if error}
 				<div id="login-error" class="alert error" role="alert">{error}</div>
 			{/if}
