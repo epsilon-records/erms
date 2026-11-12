@@ -9,9 +9,6 @@ info:
     previous page's `next_cursor` as `after`.
 servers:
   - url: https://api.labelkit.co
-    description: The API host.
-  - url: https://labelkit.co
-    description: The same API on the app's host, kept for existing keys and scripts.
 security:
   - apiKey: []
 paths:

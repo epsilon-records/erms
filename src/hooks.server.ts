@@ -17,7 +17,14 @@ import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
 import { isLandingRequest } from '#lib/server/landing.js';
 import { isMachineRoute, isPublicPath, PUBLIC_PAGES } from '#lib/server/public-paths.js';
 import { keyFromHeader, resolveApiKey } from '#lib/server/api-keys.js';
-import { API_INDEX, apiHostRoute, isApiHost, OPENAPI_PATH } from '#lib/server/api-host.js';
+import {
+	API_INDEX,
+	API_MOVED,
+	apiHostRoute,
+	isApiHost,
+	OPENAPI_PATH,
+	servesApiForTesting
+} from '#lib/server/api-host.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
@@ -164,6 +171,9 @@ export const handle: Handle = async (input) => {
 			route === 'index' ? API_INDEX : { error: { code: 'not_found', message: 'Not found.' } }
 		);
 	}
+	// labelkit.co and custom domains don't serve the API; only local dev and previews still do.
+	if (path.startsWith('/v1/') && !servesApiForTesting(input.event.url.host))
+		return jsonResponse(404, API_MOVED);
 	if (path === OPENAPI_PATH) return publicApiDocument(input);
 	// Supabase Auth's Send Email hook (EPSILON-147): a machine caller with no session. It skips
 	// cookies, Auth and branding, and gets only the labelkit_auth_email runner; the route verifies the

@@ -71,8 +71,25 @@ it('requires a Bearer key for /v1 on the API host and never reads cookies', asyn
 	expect(spies.auth).not.toHaveBeenCalled();
 });
 
-it('serves the OpenAPI document without a key on both hosts', async () => {
-	for (const host of ['api.labelkit.co', 'labelkit.co']) {
+it('does not serve the API on labelkit.co or a custom domain, naming the API host', async () => {
+	for (const href of [
+		'https://labelkit.co/v1/releases',
+		'https://labelkit.co/v1/openapi.yaml',
+		'https://erms.epsilonrecords.com/v1/recordings'
+	]) {
+		const res = await handle({ event: event(href), resolve: never } as never);
+		expect(res.status, href).toBe(404);
+		expect((await res.json()).error.message).toContain('https://api.labelkit.co');
+	}
+	expect(never).not.toHaveBeenCalled();
+});
+
+it('serves the OpenAPI document without a key on the API host and on previews', async () => {
+	for (const host of [
+		'api.labelkit.co',
+		'deploy-preview-93--labelkit.netlify.app',
+		'localhost:5173'
+	]) {
 		const resolve = vi.fn(async () => new Response('openapi: 3.1.0', { status: 200 }));
 		const e = event(`https://${host}/v1/openapi.yaml`);
 		const res = await handle({ event: e, resolve } as never);
