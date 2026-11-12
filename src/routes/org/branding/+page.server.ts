@@ -3,6 +3,7 @@ import { clearBrandCache } from '#lib/server/branding.js';
 import {
 	BrandingError,
 	checkIcon,
+	type IconChange,
 	ICON_MAX_PX,
 	ICON_MIN_PX,
 	loadBranding,
@@ -79,22 +80,26 @@ export const actions: Actions = {
 		try {
 			const displayName = parseDisplayName(displayNameIn);
 			const accent = parseAccent(accentIn);
-			const current = await locals.db((tx) => loadBranding(tx, m.orgId));
-			let faviconPng = current?.faviconPng ?? null;
+			let icon: IconChange = 'keep';
 			const upload = form.get('icon');
 			if (form.get('removeIcon') === 'on') {
-				faviconPng = null;
+				icon = 'remove';
 			} else if (upload instanceof File && upload.size > 0) {
 				const bytes = new Uint8Array(await upload.arrayBuffer());
 				checkIcon(bytes);
-				faviconPng = Buffer.from(bytes).toString('base64');
+				icon = { png: Buffer.from(bytes).toString('base64') };
 			}
-			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, faviconPng }));
+			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, icon }));
 			clearBrandCache();
 			return { saved: true };
 		} catch (e) {
 			if (e instanceof BrandingError) {
-				return fail(e.status, { error: e.message, displayName: displayNameIn, accent: accentIn });
+				return fail(e.status, {
+					error: e.message,
+					field: e.field ?? null,
+					displayName: displayNameIn,
+					accent: accentIn
+				});
 			}
 			throw e;
 		}

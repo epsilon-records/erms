@@ -1,3 +1,4 @@
+import { crc32, inflateSync } from 'node:zlib';
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from './audit';
 import { orgs } from './db/schema';
@@ -9,10 +10,14 @@ import { orgs } from './db/schema';
  * writes the audit log.
  */
 
+export type BrandingField = 'displayName' | 'accent' | 'icon';
+
 export class BrandingError extends Error {
 	constructor(
 		readonly status: 400 | 403,
-		message: string
+		message: string,
+		/** The form field the error is about, so the page can mark that input invalid. */
+		readonly field?: BrandingField
 	) {
 		super(message);
 	}
@@ -29,27 +34,63 @@ const codeOf = (e: unknown) =>
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
+const notPng = () => new BrandingError(400, 'The icon must be a PNG file.', 'icon');
+
+/**
+ * Walks the PNG's chunks: each must be complete with a correct CRC, the file must end with IEND,
+ * and its IDAT data must inflate. That refuses a header with no image, or a truncated file, which
+ * would otherwise be saved and then show as a broken icon.
+ */
+function checkPngBody(bytes: Uint8Array, view: DataView) {
+	const idat: Uint8Array[] = [];
+	let at = 8;
+	let ended = false;
+	while (at + 12 <= bytes.length && !ended) {
+		const length = view.getUint32(at);
+		const end = at + 12 + length;
+		if (end > bytes.length) throw notPng();
+		const typeAndData = bytes.subarray(at + 4, at + 8 + length);
+		if (crc32(typeAndData) !== view.getUint32(at + 8 + length)) throw notPng();
+		const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+		if (type === 'IDAT') idat.push(bytes.subarray(at + 8, at + 8 + length));
+		ended = type === 'IEND';
+		at = end;
+	}
+	if (!ended || idat.length === 0) throw notPng();
+	try {
+		if (inflateSync(Buffer.concat(idat)).length === 0) throw notPng();
+	} catch {
+		throw notPng();
+	}
+}
+
 /** Checks a tab icon upload: a square PNG, 32 to 512 px, at most 32 KiB. Returns its size. */
 export function checkIcon(bytes: Uint8Array): { size: number } {
 	if (bytes.length > ICON_MAX_BYTES) {
-		throw new BrandingError(400, 'The icon must be 32 KB or smaller.');
+		throw new BrandingError(400, 'The icon must be 32 KB or smaller.', 'icon');
 	}
-	const isPng = bytes.length >= 24 && PNG_SIGNATURE.every((b, i) => bytes[i] === b);
+	const isPng = bytes.length >= 33 && PNG_SIGNATURE.every((b, i) => bytes[i] === b);
 	// The first chunk of a PNG is IHDR: width and height as big-endian uint32 at bytes 16 and 20.
 	const ihdr = isPng && String.fromCharCode(...bytes.subarray(12, 16)) === 'IHDR';
-	if (!ihdr) throw new BrandingError(400, 'The icon must be a PNG file.');
+	if (!ihdr) throw notPng();
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const width = view.getUint32(16);
 	const height = view.getUint32(20);
 	if (width !== height) {
-		throw new BrandingError(400, `The icon must be square; this one is ${width}×${height} px.`);
+		throw new BrandingError(
+			400,
+			`The icon must be square; this one is ${width}×${height} px.`,
+			'icon'
+		);
 	}
 	if (width < ICON_MIN_PX || width > ICON_MAX_PX) {
 		throw new BrandingError(
 			400,
-			`The icon must be between ${ICON_MIN_PX} and ${ICON_MAX_PX} px square; this one is ${width} px.`
+			`The icon must be between ${ICON_MIN_PX} and ${ICON_MAX_PX} px square; this one is ${width} px.`,
+			'icon'
 		);
 	}
+	checkPngBody(bytes, view);
 	return { size: width };
 }
 
@@ -58,7 +99,7 @@ export function parseDisplayName(input: string): string | null {
 	const name = input.trim();
 	if (!name) return null;
 	if (name.length > 60)
-		throw new BrandingError(400, 'The display name can be at most 60 characters.');
+		throw new BrandingError(400, 'The display name can be at most 60 characters.', 'displayName');
 	return name;
 }
 
@@ -67,23 +108,34 @@ export function parseAccent(input: string): string | null {
 	const hex = input.trim().replace(/^#/, '');
 	if (!hex) return null;
 	if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
-		throw new BrandingError(400, 'The accent colour must be a hex colour such as #c6f432.');
+		throw new BrandingError(
+			400,
+			'The accent colour must be a hex colour such as #c6f432.',
+			'accent'
+		);
 	}
 	return `#${hex.toLowerCase()}`;
 }
 
+/**
+ * What a save does to the icon. 'keep' leaves the stored icon as it is when the database locks the
+ * row, so saving only the name or accent cannot undo another owner's upload made in between.
+ */
+export type IconChange = 'keep' | 'remove' | { png: string };
+
 export type BrandingSettings = {
 	displayName: string | null;
 	accent: string | null;
-	/** Base64 PNG, or null for the product's icon. */
-	faviconPng: string | null;
+	icon: IconChange;
 };
 
-/** Saves all three settings at once, as the signed-in user (an owner), through `locals.db`. */
+/** Saves the settings at once, as the signed-in user (an owner), through `locals.db`. */
 export async function saveBranding(tx: Database, orgId: string, s: BrandingSettings) {
+	const op = typeof s.icon === 'string' ? s.icon : 'replace';
+	const png = typeof s.icon === 'string' ? null : s.icon.png;
 	try {
 		await tx.execute(
-			sql`select app.set_org_branding(${orgId}::uuid, ${s.displayName}, ${s.accent}, ${s.faviconPng})`
+			sql`select app.set_org_branding(${orgId}::uuid, ${s.displayName}, ${s.accent}, ${op}, ${png})`
 		);
 	} catch (e) {
 		const code = codeOf(e);
