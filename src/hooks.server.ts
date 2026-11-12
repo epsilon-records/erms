@@ -154,7 +154,7 @@ const ordinaryHandle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) :
 export const handle: Handle = async (input) => {
 	const path = input.event.url.pathname;
 	// Supabase Auth's Send Email hook (EPSILON-147): a machine caller with no session. It skips
-	// cookies, Auth and branding, and gets only the erms_auth_email runner; the route verifies the
+	// cookies, Auth and branding, and gets only the labelkit_auth_email runner; the route verifies the
 	// hook's signature before it uses even that.
 	if (path === AUTH_EMAIL_HOOK_PATH) {
 		input.event.locals.db = authEmailRunner();
@@ -167,7 +167,7 @@ export const handle: Handle = async (input) => {
 		)
 			return empty(401);
 		input.event.locals.db = metricsRunner(
-			path === '/api/app-metrics' ? 'erms_metrics_ingest' : 'erms_metrics_prune'
+			path === '/api/app-metrics' ? 'labelkit_metrics_ingest' : 'labelkit_metrics_prune'
 		);
 		try {
 			// Netlify injects W3C trace context after the browser's credential-free fetch.

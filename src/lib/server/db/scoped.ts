@@ -5,11 +5,23 @@ import type { Database } from '../audit';
 export const APP_ROLE = 'labelkit_app';
 
 /**
- * The same role's name before migration 0028 renamed it. A transaction uses APP_ROLE when it
- * exists and this one otherwise, so the rename and the deploy can land in either order.
- * Remove the fallback once 0028 is on production.
+ * Each role's name before migration 0028 renamed it from erms_* to labelkit_*. Switching to a
+ * role picks the new name when it exists and the old one otherwise, so the rename and the
+ * deploy can land in either order. Remove the fallback once 0028 is on production.
  */
-export const LEGACY_APP_ROLE = 'erms_app';
+const LEGACY_NAMES = {
+	labelkit_app: 'erms_app',
+	labelkit_auth_email: 'erms_auth_email',
+	labelkit_metrics_ingest: 'erms_metrics_ingest',
+	labelkit_metrics_prune: 'erms_metrics_prune'
+} as const;
+type RoleName = keyof typeof LEGACY_NAMES;
+
+/** The role to switch to: `name` if the database has it, else its pre-0028 name. */
+function roleName(name: RoleName) {
+	const legacy = LEGACY_NAMES[name];
+	return sql`(select coalesce(max(rolname) filter (where rolname = ${name}), ${legacy}) from pg_roles where rolname in (${name}, ${legacy}))`;
+}
 
 export type Scoped = <T>(fn: (tx: Database) => Promise<T>) => Promise<T>;
 
@@ -23,7 +35,7 @@ export type Scoped = <T>(fn: (tx: Database) => Promise<T>) => Promise<T>;
 export function asUser<T>(db: Database, userId: string, fn: (tx: Database) => Promise<T>) {
 	return db.transaction(async (tx) => {
 		await tx.execute(
-			sql`select set_config('role', (select coalesce(max(rolname) filter (where rolname = ${APP_ROLE}), ${LEGACY_APP_ROLE}) from pg_roles where rolname in (${APP_ROLE}, ${LEGACY_APP_ROLE})), true), set_config('request.jwt.claim.sub', ${userId}, true)`
+			sql`select set_config('role', ${roleName(APP_ROLE)}, true), set_config('request.jwt.claim.sub', ${userId}, true)`
 		);
 		return fn(tx);
 	});
@@ -39,17 +51,17 @@ export function scopedTo(db: Database, userId: string): Scoped {
  * app_auth_email.member_org_ids() and nothing else. No JWT identity is set. Called only inside a
  * transaction owned by client.ts, after the route has verified the hook's signature.
  */
-export const AUTH_EMAIL_ROLE = 'erms_auth_email';
+export const AUTH_EMAIL_ROLE = 'labelkit_auth_email';
 export async function setAuthEmailRole(tx: Database) {
 	await tx.execute(
-		sql`select set_config('role', ${AUTH_EMAIL_ROLE}, true), set_config('statement_timeout', '1000ms', true)`
+		sql`select set_config('role', ${roleName(AUTH_EMAIL_ROLE)}, true), set_config('statement_timeout', '1000ms', true)`
 	);
 }
 
-export type MetricsRole = 'erms_metrics_ingest' | 'erms_metrics_prune';
+export type MetricsRole = 'labelkit_metrics_ingest' | 'labelkit_metrics_prune';
 /** Called only inside a reserved transaction owned by client.ts. No JWT identity is set. */
 export async function setMetricsRole(tx: Database, role: MetricsRole) {
 	await tx.execute(
-		sql`select set_config('role', ${role}, true), set_config('lock_timeout', '100ms', true), set_config('statement_timeout', '250ms', true)`
+		sql`select set_config('role', ${roleName(role)}, true), set_config('lock_timeout', '100ms', true), set_config('statement_timeout', '250ms', true)`
 	);
 }

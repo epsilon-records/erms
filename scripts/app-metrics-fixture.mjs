@@ -167,7 +167,7 @@ try {
 			const { metricsRunner } = await server.ssrLoadModule(
 				resolve(repo, 'src/lib/server/db/client.ts')
 			);
-			run = metricsRunner('erms_metrics_ingest');
+			run = metricsRunner('labelkit_metrics_ingest');
 		}
 	}
 	process.stdout.write(

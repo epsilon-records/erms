@@ -465,8 +465,8 @@ for (const role of [
 	'anon',
 	'authenticated',
 	'labelkit_app',
-	'erms_metrics_ingest',
-	'erms_metrics_prune'
+	'labelkit_metrics_ingest',
+	'labelkit_metrics_prune'
 ]) {
 	for (const claim of [IDS.u1, IDS.u2]) {
 		for (const probe of [
@@ -481,7 +481,7 @@ for (const role of [
 				expect: 'error',
 				errorCode: '42501'
 			});
-		if (!role.startsWith('erms_metrics_'))
+		if (!role.startsWith('labelkit_metrics_'))
 			RLS_CASES.push({
 				name: `${role} cannot execute metrics as tenant owner`,
 				role,
@@ -492,7 +492,7 @@ for (const role of [
 			});
 	}
 }
-for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
+for (const role of ['labelkit_metrics_ingest', 'labelkit_metrics_prune']) {
 	RLS_CASES.push({
 		requiresSupabaseRoles: true,
 		name: `${role} has no catalogue rights`,
@@ -508,7 +508,7 @@ for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
 		role,
 		claim: null,
 		probe:
-			role === 'erms_metrics_ingest'
+			role === 'labelkit_metrics_ingest'
 				? 'SELECT app_metrics.prune()'
 				: 'SELECT app_metrics.record(1::smallint,1::smallint,1::smallint)',
 		expect: 'error',
@@ -516,7 +516,7 @@ for (const role of ['erms_metrics_ingest', 'erms_metrics_prune']) {
 	});
 }
 
-// The Send Email hook's lookup (migration 0025, EPSILON-147): only erms_auth_email may call it, and
+// The Send Email hook's lookup (migration 0025, EPSILON-147): only labelkit_auth_email may call it, and
 // that role can read nothing else. A signed-in user must not learn another account's labels.
 for (const role of ['anon', 'authenticated', 'labelkit_app']) {
 	RLS_CASES.push({
@@ -531,8 +531,8 @@ for (const role of ['anon', 'authenticated', 'labelkit_app']) {
 }
 RLS_CASES.push({
 	requiresSupabaseRoles: false,
-	name: 'erms_auth_email reads one account’s org ids through the lookup',
-	role: 'erms_auth_email',
+	name: 'labelkit_auth_email reads one account’s org ids through the lookup',
+	role: 'labelkit_auth_email',
 	claim: null,
 	probe: `SELECT array_to_string(app_auth_email.member_org_ids('${IDS.u1}'), ',')`,
 	expect: IDS.orgA
@@ -543,8 +543,8 @@ for (const probe of [
 ]) {
 	RLS_CASES.push({
 		requiresSupabaseRoles: false,
-		name: `erms_auth_email has no table rights: ${probe}`,
-		role: 'erms_auth_email',
+		name: `labelkit_auth_email has no table rights: ${probe}`,
+		role: 'labelkit_auth_email',
 		claim: null,
 		probe,
 		expect: 'error',

@@ -277,7 +277,7 @@ the two emails of a secure email change go out at once, not one after the other.
   two signatures joined by `", "`; either one verifying is enough. Code:
   `src/lib/server/auth-email/`.
 - **Database access.** The route has no signed-in user and never gets the owner connection.
-  `hooks.server.ts` gives this exact path a runner that switches to `erms_auth_email` (migration
+  `hooks.server.ts` gives this exact path a runner that switches to `labelkit_auth_email` (migration
   `0025`): no login, no BYPASSRLS, no table rights, and EXECUTE on one SECURITY DEFINER function,
   `app_auth_email.member_org_ids(uuid)`, which returns that account's org ids and nothing else. The
   signature is checked before the runner is used.
