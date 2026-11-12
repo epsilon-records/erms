@@ -82,11 +82,11 @@ export const actions: Actions = {
 		const seenDisplayNameIn = String(form.get('seenDisplayName') ?? '');
 		const seenAccentIn = String(form.get('seenAccent') ?? '');
 		const seen = { displayName: seenDisplayNameIn || null, accent: seenAccentIn || null };
+		const upload = form.get('icon');
 		try {
 			const displayName = parseDisplayName(displayNameIn);
 			const accent = parseAccent(accentIn);
 			let icon: IconChange = 'keep';
-			const upload = form.get('icon');
 			if (form.get('removeIcon') === 'on') {
 				icon = 'remove';
 			} else if (upload instanceof File && upload.size > 0) {
@@ -110,7 +110,9 @@ export const actions: Actions = {
 					seenDisplayName: seenDisplayNameIn,
 					seenAccent: seenAccentIn,
 					// Keep the owner's "use LabelKit's icon again" choice for the corrected resubmit.
-					removeIcon: form.get('removeIcon') === 'on'
+					removeIcon: form.get('removeIcon') === 'on',
+					// A browser cannot refill a file input, so the page asks for the icon again.
+					iconUploadWasSelected: upload instanceof File && upload.size > 0
 				});
 			}
 			throw e;

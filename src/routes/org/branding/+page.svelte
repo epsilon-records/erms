@@ -21,6 +21,14 @@
 	);
 	const domainInput = $derived(form && 'domainInput' in form ? form.domainInput : '');
 	const removeIcon = $derived(form && 'removeIcon' in form ? form.removeIcon === true : false);
+	// The icon chosen before a field error is gone (a file input cannot be refilled); say so,
+	// unless the error is about the icon itself.
+	const reselectIcon = $derived(
+		!!form &&
+			'iconUploadWasSelected' in form &&
+			form.iconUploadWasSelected === true &&
+			field !== 'icon'
+	);
 	// The values this form was loaded with. After a validation error, keep the original ones so a
 	// change another owner made meanwhile is still caught.
 	const seenDisplayName = $derived(
@@ -94,6 +102,11 @@
 				</div>
 			{/if}
 			<Input id="icon" name="icon" type="file" accept="image/png" {...invalid('icon')} />
+			{#if reselectIcon}
+				<p class="alert" role="status">
+					Your icon was not saved because of the error above. Select it again before saving.
+				</p>
+			{/if}
 			<Field.Description>
 				A square PNG, {data.iconMin} to {data.iconMax} px, up to 32 KB. It replaces LabelKit's icon in
 				the browser tab on your domain.
