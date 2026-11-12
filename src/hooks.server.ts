@@ -26,6 +26,7 @@ import {
 	servesApiForTesting
 } from '#lib/server/api-host.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
+import { verifiedUser } from '#lib/server/session-user.js';
 
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
 const isNoLabelAllowed = (path: string) => isPublicPath(path) || path === '/logout';
@@ -77,26 +78,22 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	// Per-customer branding by host (EPSILON-132), before sign-in so the login page is branded too.
 	// Pages only: API and machine paths never need it and stay off the owner connection here. A
 	// failed lookup must never take the login page down: fall back to LabelKit's own branding.
-	event.locals.brand = event.url.pathname.startsWith('/api/')
-		? DEFAULT_BRAND
-		: await Promise.resolve()
+	// Branding, Auth and the membership read run side by side: each waits on Frankfurt from Ohio
+	// (EPSILON-145, knowledge labelkit/decisions/0029).
+	const brand = event.url.pathname.startsWith('/api/')
+		? Promise.resolve(DEFAULT_BRAND)
+		: Promise.resolve()
 				.then(() => brandForHost(db(), event.url.host))
 				.catch(() => DEFAULT_BRAND);
 
 	// getUser() asks Supabase Auth to verify the token; never trust getSession() alone on the server.
-	const {
-		data: { user }
-	} = await event.locals.supabase.auth.getUser();
-	event.locals.user = user;
-	event.locals.membership = null;
-	event.locals.memberships = [];
-	event.locals.db = () => error(401, 'Sign in first.');
-
-	if (user) {
+	// verifiedUser() takes the user from getUser() only, and reads the memberships alongside it.
+	const signedIn = await verifiedUser(event.locals.supabase.auth, (userId) =>
 		// Every query for this request runs as labelkit_app on behalf of this user, under RLS.
-		const scoped = scopedTo(db(), user.id);
-		event.locals.db = scoped;
-		const rows = await scoped((tx) =>
+		scopedTo(
+			db(),
+			userId
+		)((tx) =>
 			tx
 				.select({
 					orgId: memberships.orgId,
@@ -107,9 +104,20 @@ const appHandle: Handle = async ({ event, resolve }) => {
 				})
 				.from(memberships)
 				.innerJoin(orgs, eq(orgs.id, memberships.orgId))
-				.where(eq(memberships.userId, user.id))
+				.where(eq(memberships.userId, userId))
 				.orderBy(asc(memberships.createdAt), asc(orgs.name))
-		);
+		)
+	);
+	const user = signedIn?.user ?? null;
+	event.locals.brand = await brand;
+	event.locals.user = user;
+	event.locals.membership = null;
+	event.locals.memberships = [];
+	event.locals.db = () => error(401, 'Sign in first.');
+
+	if (signedIn) {
+		event.locals.db = scopedTo(db(), signedIn.user.id);
+		const rows = signedIn.loaded;
 		event.locals.memberships = rows;
 		// On a customer's own domain, act in that label when the user belongs to it.
 		event.locals.membership = pickMembership(

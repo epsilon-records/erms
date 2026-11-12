@@ -1,6 +1,11 @@
 import { it, expect, vi } from 'vitest';
 const spies = vi.hoisted(() => ({
-	auth: vi.fn(() => ({ auth: { getUser: async () => ({ data: { user: null } }) } })),
+	auth: vi.fn(() => ({
+		auth: {
+			getSession: async () => ({ data: { session: null } }),
+			getUser: async () => ({ data: { user: null } })
+		}
+	})),
 	sentry: vi.fn(),
 	runner: vi.fn(() => vi.fn())
 }));
