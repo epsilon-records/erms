@@ -108,7 +108,9 @@ export const actions: Actions = {
 					displayName: displayNameIn,
 					accent: accentIn,
 					seenDisplayName: seenDisplayNameIn,
-					seenAccent: seenAccentIn
+					seenAccent: seenAccentIn,
+					// Keep the owner's "use LabelKit's icon again" choice for the corrected resubmit.
+					removeIcon: form.get('removeIcon') === 'on'
 				});
 			}
 			throw e;

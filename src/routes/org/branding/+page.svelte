@@ -20,6 +20,7 @@
 		form && 'domainError' in form ? form.domainError : data.domain.error
 	);
 	const domainInput = $derived(form && 'domainInput' in form ? form.domainInput : '');
+	const removeIcon = $derived(form && 'removeIcon' in form ? form.removeIcon === true : false);
 	// The values this form was loaded with. After a validation error, keep the original ones so a
 	// change another owner made meanwhile is still caught.
 	const seenDisplayName = $derived(
@@ -99,7 +100,7 @@
 			</Field.Description>
 			{#if data.icon}
 				<Field.Field orientation="horizontal" class="w-fit">
-					<Checkbox id="remove-icon" name="removeIcon" />
+					<Checkbox id="remove-icon" name="removeIcon" checked={removeIcon} />
 					<Field.Label for="remove-icon">Use LabelKit's icon again</Field.Label>
 				</Field.Field>
 			{/if}
