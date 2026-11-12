@@ -5,7 +5,9 @@
   command = "cd .. && corepack enable && pnpm install --frozen-lockfile && pnpm build-storybook -o storybook-site/dist"
   publish = "dist"
   # Each production deploy costs 15 Free-plan credits: only build when the UI or Storybook changed.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib/components/ui ../src/lib/utils.ts ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
+  # On a site's first build Netlify sets CACHED_COMMIT_REF to COMMIT_REF, which would make the diff
+  # empty and skip it forever, so equal refs always build.
+  ignore = "test \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib/components/ui ../src/lib/utils.ts ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
 
 [build.environment]
   NODE_VERSION = "22"
