@@ -4,8 +4,10 @@
 
 [build.environment]
   NODE_VERSION = "22"
-  # R2 account IDs are public endpoint identifiers, not credentials.
-  SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID"
+  # R2 account IDs are public endpoint identifiers, not credentials. STORYBOOK_PASSWORD is the
+  # shared soft gate from shared 0047; its value is the word "storybook", which appears throughout
+  # the repo, so the scanner would fail every build on it.
+  SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID,STORYBOOK_PASSWORD"
 
 # Static assets don't pass through the SvelteKit server, so they get the same headers here.
 [[headers]]
