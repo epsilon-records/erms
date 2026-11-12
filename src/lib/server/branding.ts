@@ -18,6 +18,21 @@ export function normalizeHost(host: string | null | undefined): string | null {
 	return h || null;
 }
 
+/**
+ * The tab icon per customer domain, kept in code (no database column): a customer whose own mark
+ * should replace LabelKit's in the browser tab. Every other host gets LabelKit's icon.
+ */
+export type BrandIcon = 'labelkit' | 'epsilon';
+const BRAND_ICONS: Record<string, BrandIcon> = {
+	'erms.epsilonrecords.com': 'epsilon'
+};
+
+/** "ERMS.EpsilonRecords.com:443" → "epsilon"; "labelkit.co" → "labelkit". */
+export function brandIcon(host: string | null | undefined): BrandIcon {
+	const key = normalizeHost(host);
+	return (key && BRAND_ICONS[key]) || 'labelkit';
+}
+
 const TTL_MS = 60_000;
 const cache = new Map<string, { brand: Brand; at: number }>();
 

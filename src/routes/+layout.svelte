@@ -10,6 +10,7 @@
 	import { createCollector, documentLifetime } from '#lib/app-metrics-client.js';
 	import { isMetricsOrigin } from '#lib/app-metrics-contract.js';
 	import favicon from '#lib/assets/favicon.svg';
+	import epsilonFavicon from '#lib/assets/epsilon-favicon.svg';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
@@ -89,7 +90,7 @@
 {#if collector}<AppMetrics {collector} />{/if}
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href={data.icon === 'epsilon' ? epsilonFavicon : favicon} />
 	<title>{brandName}</title>
 </svelte:head>
 
