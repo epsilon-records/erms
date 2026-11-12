@@ -20,6 +20,12 @@
 		form && 'domainError' in form ? form.domainError : data.domain.error
 	);
 	const domainInput = $derived(form && 'domainInput' in form ? form.domainInput : '');
+	// The values this form was loaded with. After a validation error, keep the original ones so a
+	// change another owner made meanwhile is still caught.
+	const seenDisplayName = $derived(
+		form && 'seenDisplayName' in form ? form.seenDisplayName : (data.displayName ?? '')
+	);
+	const seenAccent = $derived(form && 'seenAccent' in form ? form.seenAccent : (data.accent ?? ''));
 </script>
 
 <svelte:head><title>Branding · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
@@ -44,6 +50,8 @@
 	{/if}
 
 	<form method="POST" action="?/save" enctype="multipart/form-data" class="stack">
+		<input type="hidden" name="seenDisplayName" value={seenDisplayName} />
+		<input type="hidden" name="seenAccent" value={seenAccent} />
 		<Field.Field class="max-w-[480px]">
 			<Field.Label for="display-name">Display name</Field.Label>
 			<Input

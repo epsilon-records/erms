@@ -14,7 +14,7 @@ export type BrandingField = 'displayName' | 'accent' | 'icon';
 
 export class BrandingError extends Error {
 	constructor(
-		readonly status: 400 | 403,
+		readonly status: 400 | 403 | 409,
 		message: string,
 		/** The form field the error is about, so the page can mark that input invalid. */
 		readonly field?: BrandingField
@@ -207,19 +207,30 @@ export type BrandingSettings = {
 	displayName: string | null;
 	accent: string | null;
 	icon: IconChange;
+	/**
+	 * The name and accent the form was loaded with. When given, the save is refused with a 409 if
+	 * another owner changed either since, instead of writing the form's older values over theirs.
+	 */
+	seen?: { displayName: string | null; accent: string | null };
 };
+
+/** Shown when another owner saved while this form was open. */
+export const STALE_BRANDING =
+	'Another owner changed the branding while you had this page open. The form now shows their version: make your change again and save.';
 
 /** Saves the settings at once, as the signed-in user (an owner), through `locals.db`. */
 export async function saveBranding(tx: Database, orgId: string, s: BrandingSettings) {
 	const op = typeof s.icon === 'string' ? s.icon : 'replace';
 	const png = typeof s.icon === 'string' ? null : s.icon.png;
+	const seen = s.seen ?? { displayName: null, accent: null };
 	try {
 		await tx.execute(
-			sql`select app.set_org_branding(${orgId}::uuid, ${s.displayName}, ${s.accent}, ${op}, ${png})`
+			sql`select app.set_org_branding(${orgId}::uuid, ${s.displayName}, ${s.accent}, ${op}, ${png}, ${s.seen !== undefined}, ${seen.displayName}, ${seen.accent})`
 		);
 	} catch (e) {
 		const code = codeOf(e);
 		if (code === '42501') throw new BrandingError(403, 'Only an owner can change the branding.');
+		if (code === '40001') throw new BrandingError(409, STALE_BRANDING);
 		throw e;
 	}
 }
