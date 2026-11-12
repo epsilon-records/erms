@@ -125,6 +125,34 @@ describe('checkIcon', () => {
 		expect(checkIcon(fine)).toEqual({ size: 32 });
 	});
 
+	it('refuses a palette image with no PLTE chunk', () => {
+		// Colour type 3 (palette), 8-bit, with valid rows of index 0 but no palette to index into.
+		const chunk = (type: string, data: Uint8Array) => {
+			const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+			const out = Buffer.alloc(12 + data.length);
+			out.writeUInt32BE(data.length, 0);
+			body.copy(out, 4);
+			out.writeUInt32BE(crc32(body), 8 + data.length);
+			return out;
+		};
+		const ihdr = Buffer.alloc(13);
+		ihdr.writeUInt32BE(32, 0);
+		ihdr.writeUInt32BE(32, 4);
+		ihdr.set([8, 3, 0, 0, 0], 8);
+		const parts = (plte: boolean) =>
+			new Uint8Array(
+				Buffer.concat([
+					Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+					chunk('IHDR', ihdr),
+					...(plte ? [chunk('PLTE', new Uint8Array([0, 0, 0]))] : []),
+					chunk('IDAT', deflateSync(Buffer.alloc(33 * 32))),
+					chunk('IEND', new Uint8Array())
+				])
+			);
+		refused(() => checkIcon(parts(false)), /PNG/);
+		expect(checkIcon(parts(true))).toEqual({ size: 32 });
+	});
+
 	it('names the icon field in its errors, so the page marks that input', () => {
 		try {
 			checkIcon(png(16));
