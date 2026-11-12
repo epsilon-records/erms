@@ -420,6 +420,32 @@ Phase 0 foundation → 1 catalog core → 2 rights and contracts → 3 AudioKit 
 
 Music intelligence (an artist graph from open music data) is out of scope for now and will be planned separately in AudioKit.
 
+### Cloudflare Web Analytics on the public pages
+
+Under shared decisions 0011 and 0016, Cloudflare Web Analytics runs on LabelKit's public, signed-out
+pages and nowhere else: `/` (the landing page only, not the dashboard), `/login`, `/signup`,
+`/privacy` and `/terms`. Signed-in app pages, `/signup/label`, `/auth/*`, the error page, label
+workspaces and branded domains never load the beacon. The reason is that the beacon reads the address
+when it sends, so after a client-side navigation into the app it could report a sensitive path.
+
+- `src/lib/components/PublicAnalytics.svelte` is mounted by those five pages only, never by a layout.
+  It loads `https://static.cloudflareinsights.com/beacon.min.js` (`spa: false`, `no-referrer`) once
+  per document. The guards in `src/lib/public-analytics.ts` follow audiokit.ai's loader: the token
+  is set, Netlify's build context is `production`, the origin is exactly `https://labelkit.co`, the
+  visitor is signed out, and the current URL, the document's original navigation and the referrer
+  have no query or fragment and are on the allowed paths.
+- A document with the beacon turns every later navigation to another page into a full page load, so
+  the beacon never follows the visitor into the app. Jumps within the same page (`#pricing`) stay
+  client-side.
+- Configuration: `PUBLIC_CLOUDFLARE_WEB_ANALYTICS_TOKEN`, the public site token of a manual
+  (JS snippet) Web Analytics site for `labelkit.co`. Set it in Netlify's production context only.
+  If it is unset or isn't 32 hex characters, nothing loads. Don't use Cloudflare's automatic setup
+  for labelkit.co: it would inject the beacon on every page, the app included.
+- CSP: `script-src https://static.cloudflareinsights.com` and `connect-src https://cloudflareinsights.com`
+  (`vite.config.ts`).
+- `src/lib/public-analytics.test.ts` pins which pages mount the loader, tests the guards and the
+  full-load boundary, and checks the CSP and the privacy notice.
+
 ### Disabled first-party app performance pilot (EPSILON-107)
 
 Both `APP_METRICS_ENABLED` and `PUBLIC_APP_METRICS_ENABLED` default to **false**.

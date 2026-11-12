@@ -1,6 +1,9 @@
 <script lang="ts">
+	import PublicAnalytics from '#lib/components/PublicAnalytics.svelte';
 	import LegalPage from '#lib/components/LegalPage.svelte';
 </script>
+
+<PublicAnalytics />
 
 <LegalPage title="Terms of service" effective="12 November 2026">
 	<p>

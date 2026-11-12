@@ -21,6 +21,15 @@ export const variables = defineEnvVars({
 			.transform((v) => v === 'true'),
 		description: 'First-party performance client; disabled pending review'
 	},
+	// Cloudflare Web Analytics on public, signed-out pages only (shared 0011, 0016). The site token
+	// is public. Unset, or anything but 32 hex characters, loads nothing; so do deploy previews
+	// and every host but https://labelkit.co (src/lib/public-analytics.ts).
+	PUBLIC_CLOUDFLARE_WEB_ANALYTICS_TOKEN: {
+		public: true,
+		schema: (value) => value || undefined,
+		description:
+			'Cloudflare Web Analytics site token for labelkit.co (public); set in the production context only'
+	},
 	// Self-serve signup (EPSILON-130). Off by default: open it once plans and billing exist.
 	SIGNUP_ENABLED: {
 		schema: z

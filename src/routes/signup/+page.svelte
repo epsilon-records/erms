@@ -1,9 +1,12 @@
 <script lang="ts">
+	import PublicAnalytics from '#lib/components/PublicAnalytics.svelte';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 </script>
+
+<PublicAnalytics />
 
 <div class="container" style="max-width: 480px; padding-top: 12vh">
 	<section class="stack">
