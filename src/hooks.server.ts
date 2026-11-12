@@ -32,11 +32,16 @@ const PUBLIC_PATHS = [
 	'/terms',
 	'/auth/callback',
 	'/auth/confirm',
-	'/api/audiokit/'
+	'/api/audiokit/',
+	// The daily purge (migration 0027); the route checks the worker bearer secret itself.
+	'/api/internal/purge-orgs'
 ];
 
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
 const NO_LABEL_ALLOWED = [...PUBLIC_PATHS, '/logout'];
+
+/** Routes a member of a closed label can still reach. */
+const CLOSED_ALLOWED = [...PUBLIC_PATHS, '/org/closed', '/org/export', '/logout'];
 
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
 const ONBOARDING_EXEMPT = [...PUBLIC_PATHS, '/onboarding', '/logout'];
@@ -101,7 +106,8 @@ const appHandle: Handle = async ({ event, resolve }) => {
 					orgId: memberships.orgId,
 					role: memberships.role,
 					orgName: orgs.name,
-					onboardedAt: memberships.onboardedAt
+					onboardedAt: memberships.onboardedAt,
+					closedAt: orgs.closedAt
 				})
 				.from(memberships)
 				.innerJoin(orgs, eq(orgs.id, memberships.orgId))
@@ -131,6 +137,17 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		!NO_LABEL_ALLOWED.some((p) => event.url.pathname.startsWith(p))
 	) {
 		redirect(303, '/signup/label');
+	}
+
+	// A closed label (migration 0027) does nothing until it is reopened or purged. Owners can still
+	// export it and reopen it; everyone else sees the closed page.
+	if (
+		event.locals.membership?.closedAt &&
+		// POST /org switches to another label, which must stay possible.
+		event.url.pathname !== '/org' &&
+		!CLOSED_ALLOWED.some((p) => event.url.pathname.startsWith(p))
+	) {
+		redirect(303, '/org/closed');
 	}
 
 	// First run: send a member who hasn't finished onboarding to the welcome page.

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { createR2Storage, inspectStream } from './r2';
+import { createR2Storage, inspectStream, parseListPage } from './r2';
 
 const config = {
 	accountId: 'acct123',
@@ -107,5 +107,22 @@ describe('R2 storage', () => {
 		const { fetchImpl } = recorder(() => new Response(null, { status: 404 }));
 		expect(await createR2Storage(config, fetchImpl).head(key)).toBeNull();
 		expect(await createR2Storage(config, fetchImpl).inspect(key, 12)).toBeNull();
+	});
+});
+
+describe('parseListPage', () => {
+	it('reads keys and the continuation token of a truncated page', () => {
+		const xml =
+			'<ListBucketResult><IsTruncated>true</IsTruncated><Contents><Key>orgs/a/x.wav</Key></Contents>' +
+			'<Contents><Key>orgs/a/b&amp;c</Key></Contents><NextContinuationToken>t1</NextContinuationToken></ListBucketResult>';
+		expect(parseListPage(xml)).toEqual({ keys: ['orgs/a/x.wav', 'orgs/a/b&c'], next: 't1' });
+	});
+	it('stops on the last page', () => {
+		expect(
+			parseListPage('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>')
+		).toEqual({
+			keys: [],
+			next: null
+		});
 	});
 });

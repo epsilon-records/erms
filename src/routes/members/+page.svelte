@@ -155,6 +155,7 @@
 			<div class="alert ok" role="status">{invited.email} is already a member.</div>
 		{/if}
 	</form>
+	<p class="soft"><a href="/org/close">Close this label</a></p>
 </div>
 
 <style>

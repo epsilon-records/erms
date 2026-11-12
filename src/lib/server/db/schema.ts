@@ -48,11 +48,15 @@ export const orgs = pgTable(
 		/** Accent colour as lowercase #rrggbb; null keeps the default accent. */
 		accentColor: text('accent_color'),
 		/** A host the label is served on, e.g. erms.epsilonrecords.com; lowercase, no port. */
-		customDomain: text('custom_domain')
+		customDomain: text('custom_domain'),
+		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
+		closedAt: timestamp('closed_at', { withTimezone: true }),
+		purgeAfter: timestamp('purge_after', { withTimezone: true })
 	},
 	(t) => [
 		uniqueIndex('orgs_slug_key').on(t.slug),
 		uniqueIndex('orgs_custom_domain_key').on(t.customDomain),
+		check('orgs_closed_purge_pair', sql`(${t.closedAt} IS NULL) = (${t.purgeAfter} IS NULL)`),
 		check(
 			'orgs_display_name_length',
 			sql`${t.displayName} IS NULL OR length(${t.displayName}) BETWEEN 1 AND 60`

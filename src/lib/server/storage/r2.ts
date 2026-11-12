@@ -32,6 +32,23 @@ export interface MasterStorage {
 	 */
 	inspect(key: string, headerBytes: number): Promise<Inspection | null>;
 	remove(key: string): Promise<void>;
+	/** Every key under `prefix` (ListObjectsV2, all pages). */
+	list(prefix: string): Promise<string[]>;
+}
+
+/** Keys and the continuation token from one ListObjectsV2 page. */
+export function parseListPage(xml: string): { keys: string[]; next: string | null } {
+	const unescape = (v: string) =>
+		v
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&quot;/g, '"')
+			.replace(/&apos;/g, "'")
+			.replace(/&amp;/g, '&');
+	const keys = [...xml.matchAll(/<Key>([^<]*)<\/Key>/g)].map((m) => unescape(m[1]));
+	const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+	const token = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml)?.[1];
+	return { keys, next: truncated && token ? unescape(token) : null };
 }
 
 export type Part = { partNumber: number; etag: string };
@@ -157,6 +174,23 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 
 		async remove(key) {
 			await call(objectUrl(key), { method: 'DELETE' }, 'delete');
+		},
+
+		async list(prefix) {
+			const keys: string[] = [];
+			let token: string | null = null;
+			do {
+				const url = new URL(base);
+				url.searchParams.set('list-type', '2');
+				url.searchParams.set('prefix', prefix);
+				if (token) url.searchParams.set('continuation-token', token);
+				const res = await call(url, { method: 'GET' }, 'list');
+				if (res.status === 404) break;
+				const page = parseListPage(await res.text());
+				keys.push(...page.keys);
+				token = page.next;
+			} while (token);
+			return keys;
 		}
 	};
 }
