@@ -1,0 +1,37 @@
+# LabelKit
+
+> LabelKit is label software for independent record labels and collectives: releases, recordings, compositions, credits and splits, agreements, artist consents (including AI use) and WAV masters, kept in one place per label. Masters are measured for loudness, key and tempo by AudioKit. It was built inside a working independent label first and is now open to other labels. Nothing in a label's catalogue is used to train AI without a consent the label recorded, per artist and per track.
+
+## What it does today
+
+- Releases, recordings and compositions
+- Credits and splits per track
+- Agreements linked to the recordings they cover
+- Artist consents, including AI use
+- Private storage for WAV masters, with loudness, key and tempo measured by AudioKit
+- Import from a SymphonicMS export
+- Team roles per label, and an audit trail of every change
+- Catalogue-wide search by title, ISRC, UPC or catalogue number
+
+Coming, not available yet: delivery to Spotify, Apple Music and other stores (through a delivery partner), royalty statements and artist payouts, a white-label portal on a label's own domain, and a REST API, CLI and MCP server.
+
+## Pricing
+
+- Free: €0, to try LabelKit with your own catalogue. No card needed.
+- Label: €12 a month or €120 a year, for one label and its whole catalogue.
+- Distributor & API: coming.
+
+## How it differs from DistroKid
+
+DistroKid is built for artists uploading their own songs. LabelKit is built for labels: many artists per record, splits, agreements and consents, and later the option to run distribution for others under the label's own name. LabelKit does not deliver releases to stores yet.
+
+## Pages
+
+- [LabelKit](https://labelkit.co/): overview, features, pricing and questions
+- [Start free](https://labelkit.co/signup): sign up with an emailed sign-in link; no password
+- [Sign in](https://labelkit.co/login)
+
+## Optional
+
+- [Privacy notice](https://labelkit.co/privacy)
+- [Terms](https://labelkit.co/terms)
