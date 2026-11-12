@@ -121,6 +121,13 @@ h3 {
 	letter-spacing: -0.04em;
 	overflow-wrap: anywhere;
 }
+.form-title {
+	/* Heading for single-form pages (log in, sign up): 28-32px, not the 44-96px display size. */
+	font-size: clamp(28px, 1.5rem + 1vw, 32px);
+	line-height: 1.1;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
 .title {
 	font-size: clamp(36px, 5vw, 56px);
 	line-height: 1;
