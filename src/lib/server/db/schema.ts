@@ -49,6 +49,11 @@ export const orgs = pgTable(
 		accentColor: text('accent_color'),
 		/** A host the label is served on, e.g. erms.epsilonrecords.com; lowercase, no port. */
 		customDomain: text('custom_domain'),
+		/**
+		 * The label's own browser-tab icon: a square PNG, base64, set by an owner on /org/branding
+		 * (migration 0031). Null keeps the product's icon.
+		 */
+		faviconPng: text('favicon_png'),
 		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		purgeAfter: timestamp('purge_after', { withTimezone: true })
@@ -64,6 +69,10 @@ export const orgs = pgTable(
 		check(
 			'orgs_accent_color_format',
 			sql`${t.accentColor} IS NULL OR ${t.accentColor} ~ '^#[0-9a-f]{6}$'`
+		),
+		check(
+			'orgs_favicon_png_format',
+			sql`${t.faviconPng} IS NULL OR (${t.faviconPng} LIKE 'iVBORw0KGgo%' AND length(${t.faviconPng}) <= 44000)`
 		),
 		check(
 			'orgs_custom_domain_format',

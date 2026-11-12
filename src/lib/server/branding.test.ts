@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { brandForHost, brandIcon, clearBrandCache, DEFAULT_BRAND, normalizeHost } from './branding';
+import { brandForHost, clearBrandCache, DEFAULT_BRAND, normalizeHost } from './branding';
 import { orgs } from './db/schema';
 import { createTestDb } from './test-db';
 
@@ -9,21 +9,6 @@ describe('normalizeHost', () => {
 		expect(normalizeHost('labelkit.co.')).toBe('labelkit.co');
 		expect(normalizeHost('')).toBeNull();
 		expect(normalizeHost(undefined)).toBeNull();
-	});
-});
-
-describe('brandIcon', () => {
-	it('gives erms.epsilonrecords.com the Epsilon mark, whatever the case or port', () => {
-		expect(brandIcon('ERMS.EpsilonRecords.com:443')).toBe('epsilon');
-		expect(brandIcon('erms.epsilonrecords.com')).toBe('epsilon');
-	});
-
-	it("gives every other host LabelKit's icon", () => {
-		expect(brandIcon('labelkit.co')).toBe('labelkit');
-		expect(brandIcon('deploy-preview-1--labelkit.netlify.app')).toBe('labelkit');
-		expect(brandIcon('epsilonrecords.com')).toBe('labelkit');
-		expect(brandIcon('')).toBe('labelkit');
-		expect(brandIcon(undefined)).toBe('labelkit');
 	});
 });
 
@@ -52,7 +37,8 @@ describe('per-customer branding (EPSILON-132)', () => {
 		expect(await brandForHost(db, 'ERMS.example.test:443')).toEqual({
 			name: 'ERMS',
 			accent: '#c6f432',
-			orgId: ermsId
+			orgId: ermsId,
+			favicon: null
 		});
 	});
 

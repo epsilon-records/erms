@@ -10,7 +10,9 @@ export const PUBLIC_PAGES: readonly string[] = [
 	'/privacy',
 	'/terms',
 	'/auth/callback',
-	'/auth/confirm'
+	'/auth/confirm',
+	// A label's own tab icon, set on /org/branding; the login page shows it.
+	'/brand-icon'
 ];
 
 /**
