@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '#lib/components/ui/input/index.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -24,7 +25,7 @@
 		</div>
 		<div style="width: 320px; max-width: 100%">
 			<label for="filter" class="sr-only">Filter releases</label>
-			<input id="filter" bind:value={q} placeholder="Filter by title, artist, cat#, UPC" />
+			<Input id="filter" bind:value={q} placeholder="Filter by title, artist, cat#, UPC" />
 		</div>
 	</section>
 
