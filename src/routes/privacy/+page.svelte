@@ -55,6 +55,12 @@
 			<strong>Technical:</strong> IP address, browser details and error reports, to deliver pages and
 			fix problems.
 		</li>
+		<li>
+			<strong>Usage events:</strong> a fixed list of product events, such as "release draft created",
+			with the time and random identifiers for your account and label. They never contain names, email
+			addresses, catalogue content, agreements, royalty figures, files or anything you type. We use them
+			to see which features are used and to switch features on per label.
+		</li>
 	</ul>
 	<p>We do not use any catalogue data or masters to train AI, and we do not sell personal data.</p>
 
@@ -67,6 +73,11 @@
 		<li>Stripe: payments and invoices for paid plans.</li>
 		<li>Resend: sign-in and invitation emails.</li>
 		<li>Sentry: error reports.</li>
+		<li>
+			PostHog: usage events and feature switches, hosted in the EU (Frankfurt). Our servers send it
+			the usage events described above. Nothing from PostHog runs in your browser, and it sets no
+			cookies.
+		</li>
 		<li>Google Fonts: the typefaces. Your browser fetches them from Google.</li>
 		<li>
 			Cloudflare Web Analytics, when enabled: aggregate page traffic and performance for LabelKit's
@@ -100,8 +111,9 @@
 		</li>
 		<li>Keeping invoices and tax records: legal obligation (Article 6(1)(c)).</li>
 		<li>
-			Security, abuse prevention, error reports, support and aggregate analytics of the public
-			pages: our legitimate interests (Article 6(1)(f)). You can object to these at any time.
+			Security, abuse prevention, error reports, support, aggregate analytics of the public pages
+			and usage events: our legitimate interests (Article 6(1)(f)). You can object to these at any
+			time.
 		</li>
 	</ul>
 
@@ -113,6 +125,7 @@
 			deleted within 30 days, and from backups when those expire.
 		</li>
 		<li>Audit log: for as long as the label exists.</li>
+		<li>Usage events: 1 year, then deleted by PostHog.</li>
 		<li>Invoices and payment records: 7 years, as Dutch tax law requires.</li>
 	</ul>
 
