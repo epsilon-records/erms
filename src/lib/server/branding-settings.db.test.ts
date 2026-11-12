@@ -74,11 +74,14 @@ describe('tenant branding settings (migration 0031)', () => {
 				saveBranding(tx, id, { displayName: 'Nope', accent: null, faviconPng: null })
 			)
 		).rejects.toBeInstanceOf(BrandingError);
-		const other = await label('brand-set-d');
 		// An owner of one label cannot brand another: not a member there.
+		const [{ id: other }] = await db
+			.insert(orgs)
+			.values({ name: 'brand-set-d', slug: 'brand-set-d' })
+			.returning();
 		await db
-			.delete(memberships)
-			.where(and(eq(memberships.orgId, other), eq(memberships.userId, owner)));
+			.insert(memberships)
+			.values({ orgId: other, userId: '00000000-0000-7000-8000-0000000000e3', role: 'owner' });
 		await expect(
 			asUser(db, owner, (tx) =>
 				saveBranding(tx, other, { displayName: 'Nope', accent: null, faviconPng: null })

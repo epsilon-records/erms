@@ -2,7 +2,7 @@ ALTER TABLE "orgs" ADD COLUMN "favicon_png" text;--> statement-breakpoint
 ALTER TABLE "orgs" ADD CONSTRAINT "orgs_favicon_png_format" CHECK ("orgs"."favicon_png" IS NULL OR ("orgs"."favicon_png" LIKE 'iVBORw0KGgo%' AND length("orgs"."favicon_png") <= 44000));--> statement-breakpoint
 -- Tenant branding settings (shared rule: anything one tenant can do, every tenant can do).
 -- An owner sets the label's display name, accent colour and tab icon on /org/branding through
--- app.set_org_branding. erms_app keeps SELECT-only on orgs, so this SECURITY DEFINER function is
+-- app.set_org_branding. labelkit_app keeps SELECT-only on orgs, so this SECURITY DEFINER function is
 -- the one write path; it checks the role and writes the audit log, like app.close_org. Null for a
 -- field resets it to the product default. The custom domain is not here: it needs DNS and TLS
 -- provisioning, so it stays operator-managed.
@@ -33,4 +33,4 @@ BEGIN
 END
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app.set_org_branding(uuid, text, text, text) FROM PUBLIC;--> statement-breakpoint
-GRANT EXECUTE ON FUNCTION app.set_org_branding(uuid, text, text, text) TO erms_app;
+GRANT EXECUTE ON FUNCTION app.set_org_branding(uuid, text, text, text) TO labelkit_app;
