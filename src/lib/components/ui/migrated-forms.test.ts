@@ -541,7 +541,8 @@ describe('artist, close and closed forms', () => {
 		);
 		const close = buttons(body).find((b) => b.includes('data-slot="button"')) ?? '';
 		expect(close).toContain('type="submit"');
-		expect(close).toContain('disabled');
+		// The attribute, not the `disabled:` style variants in the class list.
+		expect(close.replace(/class="[^"]*"/, '')).toMatch(/\bdisabled\b/);
 	});
 
 	it('posts the label to switch to', () => {
