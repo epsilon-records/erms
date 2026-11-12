@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { storybookGate, passwordMatches } from '../../../netlify/edge-functions/storybook.mjs';
+import {
+	storybookGate,
+	passwordMatches
+} from '../../../storybook-site/netlify/edge-functions/storybook.mjs';
 
 const basic = (user: string, pass: string) => `Basic ${btoa(`${user}:${pass}`)}`;
 const next = async () =>
@@ -18,7 +21,7 @@ describe('storybook gate', () => {
 		const gate = storybookGate(() => 'storybook');
 		for (const authorization of [undefined, basic('x', 'nope'), 'Basic !!!', 'Bearer storybook']) {
 			const headers = authorization ? { authorization } : undefined;
-			const res = (await gate(new Request('https://labelkit.co/_storybook/', { headers }), {
+			const res = (await gate(new Request('https://storybook.labelkit.co/', { headers }), {
 				next
 			})) as Response;
 			expect(res.status).toBe(401);
@@ -26,22 +29,10 @@ describe('storybook gate', () => {
 		}
 	});
 
-	it('rewrites the storybook host into the static build', async () => {
-		const gate = storybookGate(() => 'storybook');
-		const out = await gate(
-			new Request('https://storybook.labelkit.co/iframe.html?id=x', {
-				headers: { authorization: basic('anyone', 'storybook') }
-			}),
-			{ next }
-		);
-		expect(out).toBeInstanceOf(URL);
-		expect(String(out)).toBe('https://storybook.labelkit.co/_storybook/iframe.html?id=x');
-	});
-
 	it('serves the build with frame, robots and cache headers set', async () => {
 		const gate = storybookGate(() => 'storybook');
 		const res = (await gate(
-			new Request('https://labelkit.co/_storybook/index.html', {
+			new Request('https://storybook.labelkit.co/iframe.html', {
 				headers: { authorization: basic('', 'storybook') }
 			}),
 			{ next }

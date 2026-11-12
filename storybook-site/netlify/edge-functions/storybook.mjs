@@ -1,11 +1,9 @@
 /**
- * Storybook gate (shared 0047, 0060): Storybook's static build ships in the app deploy under
- * /_storybook/. Requests for the storybook.labelkit.co host are checked against the shared
- * password and rewritten there; /_storybook/ on any other host is checked the same way.
- * Fails closed: without STORYBOOK_PASSWORD every request is refused.
+ * Storybook gate (shared 0047, 0061): the storybook.labelkit.co site is only Storybook, so every
+ * request needs the shared password. Fails closed: without STORYBOOK_PASSWORD every request is
+ * refused.
  */
 
-export const PREFIX = '/_storybook';
 const REALM = 'LabelKit Storybook';
 
 /** @param {string} text */
@@ -38,7 +36,7 @@ export function storybookGate(env) {
 	/**
 	 * @param {Request} request
 	 * @param {{ next: () => Promise<Response> }} context
-	 * @returns {Promise<Response | URL>}
+	 * @returns {Promise<Response>}
 	 */
 	return async (request, context) => {
 		const password = env('STORYBOOK_PASSWORD');
@@ -52,16 +50,9 @@ export function storybookGate(env) {
 				}
 			});
 		}
-		const url = new URL(request.url);
-		// The storybook host: rewrite into the static build. The rewrite starts a new request
-		// chain, which this function sees again under /_storybook/ and serves below.
-		if (!url.pathname.startsWith(`${PREFIX}/`)) {
-			url.pathname = PREFIX + url.pathname;
-			return url;
-		}
 		const response = await context.next();
 		const headers = new Headers(response.headers);
-		// Storybook renders stories in a same-origin iframe; the site-wide DENY would blank it.
+		// Storybook renders stories in a same-origin iframe, so frames must stay allowed for this origin.
 		headers.set('x-frame-options', 'SAMEORIGIN');
 		headers.set('x-robots-tag', 'noindex');
 		headers.set('cache-control', 'private, no-store');
