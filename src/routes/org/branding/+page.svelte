@@ -8,6 +8,10 @@
 
 	let { data, form }: PageProps = $props();
 	const error = $derived(form && 'error' in form ? form.error : null);
+	const field = $derived(form && 'field' in form ? form.field : null);
+	// Mark only the input the error is about; an error with no field (e.g. not an owner) marks none.
+	const invalid = (name: string) =>
+		field === name ? { 'aria-invalid': true, 'aria-describedby': 'branding-error' } : {};
 	const displayName = $derived(
 		form && 'displayName' in form ? form.displayName : (data.displayName ?? '')
 	);
@@ -49,8 +53,7 @@
 				maxlength={60}
 				placeholder={data.name}
 				value={displayName}
-				aria-invalid={error ? true : undefined}
-				aria-describedby={error ? 'branding-error' : undefined}
+				{...invalid('displayName')}
 			/>
 			<Field.Description>Shown instead of “{data.name}”. At most 60 characters.</Field.Description>
 		</Field.Field>
@@ -65,6 +68,7 @@
 					placeholder="#c6f432"
 					value={accent}
 					class="font-mono"
+					{...invalid('accent')}
 				/>
 				{#if data.accent}
 					<span class="swatch" style:background={data.accent} aria-hidden="true"></span>
@@ -81,7 +85,7 @@
 					<span class="soft">Current icon</span>
 				</div>
 			{/if}
-			<Input id="icon" name="icon" type="file" accept="image/png" />
+			<Input id="icon" name="icon" type="file" accept="image/png" {...invalid('icon')} />
 			<Field.Description>
 				A square PNG, {data.iconMin} to {data.iconMax} px, up to 32 KB. It replaces LabelKit's icon in
 				the browser tab on your domain.

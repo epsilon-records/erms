@@ -36,7 +36,7 @@ describe('tenant branding settings (migration 0031)', () => {
 	it('an owner sets name, accent and icon; the change is audited', async () => {
 		const id = await label('brand-set-a');
 		await asUser(db, owner, (tx) =>
-			saveBranding(tx, id, { displayName: 'Label A', accent: '#123abc', faviconPng: PNG })
+			saveBranding(tx, id, { displayName: 'Label A', accent: '#123abc', icon: { png: PNG } })
 		);
 		const b = await asUser(db, owner, (tx) => loadBranding(tx, id));
 		expect(b).toMatchObject({ displayName: 'Label A', accent: '#123abc', faviconPng: PNG });
@@ -58,10 +58,10 @@ describe('tenant branding settings (migration 0031)', () => {
 	it('nulls reset every setting to the product default', async () => {
 		const id = await label('brand-set-b');
 		await asUser(db, owner, (tx) =>
-			saveBranding(tx, id, { displayName: 'B', accent: '#000000', faviconPng: PNG })
+			saveBranding(tx, id, { displayName: 'B', accent: '#000000', icon: { png: PNG } })
 		);
 		await asUser(db, owner, (tx) =>
-			saveBranding(tx, id, { displayName: null, accent: null, faviconPng: null })
+			saveBranding(tx, id, { displayName: null, accent: null, icon: 'remove' })
 		);
 		const [row] = await db.select().from(orgs).where(eq(orgs.id, id));
 		expect(row).toMatchObject({ displayName: null, accentColor: null, faviconPng: null });
@@ -71,7 +71,7 @@ describe('tenant branding settings (migration 0031)', () => {
 		const id = await label('brand-set-c');
 		await expect(
 			asUser(db, viewer, (tx) =>
-				saveBranding(tx, id, { displayName: 'Nope', accent: null, faviconPng: null })
+				saveBranding(tx, id, { displayName: 'Nope', accent: null, icon: 'remove' })
 			)
 		).rejects.toBeInstanceOf(BrandingError);
 		// An owner of one label cannot brand another: not a member there.
@@ -84,9 +84,22 @@ describe('tenant branding settings (migration 0031)', () => {
 			.values({ orgId: other, userId: '00000000-0000-7000-8000-0000000000e3', role: 'owner' });
 		await expect(
 			asUser(db, owner, (tx) =>
-				saveBranding(tx, other, { displayName: 'Nope', accent: null, faviconPng: null })
+				saveBranding(tx, other, { displayName: 'Nope', accent: null, icon: 'remove' })
 			)
 		).rejects.toMatchObject({ status: 403 });
+	});
+
+	it("'keep' leaves an icon another owner saved in between", async () => {
+		const id = await label('brand-set-g');
+		await asUser(db, owner, (tx) =>
+			saveBranding(tx, id, { displayName: null, accent: null, icon: { png: PNG } })
+		);
+		// A second owner's form, loaded before that upload, saves only an accent change.
+		await asUser(db, owner, (tx) =>
+			saveBranding(tx, id, { displayName: null, accent: '#abcdef', icon: 'keep' })
+		);
+		const [row] = await db.select().from(orgs).where(eq(orgs.id, id));
+		expect(row).toMatchObject({ accentColor: '#abcdef', faviconPng: PNG });
 	});
 
 	it('the database refuses an icon that is not PNG, or too large', async () => {
@@ -94,7 +107,7 @@ describe('tenant branding settings (migration 0031)', () => {
 		for (const faviconPng of [Buffer.from('<svg/>').toString('base64'), PNG.padEnd(44_001, 'A')]) {
 			await expect(
 				asUser(db, owner, (tx) =>
-					saveBranding(tx, id, { displayName: null, accent: null, faviconPng })
+					saveBranding(tx, id, { displayName: null, accent: null, icon: { png: faviconPng } })
 				)
 			).rejects.toThrow();
 		}
@@ -103,7 +116,7 @@ describe('tenant branding settings (migration 0031)', () => {
 	it("the label's domain serves its icon; other hosts have none", async () => {
 		const id = await label('brand-set-f', 'icon.example.test');
 		await asUser(db, owner, (tx) =>
-			saveBranding(tx, id, { displayName: null, accent: null, faviconPng: PNG })
+			saveBranding(tx, id, { displayName: null, accent: null, icon: { png: PNG } })
 		);
 		const brand = await brandForHost(db, 'icon.example.test');
 		expect(brand.favicon).toMatch(/^[0-9a-f]{12}$/);
