@@ -155,11 +155,11 @@
 				</p>
 			</div>
 			<figure class="sample" aria-label="Example release in LabelKit">
-				<div class="sample-head"><span>Releases / EPS-042</span><span>Sample</span></div>
+				<div class="sample-head"><span>Releases / SMPL-001</span><span>Sample</span></div>
 				<div class="sample-body">
-					<p class="mono dim">EPS-042</p>
-					<p class="title">Release title</p>
-					<p class="dim">Artist · EP · 4 recordings</p>
+					<p class="mono dim">SMPL-001</p>
+					<p class="title">Lower Canal</p>
+					<p class="dim">Night Index · EP · 4 recordings</p>
 					<p class="ok">● Rights complete · Consents recorded</p>
 					<dl>
 						<div>
