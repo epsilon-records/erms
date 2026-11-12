@@ -1,10 +1,12 @@
 <!--
-	shadcn-svelte Checkbox (Bits UI): a role="checkbox" button plus a hidden input carrying `name`
-	and `value` when checked, so it submits like a native checkbox. Give it an `id` and a Label.
+	Checkbox: a styled native <input type="checkbox">, so it toggles, submits `name`/`value` and
+	works with the keyboard and screen readers without JavaScript (forms here are progressively
+	enhanced). Replaces the Bits UI button version, which could not be toggled before hydration
+	(CodeRabbit on #118). Give it an `id` and a Label. `indeterminate` wins over `checked` visually.
 -->
 <script lang="ts">
-	import { Checkbox as CheckboxPrimitive } from 'bits-ui';
-	import { cn, type WithoutChildrenOrChild } from '#lib/utils.js';
+	import { cn, type WithElementRef } from '#lib/utils.js';
+	import type { HTMLInputAttributes } from 'svelte/elements';
 
 	let {
 		ref = $bindable(null),
@@ -12,42 +14,36 @@
 		indeterminate = $bindable(false),
 		class: className,
 		...restProps
-	}: WithoutChildrenOrChild<CheckboxPrimitive.RootProps> = $props();
+	}: WithElementRef<Omit<HTMLInputAttributes, 'type'>, HTMLInputElement> & {
+		indeterminate?: boolean;
+	} = $props();
 </script>
 
-<CheckboxPrimitive.Root
-	bind:ref
-	data-slot="checkbox"
-	class={cn(
-		'peer relative inline-grid size-5 shrink-0 cursor-pointer place-content-center rounded-none border border-input bg-surface p-0 text-primary-foreground after:absolute after:-inset-x-3 after:-inset-y-3 aria-invalid:border-destructive disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary',
-		className
-	)}
-	bind:checked
-	bind:indeterminate
-	{...restProps}
->
-	{#snippet children({ checked, indeterminate })}
-		<span data-slot="checkbox-indicator" class="grid place-content-center text-current">
-			{#if checked}
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.25"
-					stroke-linecap="square"
-					aria-hidden="true"><path d="M3 8.5l3.25 3.25L13 5" /></svg
-				>
-			{:else if indeterminate}
-				<svg
-					class="size-3.5"
-					viewBox="0 0 16 16"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.25"
-					aria-hidden="true"><path d="M3.5 8h9" /></svg
-				>
-			{/if}
-		</span>
-	{/snippet}
-</CheckboxPrimitive.Root>
+<span data-slot="checkbox" class={cn('relative inline-grid size-5 shrink-0', className)}>
+	<input
+		bind:this={ref}
+		type="checkbox"
+		bind:checked
+		bind:indeterminate
+		class="peer col-start-1 row-start-1 m-0 size-5 cursor-pointer appearance-none rounded-none border border-input bg-surface checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive"
+		{...restProps}
+	/>
+	<svg
+		class="pointer-events-none col-start-1 row-start-1 hidden size-3.5 place-self-center text-primary-foreground peer-checked:block peer-indeterminate:hidden"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2.25"
+		stroke-linecap="square"
+		aria-hidden="true"><path d="M3 8.5l3.25 3.25L13 5" /></svg
+	>
+	<svg
+		class="pointer-events-none col-start-1 row-start-1 hidden size-3.5 place-self-center text-primary-foreground peer-indeterminate:block"
+		viewBox="0 0 16 16"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2.25"
+		stroke-linecap="square"
+		aria-hidden="true"><path d="M3.5 8h9" /></svg
+	>
+</span>
