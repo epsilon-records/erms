@@ -23,6 +23,8 @@ src/
   env.ts                    validated env vars ($app/env/public, $app/env/private)
   hooks.server.ts           Supabase session, active org and RLS-scoped db on every request
   routes/                   UI ("Dark grid": src/app.css): /login, /auth/callback, /logout, /
+  tailwind.css              Tailwind v4 theme read from app.css's tokens; app.css in a layer below
+  lib/components/ui/        shared form controls (shadcn-svelte, restyled): Button, Input, Field, ...
   lib/server/
     db/                     schema, migrations source, UUIDv7
     audit.ts                withAudit(): change + audit entry in one transaction

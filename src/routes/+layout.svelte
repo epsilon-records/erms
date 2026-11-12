@@ -1,5 +1,6 @@
 <script lang="ts">
-	import '../app.css';
+	// app.css (tokens, hand-written classes) is imported by tailwind.css, in a layer under Tailwind's.
+	import '../tailwind.css';
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';

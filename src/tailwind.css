@@ -1,0 +1,66 @@
+/*
+ * Tailwind v4 + shadcn-svelte, alongside the hand-written CSS (EPSILON-166, shared 0046).
+ *
+ * Layer order is the whole migration plan:
+ *   theme   Tailwind's design variables (no rules)
+ *   legacy  app.css: the tokens and every hand-written class, unchanged
+ *   utilities  Tailwind's classes, which beat legacy without !important
+ * Svelte's scoped <style> blocks stay unlayered, so a page that hasn't moved keeps its own
+ * overrides. Preflight is not imported: it would restyle every page that hasn't moved yet. Import it
+ * (`tailwindcss/preflight.css` layer(base)) once app.css holds only tokens and base styles.
+ */
+@layer theme, legacy, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import './app.css' layer(legacy);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* app.css classes that share a name with a Tailwind utility. Generated, the utility would win
+   over the legacy rule on every page (`.tag.outline` gains an outline, `.container` changes width),
+   so Tailwind skips these names until the legacy class is gone. `.sr-only` stays app.css's. */
+@source not inline('container outline grow sr-only');
+
+/* Control tokens the form components need that app.css has as literals. Move them into app.css's
+   :root with the next token pass; the names stay. */
+:root {
+	--control-line: #3a3f46;
+	--placeholder: #8a9099;
+}
+
+/*
+ * The theme is read from app.css's tokens, never copied (`inline` makes each utility use
+ * `var(--accent)` itself, so a per-label accent set on an ancestor, EPSILON-132, still applies).
+ * The stock palette and radii are cleared so a component can only use LabelKit's colours and
+ * square corners. Names follow shadcn-svelte's (primary, muted-foreground, destructive, ...) so
+ * components copied from its registry need few edits.
+ */
+@theme inline {
+	--color-*: initial;
+	--radius-*: initial;
+
+	--color-transparent: transparent;
+	--color-current: currentColor;
+
+	--color-background: var(--bg);
+	--color-foreground: var(--text);
+	--color-strong: var(--text-strong);
+	--color-soft: var(--soft);
+	--color-muted-foreground: var(--muted);
+	--color-surface: var(--surface);
+	--color-surface-2: var(--surface-2);
+	--color-border: var(--line);
+	--color-border-strong: var(--line-strong);
+	--color-input: var(--control-line);
+	--color-placeholder: var(--placeholder);
+	--color-primary: var(--accent);
+	--color-primary-foreground: var(--on-accent);
+	--color-ring: var(--accent);
+	--color-warning: var(--warn);
+	--color-destructive: var(--danger);
+
+	/* In px, not rem: app.css sets the root font size (15 px today), and spacing must not follow it. */
+	--spacing: 4px;
+
+	--font-sans: var(--sans);
+	--font-mono: var(--mono);
+}

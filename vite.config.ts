@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-netlify';
+import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { sentrySvelteKit } from '@sentry/sveltekit/vite';
 import { defineConfig } from 'vitest/config';
@@ -12,6 +13,9 @@ export default defineConfig(async () => ({
 		__SENTRY_RELEASE__: JSON.stringify(process.env.COMMIT_REF ?? null)
 	},
 	plugins: [
+		// Tailwind v4 compiles src/tailwind.css at build time into the app's own stylesheet: no
+		// new origin, so the CSP below is unchanged (EPSILON-166, shared 0046).
+		tailwindcss(),
 		// Always registered: besides uploads, it resolves `@sentry/sveltekit/browser-tracing-variant`
 		// to the Kit 3 (`$app/state`) tracing module. Without it the import falls back to the
 		// `$app/stores` variant, which throws app_stores_removed on Kit 3 (Sentry ERMS-1).

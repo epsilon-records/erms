@@ -25,6 +25,7 @@
 		"@sveltejs/adapter-netlify": "^7.0.1",
 		"@sveltejs/kit": "^3.0.0",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+		"@tailwindcss/vite": "^4.3.5",
 		"@types/node": "^26.6.6",
 		"ajv": "^8.20.0",
 		"ajv-formats": "^3.0.1",
@@ -37,6 +38,7 @@
 		"prettier-plugin-svelte": "^4.1.1",
 		"svelte": "^5.57.2",
 		"svelte-check": "^4.6.0",
+		"tailwindcss": "^4.3.5",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.72.2",
 		"vite": "^8.3.0",
@@ -48,15 +50,20 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@internationalized/date": "^3.12.4",
 		"@noble/hashes": "^2.4.0",
 		"@sentry/sveltekit": "^11.11.0",
 		"@supabase/ssr": "^0.12.7",
 		"@supabase/supabase-js": "^2.118.0",
 		"aws4fetch": "^1.0.20",
+		"bits-ui": "^2.21.0",
+		"clsx": "^2.1.1",
 		"csv-parse": "^7.0.3",
 		"drizzle-orm": "^0.45.4",
 		"postgres": "^4.0.0",
 		"posthog-node": "^5.69.0",
+		"tailwind-merge": "^3.7.0",
+		"tailwind-variants": "^4.0.2",
 		"zod": "^4.6.7"
 	},
 	"engines": {

@@ -1,11 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { Checkbox } from '#lib/components/ui/checkbox/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 	const day = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
 	const live = $derived(data.keys.filter((k) => !k.revokedAt));
 	const revoked = $derived(data.keys.filter((k) => k.revokedAt));
+	const createError = $derived(form && 'error' in form && 'name' in form ? form.error : null);
 </script>
 
 <svelte:head><title>API keys · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
@@ -29,31 +34,40 @@
 		</div>
 	{/if}
 	{#if form && 'error' in form && form.error}
-		<div class="alert error" role="alert">{form.error}</div>
+		<div id="create-error" class="alert error" role="alert">{form.error}</div>
 	{/if}
 
 	<section class="stack">
 		<h2 class="h2">New key</h2>
 		<form method="POST" action="?/create" class="stack">
-			<label>
-				Name
-				<input name="name" maxlength="60" required placeholder="Website sync" />
-			</label>
-			<fieldset>
-				<legend>Scopes</legend>
+			<Field.Field class="max-w-[480px]">
+				<Field.Label for="key-name">Name</Field.Label>
+				<Input
+					id="key-name"
+					name="name"
+					maxlength={60}
+					required
+					placeholder="Website sync"
+					value={createError && form && 'name' in form ? form.name : ''}
+					aria-invalid={createError ? true : undefined}
+					aria-describedby={createError ? 'create-error' : undefined}
+				/>
+			</Field.Field>
+			<Field.Set>
+				<Field.Legend>Scopes</Field.Legend>
 				{#each data.scopes as scope (scope)}
-					<label
-						><input
-							type="checkbox"
+					<Field.Field orientation="horizontal" class="w-fit">
+						<Checkbox
+							id="scope-{scope}"
 							name="scopes"
 							value={scope}
 							checked={scope === 'catalog:read'}
 						/>
-						{scope}</label
-					>
+						<Field.Label for="scope-{scope}" class="font-mono">{scope}</Field.Label>
+					</Field.Field>
 				{/each}
-			</fieldset>
-			<div><button class="btn primary">Create key</button></div>
+			</Field.Set>
+			<div><Button type="submit">Create key</Button></div>
 		</form>
 	</section>
 
@@ -81,7 +95,7 @@
 								<td>
 									<form method="POST" action="?/revoke">
 										<input type="hidden" name="id" value={key.id} />
-										<button class="linkish">Revoke</button>
+										<Button type="submit" variant="ghost">Revoke</Button>
 									</form>
 								</td>
 							</tr>
