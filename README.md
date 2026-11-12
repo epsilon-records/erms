@@ -363,6 +363,37 @@ then runs the request as that agent with `scopedTo`, so `/v1` goes through the s
 - **Spec:** `docs/openapi.yaml`. `openapi.test.ts` checks that it lists exactly the routes under
   `src/routes/v1`.
 
+## Branding and custom domains
+
+Every label's owners set its branding on `/org/branding`: display name, accent colour, tab icon and
+the domain it is served on. No label is special-cased in code (knowledge labelkit 0034, 0036);
+Epsilon's `erms.epsilonrecords.com` uses the same setting as any other label's domain.
+
+A domain is set up in two steps (`src/lib/server/custom-domain.ts`, migration 0032):
+
+1. The owner enters it. `app.request_org_domain` stores it with a token, and the page shows two DNS
+   records: a TXT record at `_labelkit-verify.<domain>` holding `labelkit-verify=<token>`, and a
+   CNAME to `labelkit.netlify.app` (an A record to `75.2.60.5` for an apex domain).
+2. The owner clicks **Check DNS and set up**. The app reads the TXT record, adds the domain as an
+   alias on this Netlify site (Netlify then issues its certificate), adds
+   `https://<domain>/auth/callback` to Supabase Auth's redirect allowlist, and then
+   `app.activate_org_domain` makes it the label's `custom_domain`. A domain another label already
+   uses is refused.
+
+Removing a domain, or moving to a new one, takes the old one off Netlify and Supabase Auth.
+
+Provisioning needs four variables in Netlify's production context:
+
+| Variable                | What it is                                                                                                                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NETLIFY_API_TOKEN`     | A Netlify personal access token (User settings → Applications → New access token). Netlify tokens can't be scoped to one site, so create it on an account that is a member of this team only. |
+| `NETLIFY_SITE_ID`       | This site's id (Site configuration → Site details). Not a secret.                                                                                                                             |
+| `SUPABASE_ACCESS_TOKEN` | A Supabase personal access token (Account → Access tokens). It reaches every project the account can, so use an account with access to this project only.                                     |
+| `SUPABASE_PROJECT_REF`  | The project ref, the subdomain of the Supabase API URL. Not a secret.                                                                                                                         |
+
+Without them, a verified domain waits with a message saying which variable is missing; nothing else
+is affected.
+
 ## Closing and purging a label
 
 An owner closes a label at `/org/close`, by typing its name (migration 0027,

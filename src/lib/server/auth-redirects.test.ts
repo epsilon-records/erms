@@ -21,11 +21,11 @@ describe('published-site Auth configuration', () => {
 			})
 		).toEqual({
 			site_url: 'https://labelkit.co',
-			uri_allow_list: `${uri_allow_list},${LABELKIT},${ERMS}`
+			uri_allow_list: `${uri_allow_list},${LABELKIT}`
 		});
 	});
 
-	it('moves the Site URL to labelkit.co and keeps the ERMS callback (EPSILON-134)', () => {
+	it('moves the Site URL to labelkit.co and keeps a tenant domain callback (EPSILON-134)', () => {
 		expect(
 			authRedirectPatch({ site_url: 'https://erms.epsilonrecords.com', uri_allow_list: ERMS })
 		).toEqual({ site_url: 'https://labelkit.co', uri_allow_list: `${ERMS},${LABELKIT}` });
@@ -48,7 +48,13 @@ describe('published-site Auth configuration', () => {
 					' https://labelkit.co/** ,https://erms.epsilonrecords.com/other,https://other.example/auth/callback'
 			})
 		).toEqual({
-			uri_allow_list: `https://labelkit.co/**,https://erms.epsilonrecords.com/other,https://other.example/auth/callback,${LABELKIT},${ERMS}`
+			uri_allow_list: `https://labelkit.co/**,https://erms.epsilonrecords.com/other,https://other.example/auth/callback,${LABELKIT}`
 		});
+	});
+
+	it('requires no tenant domain: those are added when a label sets its domain (0036)', () => {
+		expect(
+			authRedirectPatch({ site_url: 'https://labelkit.co', uri_allow_list: LABELKIT })
+		).toEqual({});
 	});
 });

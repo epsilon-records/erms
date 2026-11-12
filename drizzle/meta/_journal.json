@@ -225,6 +225,13 @@
       "when": 1794501610639,
       "tag": "0031_org_branding_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794502555907,
+      "tag": "0032_org_custom_domain",
+      "breakpoints": true
     }
   ]
 }

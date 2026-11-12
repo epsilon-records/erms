@@ -224,6 +224,14 @@ describe('checkIcon', () => {
 			refused(() => checkIcon(split), /PNG/);
 		});
 
+		it('refuses an unknown critical chunk and allows an unknown ancillary one', () => {
+			const around = (extra: Buffer) =>
+				file(chunk('IHDR', ihdr()), extra, chunk('IDAT', rows()), chunk('IEND'));
+			refused(() => checkIcon(around(chunk('ZZZZ', Buffer.from([1])))), /PNG/);
+			refused(() => checkIcon(around(chunk('a1b2', Buffer.from([1])))), /PNG/);
+			expect(checkIcon(around(chunk('zzZz', Buffer.from([1]))))).toEqual({ size: 32 });
+		});
+
 		it('refuses an IEND with data, or bytes after IEND', () => {
 			const base = [chunk('IHDR', ihdr()), chunk('IDAT', rows())];
 			refused(() => checkIcon(file(...base, chunk('IEND', Buffer.from([0])))), /PNG/);
