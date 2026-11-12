@@ -92,7 +92,7 @@ above (production, stated by Nate on 2026-11-07), `supabase/config.toml` (develo
 CI), and the live server behind `DATABASE_URL`.
 `pnpm db:pgversion` (`scripts/check-pg-version.mjs`) compares them and fails on a split, and CI runs
 it after applying the migrations. CI applies the complete migration chain on PostgreSQL 17.11;
-`pnpm db:drift` reports the ledger up to date, and the `erms_app` role, 61 RLS policies and the
+`pnpm db:drift` reports the ledger up to date, and the `labelkit_app` role, 61 RLS policies and the
 `unaccent` extension all come up as intended.
 
 Production migrations are applied by the **Migrate production database** workflow
@@ -199,7 +199,7 @@ DATABASE_URL=postgres://... pnpm db:drift --warn  # report only
 - Every write goes through `withAudit()`. A write with no audit entry is rejected.
 - `audit_log` is append-only, enforced by a database trigger.
 - Every org-scoped table gets RLS with `app.is_member(org_id)` for reads and role-based write policies; see `drizzle/0001_rls.sql`, `0004` and `0006`.
-- App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `erms_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection; the machine routes and the owner-only `/org/audiokit-client` route are its allowlisted exceptions.
+- App queries never run as the table owner. Routes use `locals.db`, which runs each call in a transaction as the `labelkit_app` role on behalf of the signed-in user, so RLS checks every read and write (`src/lib/server/db/scoped.ts`). A test fails if any other file imports the owner connection; the machine routes and the owner-only `/org/audiokit-client` route are its allowlisted exceptions.
 - Links between catalog rows carry `org_id` in their foreign keys, so the database refuses links across orgs.
 - `src/lib/server/tenancy.test.ts` proves one org cannot read, write or link into another.
 - Security headers: SvelteKit sets a nonce-based CSP (`vite.config.ts`); `hooks.server.ts` and `netlify.toml` add HSTS, frame, referrer and permissions headers. Unexpected errors are logged server-side as JSON with a short reference; the browser sees only the reference.
@@ -212,7 +212,7 @@ DATABASE_URL=postgres://... pnpm db:drift --warn  # report only
 Owners manage their label's members at `/members` (EPSILON-87): list them with their role and
 onboarding state, invite by email with a role, change a role, remove someone.
 
-- **The database decides.** `erms_app` may insert, delete and update the `role` column of
+- **The database decides.** `labelkit_app` may insert, delete and update the `role` column of
   `memberships`, and only where `app.has_role(org_id, ['owner'])`: an owner of one label cannot
   place anyone in another (refused with 42501), and `agent` is never handed to a person. The
   `memberships_keep_one_owner` trigger keeps at least one owner per org, for every connection
@@ -277,7 +277,7 @@ the two emails of a secure email change go out at once, not one after the other.
   two signatures joined by `", "`; either one verifying is enough. Code:
   `src/lib/server/auth-email/`.
 - **Database access.** The route has no signed-in user and never gets the owner connection.
-  `hooks.server.ts` gives this exact path a runner that switches to `erms_auth_email` (migration
+  `hooks.server.ts` gives this exact path a runner that switches to `labelkit_auth_email` (migration
   `0025`): no login, no BYPASSRLS, no table rights, and EXECUTE on one SECURITY DEFINER function,
   `app_auth_email.member_org_ids(uuid)`, which returns that account's org ids and nothing else. The
   signature is checked before the runner is used.
@@ -376,7 +376,7 @@ An owner closes a label at `/org/close`, by typing its name (migration 0027,
   2. deletes every object under `orgs/<id>/` in R2;
   3. calls `app.purge_org`, which deletes every row the label owns and the org itself.
 - **Audit log:** `app.purge_org` also deletes the label's audit log entries. The append-only
-  trigger allows this only inside that function, by checking `app.purge_org`; `erms_app` has no
+  trigger allows this only inside that function, by checking `app.purge_org`; `labelkit_app` has no
   DELETE on `audit_log`.
 - **Failures:** if any step fails, the label stays as it is for the next run. Without R2
   configured, a label that has masters is never purged.
@@ -410,7 +410,7 @@ A master can be up to 4 GiB, which is too much to read inside a request. So:
 
 Masters that became ready before this check carry the browser's hash. `scripts/reverify-ready-masters.mjs` is a one-off, read-only re-check of them, run with the owner `DATABASE_URL` and the R2 variables. It reports any mismatch and changes nothing.
 
-Org isolation: object keys are `orgs/{org_id}/recordings/{recording_id}/masters/{master_id}.wav`, built on the server from the signed-in user's active org and never taken from the request. The `masters_key_in_org` check ties each key to its row, RLS limits rows to the user's orgs, and `erms_app` can only update an upload's progress, not its key, org or size.
+Org isolation: object keys are `orgs/{org_id}/recordings/{recording_id}/masters/{master_id}.wav`, built on the server from the signed-in user's active org and never taken from the request. The `masters_key_in_org` check ties each key to its row, RLS limits rows to the user's orgs, and `labelkit_app` can only update an upload's progress, not its key, org or size.
 
 Configuration: set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_MASTERS_BUCKET` in Netlify (and Supabase secrets for later Edge Functions). Uploads stay off until all four are set. The bucket must be private, with a CORS rule allowing `PUT` from the ERMS origins, the `Content-Type` and `If-None-Match` request headers, and exposing `ETag`. Without `If-None-Match` in the rule, browsers refuse single-PUT uploads. The CSP allows `connect-src https://*.r2.cloudflarestorage.com` for the uploads.
 
@@ -476,7 +476,7 @@ request hook/client own privileged connection access; routes execute through
 pool has one-second connection/queue deadlines; canceled queued work is removed by
 postgres-js before execution. Transactions use 100ms lock/250ms statement deadlines.
 The atomic budget update and histogram increment commit or roll back together.
-Ordinary label owners, anon, authenticated and erms_app have no metrics access.
+Ordinary label owners, anon, authenticated and labelkit_app have no metrics access.
 
 Expired rows are deleted on accepted writes and by `app-metrics-prune`, scheduled
 **daily at 00:10 UTC** (`10 0 * * *`) on Netlify. It calls the exact

@@ -5,7 +5,7 @@ it('real Supabase: atomic cap across connections, rollback, finite columns, rete
 	const { client } = await createTestDb();
 	// Roles and default grants are inherited from the pinned real Supabase server, not simulated.
 	const roles =
-		await client`select rolname,rolcanlogin,rolbypassrls from pg_roles where rolname in ('erms_metrics_ingest','erms_metrics_prune')`;
+		await client`select rolname,rolcanlogin,rolbypassrls from pg_roles where rolname in ('labelkit_metrics_ingest','labelkit_metrics_prune')`;
 	expect(roles).toHaveLength(2);
 	expect(roles.every((r) => !r.rolcanlogin && !r.rolbypassrls)).toBe(true);
 	const columns =
@@ -23,7 +23,7 @@ it('real Supabase: atomic cap across connections, rollback, finite columns, rete
 	const outcomes = await Promise.all(
 		Array.from({ length: 20 }, () =>
 			client.begin(async (tx) => {
-				await tx`set local role erms_metrics_ingest`;
+				await tx`set local role labelkit_metrics_ingest`;
 				const [row] =
 					await tx`select app_metrics.record(1::smallint,1::smallint,1::smallint) as accepted`;
 				return row.accepted;
@@ -37,7 +37,7 @@ it('real Supabase: atomic cap across connections, rollback, finite columns, rete
 	await client`delete from app_metrics.app_performance_daily`;
 	await expect(
 		client.begin(async (tx) => {
-			await tx`set local role erms_metrics_ingest`;
+			await tx`set local role labelkit_metrics_ingest`;
 			await tx`select app_metrics.record(1::smallint,2::smallint,8::smallint)`;
 			throw new Error('rollback');
 		})
@@ -52,20 +52,20 @@ it('real Supabase: atomic cap across connections, rollback, finite columns, rete
 	])
 		await expect(
 			client.begin(async (tx) => {
-				await tx`set local role erms_metrics_ingest`;
+				await tx`set local role labelkit_metrics_ingest`;
 				await tx`select app_metrics.record(${r}::smallint,${m}::smallint,${b}::smallint)`;
 			})
 		).rejects.toMatchObject({ code: '22023' });
 	await client`insert into app_metrics.app_performance_daily select (${today}::date-n),1,1,1,1 from generate_series(0,8) n`;
 	// Idle prune does not depend on browser/server enable flags.
 	await client.begin(async (tx) => {
-		await tx`set local role erms_metrics_prune`;
+		await tx`set local role labelkit_metrics_prune`;
 		await tx`select app_metrics.prune()`;
 	});
 	expect(await client`select * from app_metrics.app_performance_daily`).toHaveLength(8);
 	await client`insert into app_metrics.app_performance_daily values (${today}::date-9,1,1,1,1)`;
 	await client.begin(async (tx) => {
-		await tx`set local role erms_metrics_ingest`;
+		await tx`set local role labelkit_metrics_ingest`;
 		await tx`select app_metrics.record(1::smallint,1::smallint,2::smallint)`;
 	});
 	expect(

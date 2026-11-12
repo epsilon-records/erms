@@ -48,9 +48,9 @@ try {
 		'anon',
 		'authenticated',
 		'service_role',
-		'erms_app',
-		'erms_metrics_ingest',
-		'erms_metrics_prune'
+		'labelkit_app',
+		'labelkit_metrics_ingest',
+		'labelkit_metrics_prune'
 	]) {
 		const [r] =
 			await database`select has_table_privilege(${role},'app_metrics.app_performance_daily','SELECT') as allowed`;

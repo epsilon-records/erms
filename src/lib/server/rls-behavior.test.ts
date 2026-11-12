@@ -92,8 +92,8 @@ describe('the mechanisms the cases rely on', () => {
 	it('set_config(role) changes the effective role', async () => {
 		await exec('BEGIN');
 		try {
-			await exec(assumeSql('erms_app', null));
-			expect(await scalar('SELECT current_user')).toBe('erms_app');
+			await exec(assumeSql('labelkit_app', null));
+			expect(await scalar('SELECT current_user')).toBe('labelkit_app');
 		} finally {
 			await exec('ROLLBACK');
 		}
@@ -107,22 +107,22 @@ describe('the mechanisms the cases rely on', () => {
 			   FROM pg_roles r WHERE rolname = '${role}'`
 		);
 
-	it('erms_app cannot bypass RLS', async () => {
-		expect(await bypassOf('erms_app')).toBe('false');
+	it('labelkit_app cannot bypass RLS', async () => {
+		expect(await bypassOf('labelkit_app')).toBe('false');
 	});
 
 	// Reads carry no TO clause, so they reach PUBLIC — that is why `authenticated` can read its own
-	// org. Writes are addressed to erms_app only, which is why the same role cannot write at all.
+	// org. Writes are addressed to labelkit_app only, which is why the same role cannot write at all.
 	// roles is name[], so the array operators need a text[] cast to compare against literals.
 	const policyCount = (where: string) =>
 		scalar(`SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND ${where}`);
 
-	it('reads reach PUBLIC while every write is addressed to erms_app', async () => {
+	it('reads reach PUBLIC while every write is addressed to labelkit_app', async () => {
 		expect(
 			Number(await policyCount("cmd = 'SELECT' AND roles::text[] @> array['public']"))
 		).toBeGreaterThan(0);
 		expect(
-			Number(await policyCount("cmd <> 'SELECT' AND roles::text[] @> array['erms_app']"))
+			Number(await policyCount("cmd <> 'SELECT' AND roles::text[] @> array['labelkit_app']"))
 		).toBeGreaterThan(0);
 		expect(
 			Number(
@@ -154,10 +154,10 @@ describe('the mechanisms the cases rely on', () => {
 		expect(await holds('INSERT')).toBe('true');
 	});
 
-	it('write policies are addressed to erms_app', async () => {
+	it('write policies are addressed to labelkit_app', async () => {
 		const scoped = await scalar(
 			`SELECT count(*) FROM pg_policies WHERE schemaname = 'public'
-			   AND cmd <> 'SELECT' AND roles::text[] @> array['erms_app']`
+			   AND cmd <> 'SELECT' AND roles::text[] @> array['labelkit_app']`
 		);
 		expect(Number(scoped)).toBeGreaterThan(0);
 	});

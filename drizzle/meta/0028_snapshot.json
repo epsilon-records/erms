@@ -1,5 +1,5 @@
 {
-  "id": "b994e87f-2fc1-4add-9b11-d9313a359209",
+  "id": "4589bf87-71cf-4825-8317-762726521482",
   "prevId": "a17aebe6-4c9a-4b6f-a772-76c100c45ed9",
   "version": "7",
   "dialect": "postgresql",
@@ -2002,31 +2002,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "claimed_sha256": {
-          "name": "claimed_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verify_token": {
-          "name": "verify_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verify_started_at": {
-          "name": "verify_started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verify_attempts": {
-          "name": "verify_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "file_name": {
           "name": "file_name",
           "type": "text",
@@ -2160,14 +2135,6 @@
         "masters_sha256_format": {
           "name": "masters_sha256_format",
           "value": "\"masters\".\"sha256\" IS NULL OR \"masters\".\"sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "masters_claimed_sha256_format": {
-          "name": "masters_claimed_sha256_format",
-          "value": "\"masters\".\"claimed_sha256\" IS NULL OR \"masters\".\"claimed_sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "masters_verifying_claimed": {
-          "name": "masters_verifying_claimed",
-          "value": "\"masters\".\"status\"::text <> 'verifying' OR \"masters\".\"claimed_sha256\" IS NOT NULL"
         },
         "masters_ready_complete": {
           "name": "masters_ready_complete",
@@ -3385,7 +3352,6 @@
       "schema": "public",
       "values": [
         "pending",
-        "verifying",
         "ready",
         "rejected",
         "aborted"

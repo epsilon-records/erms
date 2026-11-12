@@ -30,7 +30,7 @@ export { slugFromName } from '../slug';
 export type CreateLabelResult =
 	{ ok: true; orgId: string } | { ok: false; reason: 'slug_taken' | 'limit' | 'invalid' };
 
-/** Create a label owned by the scoped user. `tx` must be an erms_app transaction (locals.db). */
+/** Create a label owned by the scoped user. `tx` must be an labelkit_app transaction (locals.db). */
 export async function createLabel(
 	tx: Database,
 	input: { name: string; slug: string }

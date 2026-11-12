@@ -17,6 +17,14 @@ import { brandForHost, DEFAULT_BRAND } from '#lib/server/branding.js';
 import { isLandingRequest } from '#lib/server/landing.js';
 import { isMachineRoute, isPublicPath, PUBLIC_PAGES } from '#lib/server/public-paths.js';
 import { keyFromHeader, resolveApiKey } from '#lib/server/api-keys.js';
+import {
+	API_INDEX,
+	NOT_FOUND,
+	apiHostRoute,
+	isApiHost,
+	OPENAPI_PATH,
+	servesApiForTesting
+} from '#lib/server/api-host.js';
 import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js';
 
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
@@ -85,7 +93,7 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	event.locals.db = () => error(401, 'Sign in first.');
 
 	if (user) {
-		// Every query for this request runs as erms_app on behalf of this user, under RLS.
+		// Every query for this request runs as labelkit_app on behalf of this user, under RLS.
 		const scoped = scopedTo(db(), user.id);
 		event.locals.db = scoped;
 		const rows = await scoped((tx) =>
@@ -153,8 +161,19 @@ const ordinaryHandle = SENTRY_DSN ? sequence(Sentry.sentryHandle(), appHandle) :
 /** Exact anonymous boundary BEFORE Auth, cookies, tenant lookups and Sentry request capture. */
 export const handle: Handle = async (input) => {
 	const path = input.event.url.pathname;
+	// api.labelkit.co serves the API and nothing else: no pages, cookies, Auth or machine routes.
+	if (isApiHost(input.event.url.host)) {
+		const route = apiHostRoute(path);
+		if (route === 'api') return apiHandle(input);
+		if (route === 'openapi') return publicApiDocument(input);
+		return jsonResponse(route === 'index' ? 200 : 404, route === 'index' ? API_INDEX : NOT_FOUND);
+	}
+	// labelkit.co and custom domains don't serve the API (a plain 404); local dev and previews do.
+	if (path.startsWith('/v1/') && !servesApiForTesting(input.event.url.host))
+		return jsonResponse(404, NOT_FOUND);
+	if (path === OPENAPI_PATH) return publicApiDocument(input);
 	// Supabase Auth's Send Email hook (EPSILON-147): a machine caller with no session. It skips
-	// cookies, Auth and branding, and gets only the erms_auth_email runner; the route verifies the
+	// cookies, Auth and branding, and gets only the labelkit_auth_email runner; the route verifies the
 	// hook's signature before it uses even that.
 	if (path === AUTH_EMAIL_HOOK_PATH) {
 		input.event.locals.db = authEmailRunner();
@@ -167,7 +186,7 @@ export const handle: Handle = async (input) => {
 		)
 			return empty(401);
 		input.event.locals.db = metricsRunner(
-			path === '/api/app-metrics' ? 'erms_metrics_ingest' : 'erms_metrics_prune'
+			path === '/api/app-metrics' ? 'labelkit_metrics_ingest' : 'labelkit_metrics_prune'
 		);
 		try {
 			// Netlify injects W3C trace context after the browser's credential-free fetch.
@@ -190,6 +209,28 @@ export const handle: Handle = async (input) => {
 	}
 	if (path.startsWith('/v1/')) return apiHandle(input);
 	return ordinaryHandle(input);
+};
+
+/** A JSON response with the security headers, for the API host's index and 404s. */
+function jsonResponse(status: number, body: unknown) {
+	const res = new Response(JSON.stringify(body), {
+		status,
+		headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+	});
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.headers.set(name, value);
+	return res;
+}
+
+/** The OpenAPI document: public, so it skips the key check and every session lookup. */
+const publicApiDocument: Handle = async ({ event, resolve }) => {
+	event.locals.user = null;
+	event.locals.brand = DEFAULT_BRAND;
+	event.locals.memberships = [];
+	event.locals.membership = null;
+	event.locals.db = () => error(404, 'Not found.');
+	const response = await resolve(event);
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.headers.set(name, value);
+	return response;
 };
 
 /**

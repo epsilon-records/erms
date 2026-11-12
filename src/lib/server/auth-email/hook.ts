@@ -9,7 +9,7 @@ import { RESEND_TIMEOUT_MS, ResendFailed, sendWithResend } from './resend';
  * here instead of sending it over SMTP, and this picks the sender and sends it through Resend.
  *
  * Order: verify the signature on the raw body, parse, look up the account's org ids (the only
- * database read, as erms_auth_email), choose the sender, render, send. **It fails closed**: any
+ * database read, as labelkit_auth_email), choose the sender, render, send. **It fails closed**: any
  * missing setting, unknown email type, failed lookup or refused send answers an error, Supabase
  * reports the sign-in as failed, and no email goes out from the other domain instead.
  *

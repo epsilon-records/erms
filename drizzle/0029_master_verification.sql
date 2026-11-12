@@ -11,4 +11,4 @@ ALTER TABLE "masters" ADD CONSTRAINT "masters_verifying_claimed" CHECK ("masters
 -- hashes the object in R2 and sets it to 'ready' (with its own sha256) or rejects it. Existing rows
 -- keep their status, and verify_attempts defaults to 0, so nothing changes for them.
 -- The verify_* lease columns are written only on the owner connection, by the background step.
-GRANT UPDATE (claimed_sha256) ON masters TO erms_app;
+GRANT UPDATE (claimed_sha256) ON masters TO labelkit_app;

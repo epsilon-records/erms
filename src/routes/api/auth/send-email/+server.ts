@@ -11,7 +11,7 @@ import type { RequestHandler } from './$types';
 
 /**
  * Supabase Auth's Send Email hook (EPSILON-147). Not behind sign-in: hooks.server.ts hands this
- * path the erms_auth_email runner and nothing else, and the handler verifies the Standard Webhooks
+ * path the labelkit_auth_email runner and nothing else, and the handler verifies the Standard Webhooks
  * signature before it reads the database. See README, "Sign-in email".
  */
 export const POST: RequestHandler = ({ request, locals }) =>

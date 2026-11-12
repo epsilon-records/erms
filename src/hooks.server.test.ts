@@ -93,7 +93,8 @@ describe('auth hook allowlist', () => {
 
 describe('/v1 API auth', () => {
 	it('answers 401 JSON, never a login redirect, without an API key', async () => {
-		const { response, resolved } = await runHook('/v1/releases');
+		// The API answers on api.labelkit.co only (LabelKit 0031); new URL() keeps an absolute URL.
+		const { response, resolved } = await runHook('https://api.labelkit.co/v1/releases');
 		expect(resolved).toBe(false);
 		expect(response.status).toBe(401);
 		expect(await response.json()).toEqual({

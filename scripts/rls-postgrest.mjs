@@ -160,7 +160,7 @@ const cases = [
 	},
 	// Member management (EPSILON-87): there is no browser path into memberships. A user JWT holds
 	// INSERT/UPDATE/DELETE on the table (Supabase's grants), but every membership write policy is
-	// addressed to erms_app, so a forged invite or self-promotion through the REST API cannot land.
+	// addressed to labelkit_app, so a forged invite or self-promotion through the REST API cannot land.
 	{
 		name: 'a user JWT cannot invite itself into another org',
 		expect: '403 from row-level security',
