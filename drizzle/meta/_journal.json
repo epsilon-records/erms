@@ -218,6 +218,13 @@
       "when": 1794465031261,
       "tag": "0030_revoke_master_hash_update",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794501610639,
+      "tag": "0031_org_branding_settings",
+      "breakpoints": true
     }
   ]
 }

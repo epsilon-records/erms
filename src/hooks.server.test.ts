@@ -64,7 +64,8 @@ describe('auth hook allowlist', () => {
 		'/privacy',
 		'/terms',
 		'/auth/callback',
-		'/auth/confirm'
+		'/auth/confirm',
+		'/brand-icon'
 	])('serves %s without a Supabase user', async (pathname) => {
 		const { resolved } = await runHook(pathname);
 		expect(resolved).toBe(true);
