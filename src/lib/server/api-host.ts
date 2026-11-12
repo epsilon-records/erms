@@ -31,6 +31,5 @@ export const API_INDEX = {
 	name: 'LabelKit API',
 	version: 'v1',
 	openapi: `${API_BASE_URL}${OPENAPI_PATH}`,
-	docs: 'https://labelkit.co/docs',
 	auth: 'Authorization: Bearer lk_… (create a key on the API keys page in LabelKit)'
 } as const;
