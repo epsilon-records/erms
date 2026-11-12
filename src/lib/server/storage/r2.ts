@@ -28,10 +28,19 @@ export interface MasterStorage {
 	): Promise<string>;
 	completeMultipart(key: string, uploadId: string, parts: Part[]): Promise<void>;
 	abortMultipart(key: string, uploadId: string): Promise<void>;
-	/** Size of the stored object, or null if there is none. */
+	/**
+	 * Size of the stored object, or null if R2 answers 404. A HEAD has no body, so this 404 cannot
+	 * tell a missing key from a missing bucket: use `isMissing` before treating it as gone.
+	 */
 	head(key: string): Promise<{ size: number } | null>;
+	/**
+	 * True only when R2 says the key does not exist (`NoSuchKey`). A missing or misnamed bucket
+	 * (`NoSuchBucket`) or any other answer is not proof that the object is gone.
+	 */
+	isMissing(key: string): Promise<boolean>;
+	/** Delete the object. Fails if the bucket is missing; a key that is already gone is fine. */
 	remove(key: string): Promise<void>;
-	/** Every key under `prefix` (ListObjectsV2, all pages). */
+	/** Every key under `prefix` (ListObjectsV2, all pages). Fails if the bucket is missing. */
 	list(prefix: string): Promise<string[]>;
 }
 
@@ -66,6 +75,11 @@ export type R2Config = {
 };
 
 export class StorageError extends Error {}
+
+/** The `<Code>` of an S3/R2 XML error document, if there is one. */
+export function errorCode(xml: string): string | null {
+	return /<Code>([^<]+)<\/Code>/.exec(xml)?.[1] ?? null;
+}
 
 const xmlEscape = (s: string) =>
 	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -154,8 +168,27 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 			return { size: Number(res.headers.get('content-length')) };
 		},
 
+		async isMissing(key) {
+			// GET one byte: unlike a HEAD, a 404 here carries the error code.
+			const res = await call(
+				objectUrl(key),
+				{ method: 'GET', headers: { Range: 'bytes=0-0' } },
+				'existence check'
+			);
+			if (res.status !== 404) {
+				await res.body?.cancel().catch(() => {});
+				return false;
+			}
+			return errorCode(await res.text()) === 'NoSuchKey';
+		},
+
 		async remove(key) {
-			await call(objectUrl(key), { method: 'DELETE' }, 'delete');
+			const res = await call(objectUrl(key), { method: 'DELETE' }, 'delete');
+			// Deleting a missing key is fine; a missing bucket means the object was not deleted.
+			if (res.status === 404) {
+				const code = errorCode(await res.text());
+				if (code !== 'NoSuchKey') throw new StorageError(`R2 delete failed: ${code ?? 'HTTP 404'}`);
+			}
 		},
 
 		async list(prefix) {
@@ -167,7 +200,10 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 				url.searchParams.set('prefix', prefix);
 				if (token) url.searchParams.set('continuation-token', token);
 				const res = await call(url, { method: 'GET' }, 'list');
-				if (res.status === 404) break;
+				// A list 404 can only be a missing bucket: never report that as "no objects".
+				if (res.status === 404) {
+					throw new StorageError(`R2 list failed: ${errorCode(await res.text()) ?? 'HTTP 404'}`);
+				}
 				const page = parseListPage(await res.text());
 				keys.push(...page.keys);
 				token = page.next;

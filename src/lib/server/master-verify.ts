@@ -59,8 +59,9 @@ async function rejectVerifying(
 
 /**
  * Lease up to `limit` masters waiting to be checked: those never leased, and those whose lease ran
- * out without a result (after MAX_ATTEMPTS of those, the master is rejected instead). Each lease gets a fresh token, so a late result from an older lease is
- * ignored. Returns a presigned GET for each.
+ * out without a result (after MAX_ATTEMPTS of those, the master is rejected instead). Each lease
+ * gets a fresh token, so a late result from an older lease is ignored. Returns a presigned GET for
+ * each.
  */
 export async function leaseVerifications(
 	db: Database,
@@ -72,13 +73,14 @@ export async function leaseVerifications(
 	}: { limit?: number; leaseMs?: number; backoffSeconds?: number } = {}
 ): Promise<VerifyJob[]> {
 	// A master whose last allowed read never reported back (the function crashed or timed out
-	// every time) is rejected here rather than leased again. Each in its own transaction: a file
-	// that cannot be deleted right now leaves that master for a later run and blocks nothing else.
+	// every time) is rejected here rather than leased again, longest-waiting first. Each in its own
+	// transaction: a file that cannot be deleted right now leaves that master for a later run, at
+	// the back of the queue, and blocks nothing else.
 	const exhausted = (await db.execute(sql`
 		select id from masters
 		where status = 'verifying' and verify_attempts >= ${MAX_ATTEMPTS}
 			and verify_started_at < now() - make_interval(secs => ${leaseMs / 1000})
-		order by created_at
+		order by verify_started_at
 		limit ${limit}`)) as unknown as { id: string }[];
 	for (const { id } of exhausted) {
 		try {
@@ -111,6 +113,14 @@ export async function leaseVerifications(
 					e: String(e)
 				})
 			);
+			// Move it to the back of the queue: the sweep takes the longest-waiting first, so a
+			// batch whose cleanup keeps failing cannot starve the masters behind it. It comes round
+			// again once the lease time has passed.
+			await db
+				.update(masters)
+				.set({ verifyStartedAt: new Date() })
+				.where(and(eq(masters.id, id), eq(masters.status, 'verifying')))
+				.catch(() => {});
 		}
 	}
 
@@ -198,8 +208,8 @@ export type VerifyOutcome = 'ready' | 'rejected' | 'retry' | 'stale';
  * Record one background read. A result for a lease that is no longer current (a newer lease, or
  * the master was deleted or already decided) changes nothing. A read that failed ends the lease,
  * and the master is leased again after a backoff that doubles each time, up to MAX_ATTEMPTS reads.
- * After that, or at once if the object is gone (the reader got 404 and so does this side's HEAD),
- * the master is rejected.
+ * After that, or at once if the object is gone (the reader got 404 and R2 tells this side the key
+ * does not exist), the master is rejected.
  */
 export async function recordVerification(
 	db: Database,
@@ -226,9 +236,10 @@ export async function recordVerification(
 		if ('error' in result) {
 			// A missing object will not come back, and a file that has failed MAX_ATTEMPTS reads is
 			// not going to be checked: reject it, so the upload ends and the person is told why.
-			// A 404 is final only if this side's own HEAD agrees: R2 also answers 404 for a missing
-			// bucket, and a misconfigured reader must not reject every master.
-			const gone = result.status === 404 && !(await storage.head(row.objectKey));
+			// A 404 is final only if this side's own check gets R2's NoSuchKey for the key. R2 also
+			// answers 404 for a missing bucket (NoSuchBucket), and a misconfigured bucket must not
+			// reject every master: that counts as an ordinary failed read.
+			const gone = result.status === 404 && (await storage.isMissing(row.objectKey));
 			if (gone || row.verifyAttempts >= MAX_ATTEMPTS) {
 				return reject(UNREADABLE, { attempts: row.verifyAttempts });
 			}
