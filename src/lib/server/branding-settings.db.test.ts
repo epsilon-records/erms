@@ -102,6 +102,47 @@ describe('tenant branding settings (migration 0031)', () => {
 		expect(row).toMatchObject({ accentColor: '#abcdef', faviconPng: PNG });
 	});
 
+	it('a save made from a form loaded before another owner saved is refused, not applied', async () => {
+		const id = await label('brand-set-h');
+		await asUser(db, owner, (tx) =>
+			saveBranding(tx, id, { displayName: 'First', accent: '#111111', icon: 'keep' })
+		);
+		// Owner A's form shows First/#111111. Owner B renames the label meanwhile.
+		await asUser(db, owner, (tx) =>
+			saveBranding(tx, id, {
+				displayName: 'Renamed',
+				accent: '#111111',
+				icon: 'keep',
+				seen: { displayName: 'First', accent: '#111111' }
+			})
+		);
+		// A saves only an accent change; the form still holds the old name.
+		await expect(
+			asUser(db, owner, (tx) =>
+				saveBranding(tx, id, {
+					displayName: 'First',
+					accent: '#222222',
+					icon: 'keep',
+					seen: { displayName: 'First', accent: '#111111' }
+				})
+			)
+		).rejects.toMatchObject({ status: 409 });
+		const [row] = await db.select().from(orgs).where(eq(orgs.id, id));
+		expect(row).toMatchObject({ displayName: 'Renamed', accentColor: '#111111' });
+
+		// Reloaded, A's form sees the new name and the save goes through.
+		await asUser(db, owner, (tx) =>
+			saveBranding(tx, id, {
+				displayName: 'Renamed',
+				accent: '#222222',
+				icon: 'keep',
+				seen: { displayName: 'Renamed', accent: '#111111' }
+			})
+		);
+		const [after] = await db.select().from(orgs).where(eq(orgs.id, id));
+		expect(after).toMatchObject({ displayName: 'Renamed', accentColor: '#222222' });
+	});
+
 	it('the database refuses an icon that is not PNG, or too large', async () => {
 		const id = await label('brand-set-e');
 		for (const faviconPng of [Buffer.from('<svg/>').toString('base64'), PNG.padEnd(44_001, 'A')]) {

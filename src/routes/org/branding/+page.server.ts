@@ -42,6 +42,10 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const displayNameIn = String(form.get('displayName') ?? '');
 		const accentIn = String(form.get('accent') ?? '');
+		// What the form showed when it was loaded, to refuse a save made over another owner's change.
+		const seenDisplayNameIn = String(form.get('seenDisplayName') ?? '');
+		const seenAccentIn = String(form.get('seenAccent') ?? '');
+		const seen = { displayName: seenDisplayNameIn || null, accent: seenAccentIn || null };
 		try {
 			const displayName = parseDisplayName(displayNameIn);
 			const accent = parseAccent(accentIn);
@@ -54,15 +58,21 @@ export const actions: Actions = {
 				checkIcon(bytes);
 				icon = { png: Buffer.from(bytes).toString('base64') };
 			}
-			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, icon }));
+			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, icon, seen }));
 			clearBrandCache();
 		} catch (e) {
+			if (e instanceof BrandingError && e.status === 409) {
+				// Another owner saved first: show their version (the page reloads it), not this form's.
+				return fail(409, { error: e.message, field: null });
+			}
 			if (e instanceof BrandingError) {
 				return fail(e.status, {
 					error: e.message,
 					field: e.field ?? null,
 					displayName: displayNameIn,
-					accent: accentIn
+					accent: accentIn,
+					seenDisplayName: seenDisplayNameIn,
+					seenAccent: seenAccentIn
 				});
 			}
 			throw e;
