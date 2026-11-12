@@ -1,0 +1,11 @@
+-- Only the owner connection may mark a master checked (EPSILON-164, follow-up to EPSILON-120).
+--
+-- Since migration 0029, a master becomes 'ready' only in the background check, on the owner
+-- connection, which sets sha256 to the hash the server computed and completed_at with it. The app
+-- role still had UPDATE on both from migration 0011, so that rule rested on app code alone. The app
+-- role keeps what uploads use: status, upload_id and claimed_sha256.
+--
+-- Safe to apply with the code now in production: no labelkit_app query writes either column. The
+-- masters_ready_complete check means labelkit_app also cannot set status 'ready' on its own: a row
+-- that is 'ready' needs sha256 and completed_at, which it can no longer write.
+REVOKE UPDATE (sha256, completed_at) ON masters FROM labelkit_app;
