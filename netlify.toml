@@ -1,6 +1,10 @@
 [build]
   command = "pnpm build"
   publish = "build"
+  # Each production deploy costs 15 Free-plan credits (shared 0048): skip a build when a commit
+  # only touches the Storybook site (its own Netlify site, shared 0061). An uncached build (equal
+  # refs) always builds.
+  ignore = "[ \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- . ':(exclude)storybook-site'"
 
 [build.environment]
   NODE_VERSION = "22"
