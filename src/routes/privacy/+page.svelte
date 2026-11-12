@@ -1,6 +1,9 @@
 <script lang="ts">
+	import PublicAnalytics from '#lib/components/PublicAnalytics.svelte';
 	import LegalPage from '#lib/components/LegalPage.svelte';
 </script>
+
+<PublicAnalytics />
 
 <LegalPage title="Privacy notice" effective="12 November 2026">
 	<p>
@@ -65,6 +68,18 @@
 		<li>Resend: sign-in and invitation emails.</li>
 		<li>Sentry: error reports.</li>
 		<li>Google Fonts: the typefaces. Your browser fetches them from Google.</li>
+		<li>
+			Cloudflare Web Analytics, when enabled: aggregate page traffic and performance for LabelKit's
+			public pages on labelkit.co (the home page, log in, sign up, this notice and the terms). Its
+			beacon receives page and referring URL information and browser performance measurements.
+			Cloudflare states that the beacon does not use cookies or browser storage or track people
+			across customer sites. It is never loaded once you are signed in, nor on label workspaces or
+			branded domains, and it skips pages whose address or referrer has a query or fragment. We only
+			see aggregate reports. See
+			<a href="https://developers.cloudflare.com/speed/observatory/rum-beacon/"
+				>Cloudflare's explanation of its beacon</a
+			>.
+		</li>
 	</ul>
 	<p>
 		Several of these are based in the United States or may process data there. They do so under the
@@ -85,8 +100,8 @@
 		</li>
 		<li>Keeping invoices and tax records: legal obligation (Article 6(1)(c)).</li>
 		<li>
-			Security, abuse prevention, error reports and support: our legitimate interests (Article
-			6(1)(f)). You can object to these at any time.
+			Security, abuse prevention, error reports, support and aggregate analytics of the public
+			pages: our legitimate interests (Article 6(1)(f)). You can object to these at any time.
 		</li>
 	</ul>
 

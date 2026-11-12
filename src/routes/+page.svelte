@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Landing from '#lib/components/Landing.svelte';
+	import PublicAnalytics from '#lib/components/PublicAnalytics.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -7,6 +8,7 @@
 
 {#if data.landing}
 	<Landing signupOpen={data.signupOpen} />
+	<PublicAnalytics />
 {:else}
 	<div class="container">
 		{#if data.membership && data.stats}
