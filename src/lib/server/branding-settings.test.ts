@@ -100,6 +100,31 @@ describe('checkIcon', () => {
 		refused(() => checkIcon(file), /PNG/);
 	});
 
+	it('refuses a scanline with an invalid filter type', () => {
+		// Right length and CRCs, but the first row's filter byte is 5; PNG defines 0 to 4.
+		const whole = png(32);
+		const head = whole.subarray(0, 33);
+		const rows = Buffer.alloc(33 * 32);
+		rows[0] = 5;
+		const body = deflateSync(rows);
+		const idat = Buffer.alloc(12 + body.length);
+		idat.writeUInt32BE(body.length, 0);
+		idat.write('IDAT', 4, 'latin1');
+		body.copy(idat, 8);
+		idat.writeUInt32BE(crc32(idat.subarray(4, 8 + body.length)), 8 + body.length);
+		const file = new Uint8Array(Buffer.concat([head, idat, whole.subarray(whole.length - 12)]));
+		refused(() => checkIcon(file), /PNG/);
+		rows[0] = 4; // the same file with a valid filter type is accepted
+		const ok = deflateSync(rows);
+		const idatOk = Buffer.alloc(12 + ok.length);
+		idatOk.writeUInt32BE(ok.length, 0);
+		idatOk.write('IDAT', 4, 'latin1');
+		ok.copy(idatOk, 8);
+		idatOk.writeUInt32BE(crc32(idatOk.subarray(4, 8 + ok.length)), 8 + ok.length);
+		const fine = new Uint8Array(Buffer.concat([head, idatOk, whole.subarray(whole.length - 12)]));
+		expect(checkIcon(fine)).toEqual({ size: 32 });
+	});
+
 	it('names the icon field in its errors, so the page marks that input', () => {
 		try {
 			checkIcon(png(16));
