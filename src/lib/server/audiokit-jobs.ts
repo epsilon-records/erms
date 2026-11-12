@@ -218,7 +218,9 @@ export const PLAN_REFUSALS: Partial<Record<ApiErrorCode, string>> = {
 		'AudioKit refused the job: the plan’s job allowance for this billing period is used up.',
 	stem_allowance_exhausted:
 		'AudioKit refused the job: the plan’s stem allowance for this billing period is used up.',
-	no_active_plan: 'AudioKit refused the job: the AudioKit client has no active plan.'
+	no_active_plan: 'AudioKit refused the job: the AudioKit client has no active plan.',
+	insufficient_credits:
+		'AudioKit refused the job: the AudioKit account’s prepaid credits don’t cover it.'
 };
 
 export type SubmitOutcome = { status: 'submitted' } | { status: 'failed'; code: ApiErrorCode };
