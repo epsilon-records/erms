@@ -236,7 +236,8 @@ describe('queueing analysis from the recording page', () => {
 	it.each([
 		['job_allowance_exhausted', 'probe', 'job allowance'],
 		['stem_allowance_exhausted', 'stems', 'stem allowance'],
-		['no_active_plan', 'probe', 'no active plan']
+		['no_active_plan', 'probe', 'no active plan'],
+		['insufficient_credits', 'probe', 'prepaid credits']
 	] as const)(
 		'fails a job AudioKit refuses with %s, without retrying it',
 		async (code, op, says) => {
