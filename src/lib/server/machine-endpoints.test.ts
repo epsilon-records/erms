@@ -74,7 +74,13 @@ describe('machine endpoints', () => {
 			expect(isMachineRoute(sample(route)), route).toBe(true);
 			expect(isPublicPath(sample(route)), route).toBe(true);
 		}
-		expect(MACHINE_ROUTES.every((route) => machineRoutes().includes(route))).toBe(true);
+		// Every listed machine route is a real route: under /api/audiokit, or the daily purge.
+		for (const route of MACHINE_ROUTES) {
+			const exists = route.startsWith('/api/audiokit/')
+				? machineRoutes().includes(route)
+				: existsSync(new URL(`src/routes${route}/+server.ts`, ROOT));
+			expect(exists, route).toBe(true);
+		}
 	});
 
 	it('does not exempt other paths under the same prefixes', () => {

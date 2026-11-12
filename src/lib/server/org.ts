@@ -1,6 +1,13 @@
 import type { Role } from './db/schema';
 
-export type Membership = { orgId: string; orgName: string; role: Role; onboardedAt?: Date | null };
+export type Membership = {
+	orgId: string;
+	orgName: string;
+	role: Role;
+	onboardedAt?: Date | null;
+	/** Set when an owner has closed the label (migration 0027). */
+	closedAt?: Date | null;
+};
 
 /** Cookie holding the org the user last switched to. */
 export const ORG_COOKIE = 'erms_org';

@@ -22,6 +22,15 @@ import { ORG_COOKIE, pickMembership, needsOnboarding } from '#lib/server/org.js'
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */
 const isNoLabelAllowed = (path: string) => isPublicPath(path) || path === '/logout';
 
+/**
+ * Routes a member of a closed label can still reach: the closed page, logout, and the export page
+ * with the downloads under it (each still checks the member's own access).
+ */
+const isClosedAllowed = (path: string) =>
+	isPublicPath(path) ||
+	['/org/closed', '/org/export', '/logout'].includes(path) ||
+	path.startsWith('/org/export/');
+
 /** Routes a signed-in member can reach before finishing first-run onboarding. */
 const ONBOARDING_EXEMPT = [...PUBLIC_PAGES, '/onboarding', '/logout'];
 
@@ -85,7 +94,8 @@ const appHandle: Handle = async ({ event, resolve }) => {
 					orgId: memberships.orgId,
 					role: memberships.role,
 					orgName: orgs.name,
-					onboardedAt: memberships.onboardedAt
+					onboardedAt: memberships.onboardedAt,
+					closedAt: orgs.closedAt
 				})
 				.from(memberships)
 				.innerJoin(orgs, eq(orgs.id, memberships.orgId))
@@ -110,6 +120,17 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	// thing to do is create a label (EPSILON-130), which /signup/label explains when signup is off.
 	if (user && !event.locals.membership && !isNoLabelAllowed(event.url.pathname)) {
 		redirect(303, '/signup/label');
+	}
+
+	// A closed label (migration 0027) does nothing until it is reopened or purged. Owners can still
+	// export it and reopen it; everyone else sees the closed page.
+	if (
+		event.locals.membership?.closedAt &&
+		// POST /org switches to another label, which must stay possible.
+		event.url.pathname !== '/org' &&
+		!isClosedAllowed(event.url.pathname)
+	) {
+		redirect(303, '/org/closed');
 	}
 
 	// First run: send a member who hasn't finished onboarding to the welcome page.
