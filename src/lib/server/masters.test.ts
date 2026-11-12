@@ -188,10 +188,15 @@ describe('master uploads', () => {
 			header: Buffer.from(o.start.slice(0, 12)).toString('hex')
 		};
 	};
-	/** Run the background check once over every master waiting for it. */
+	/**
+	 * Run the background check once for the masters this test uploaded. Masters left `verifying`
+	 * by earlier tests are leased but not reported, so their retries and rejections cannot touch
+	 * this test's storage.
+	 */
 	const verifyNow = async () => {
 		const outcomes: Record<string, string> = {};
 		for (const job of await leaseVerifications(db, storage, { limit: 100 })) {
+			if (!storage.objects.has(new URL(job.url).pathname.slice(1))) continue;
 			outcomes[job.id] = await recordVerification(db, storage, readOf(job));
 		}
 		return outcomes;
