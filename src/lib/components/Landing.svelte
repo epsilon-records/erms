@@ -40,6 +40,45 @@
 			a: 'No. Nothing in your catalogue is used for AI without a consent you recorded, per artist and per track.'
 		}
 	];
+
+	// schema.org data for search engines and AI models, from the same facts the page shows.
+	// A JSON-LD data block is never executed, so the CSP's script-src does not apply to it.
+	const structuredData = {
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		'@id': 'https://labelkit.co/#app',
+		name: 'LabelKit',
+		url: 'https://labelkit.co/',
+		applicationCategory: 'BusinessApplication',
+		operatingSystem: 'Web',
+		description:
+			'Label software for independent labels: releases, recordings, compositions, credits and splits, agreements, artist consents and WAV masters in one place.',
+		image: 'https://labelkit.co/og.png',
+		featureList: today,
+		offers: [
+			{ '@type': 'Offer', name: 'Free', price: '0', priceCurrency: 'EUR' },
+			{
+				'@type': 'Offer',
+				name: 'Label',
+				price: '12',
+				priceCurrency: 'EUR',
+				priceSpecification: {
+					'@type': 'UnitPriceSpecification',
+					price: '12',
+					priceCurrency: 'EUR',
+					unitCode: 'MON'
+				}
+			}
+		],
+		publisher: {
+			'@type': 'Organization',
+			name: 'Epsilon Records',
+			url: 'https://epsilonrecords.com/'
+		}
+	};
+	const jsonLd =
+		`<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</` +
+		'script>';
 </script>
 
 <svelte:head>
@@ -48,6 +87,31 @@
 		name="description"
 		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
 	/>
+	<link rel="canonical" href="https://labelkit.co/" />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="LabelKit" />
+	<meta property="og:title" content="LabelKit: label software for independent labels" />
+	<meta
+		property="og:description"
+		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
+	/>
+	<meta property="og:url" content="https://labelkit.co/" />
+	<meta property="og:image" content="https://labelkit.co/og.png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta
+		property="og:image:alt"
+		content="LabelKit: run your label's catalogue, rights and masters in one place."
+	/>
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="LabelKit: label software for independent labels" />
+	<meta
+		name="twitter:description"
+		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
+	/>
+	<meta name="twitter:image" content="https://labelkit.co/og.png" />
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- static JSON-LD built from constants below -->
+	{@html jsonLd}
 </svelte:head>
 
 <div class="landing">
