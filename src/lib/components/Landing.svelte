@@ -4,6 +4,9 @@
 	// portal and the public API are marked "Soon" until they exist (gap analysis, EPSILON-128).
 	let { signupOpen }: { signupOpen: boolean } = $props();
 
+	// Phone nav (audit F-16): under 760 px the links fold behind a Menu button, like epsilonrecords.com.
+	let menuOpen = $state(false);
+
 	const today = [
 		'Releases, recordings & compositions',
 		'Credits and splits per track',
@@ -125,7 +128,23 @@
 				</svg>
 				<span>LabelKit</span><span class="by">by Epsilon Records</span>
 			</a>
-			<nav aria-label="Main">
+			<button
+				type="button"
+				class="menu-toggle"
+				aria-expanded={menuOpen}
+				aria-controls="landing-nav"
+				onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Close' : 'Menu'}</button
+			>
+			<!-- Closes the menu after a link is followed; the links themselves handle keys. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+			<nav
+				id="landing-nav"
+				aria-label="Main"
+				class:open={menuOpen}
+				onclick={(e) => {
+					if ((e.target as HTMLElement).closest('a')) menuOpen = false;
+				}}
+			>
 				<a href="#features">Features</a>
 				<a href="#pricing">Pricing</a>
 				<a href="#faq">FAQ</a>
@@ -347,8 +366,49 @@
 		font-size: 15px;
 		color: #c5c9cf;
 	}
+	nav a {
+		/* 44 px touch floor (audit F-11). */
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+	}
 	nav a:hover {
 		color: #fff;
+	}
+	.menu-toggle {
+		display: none;
+	}
+	@media (max-width: 760px) and (scripting: enabled) {
+		.menu-toggle {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+			padding: 0 16px;
+			border: 1px solid var(--line-control, #646a73);
+			background: transparent;
+			color: var(--text);
+			font: inherit;
+			font-weight: 600;
+			cursor: pointer;
+		}
+		nav {
+			display: none;
+			flex-basis: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0;
+		}
+		nav.open {
+			display: flex;
+		}
+		nav a {
+			border-top: 1px solid var(--line);
+		}
+		nav a.cta {
+			justify-content: center;
+			margin-top: 12px;
+			border-top: 0;
+		}
 	}
 	.cta,
 	.ghost,
@@ -619,6 +679,11 @@
 	.links {
 		display: flex;
 		gap: 20px;
+	}
+	.links a {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
 	}
 	footer {
 		display: flex;
