@@ -83,6 +83,40 @@ describe('R2 storage', () => {
 		expect(calls.map((c) => c.method)).toEqual(['HEAD']);
 	});
 
+	it('says a key is missing only when R2 answers NoSuchKey', async () => {
+		const answer = (status: number, code?: string) =>
+			recorder(() =>
+				code
+					? new Response(`<Error><Code>${code}</Code></Error>`, { status })
+					: new Response(new Uint8Array([82]), { status })
+			).fetchImpl;
+		expect(await createR2Storage(config, answer(404, 'NoSuchKey')).isMissing(key)).toBe(true);
+		// A wrong bucket name is not proof that the object is gone.
+		expect(await createR2Storage(config, answer(404, 'NoSuchBucket')).isMissing(key)).toBe(false);
+		expect(await createR2Storage(config, answer(206)).isMissing(key)).toBe(false);
+		const { calls, fetchImpl } = recorder(
+			() => new Response(new Uint8Array([82]), { status: 206 })
+		);
+		await createR2Storage(config, fetchImpl).isMissing(key);
+		expect(calls[0].method).toBe('GET');
+		expect(calls[0].headers.get('range')).toBe('bytes=0-0');
+	});
+
+	it('fails a delete or list against a missing bucket, but not a delete of a missing key', async () => {
+		const answer = (code: string) =>
+			recorder(() => new Response(`<Error><Code>${code}</Code></Error>`, { status: 404 }))
+				.fetchImpl;
+		await expect(createR2Storage(config, answer('NoSuchBucket')).remove(key)).rejects.toThrow(
+			/NoSuchBucket/
+		);
+		await expect(createR2Storage(config, answer('NoSuchKey')).remove(key)).resolves.toBeUndefined();
+		const gone = recorder(() => new Response(null, { status: 204 })).fetchImpl;
+		await expect(createR2Storage(config, gone).remove(key)).resolves.toBeUndefined();
+		await expect(createR2Storage(config, answer('NoSuchBucket')).list('orgs/a/')).rejects.toThrow(
+			/NoSuchBucket/
+		);
+	});
+
 	it('returns null for a missing object', async () => {
 		const { fetchImpl } = recorder(() => new Response(null, { status: 404 }));
 		expect(await createR2Storage(config, fetchImpl).head(key)).toBeNull();

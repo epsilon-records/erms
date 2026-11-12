@@ -83,9 +83,14 @@ class FakeStorage implements MasterStorage {
 	async abortMultipart(_key: string, uploadId: string) {
 		this.uploads.delete(uploadId);
 	}
+	/** Set to answer as R2 does when the configured bucket does not exist (NoSuchBucket). */
+	bucketMissing = false;
 	async head(key: string) {
-		const o = this.objects.get(key);
+		const o = this.bucketMissing ? undefined : this.objects.get(key);
 		return o ? { size: o.size } : null;
+	}
+	async isMissing(key: string) {
+		return !this.bucketMissing && !this.objects.has(key);
 	}
 	async remove(key: string) {
 		if (this.failRemove.has(key)) throw new Error('R2 delete failed');
@@ -625,7 +630,7 @@ describe('master uploads', () => {
 			expect(await rejection(id)).toMatchObject({ reason: UNREADABLE });
 		});
 
-		it('rejects at once when the stored object is gone, by its own HEAD as well', async () => {
+		it('rejects at once when the stored object is gone, as R2 confirms (NoSuchKey)', async () => {
 			const { id, objectKey } = await startVerifying();
 			const job = await leaseOf(id);
 			storage.objects.delete(objectKey);
@@ -703,6 +708,58 @@ describe('master uploads', () => {
 			storage.failRemove.clear();
 			await leaseOf(other.id, 0);
 			expect((await keyOf(stuck.id)).status).toBe('rejected');
+		});
+
+		it('treats a 404 from a missing bucket as a failed read, not a gone object', async () => {
+			// R2 answers 404 NoSuchBucket for a wrong R2_MASTERS_BUCKET: that must not reject.
+			const { id, objectKey } = await startVerifying();
+			const job = await leaseOf(id);
+			storage.bucketMissing = true;
+			expect(
+				await recordVerification(db, storage, {
+					id,
+					token: job!.token,
+					error: 'Error: storage answered HTTP 404',
+					status: 404
+				})
+			).toBe('retry');
+			expect(await keyOf(id)).toMatchObject({ status: 'verifying', sha256: null });
+			expect(storage.objects.has(objectKey)).toBe(true);
+			expect(await rejection(id)).toBeUndefined();
+		});
+
+		it('a whole batch whose cleanup fails does not starve the masters behind it', async () => {
+			// Clear any exhausted masters earlier tests left, so the batch below is exactly ours.
+			await leaseOf('none', 0);
+			// Three masters whose 5th lease ran out without a result, a waiting longest.
+			const exhaust = async (minutesAgo: number) => {
+				const m = await startVerifying();
+				await db
+					.update(masters)
+					.set({
+						verifyAttempts: MAX_ATTEMPTS,
+						verifyToken: crypto.randomUUID(),
+						verifyStartedAt: new Date(Date.now() - minutesAgo * 60_000)
+					})
+					.where(eq(masters.id, m.id));
+				return m;
+			};
+			const a = await exhaust(30);
+			const b = await exhaust(29);
+			const c = await exhaust(28);
+			storage.failRemove.add(a.objectKey);
+			storage.failRemove.add(b.objectKey);
+			const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+			const sweep = () => leaseVerifications(db, storage, { limit: 2, leaseMs: 0 });
+			// First run: the two longest-waiting (a, b) fail and go to the back of the queue.
+			await sweep();
+			expect((await keyOf(a.id)).status).toBe('verifying');
+			expect((await keyOf(b.id)).status).toBe('verifying');
+			// Next run reaches c, which is rejected although a and b still fail.
+			await sweep();
+			error.mockRestore();
+			expect((await keyOf(c.id)).status).toBe('rejected');
+			expect(storage.objects.has(c.objectKey)).toBe(false);
 		});
 
 		it('nothing uses a master while it is verifying', async () => {
