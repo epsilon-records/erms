@@ -34,6 +34,47 @@ const codeOf = (e: unknown) =>
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
+/** Channels per pixel for each PNG colour type; bit depths each type allows. */
+const CHANNELS: Record<number, [number, number[]]> = {
+	0: [1, [1, 2, 4, 8, 16]], // greyscale
+	2: [3, [8, 16]], // RGB
+	3: [1, [1, 2, 4, 8]], // palette
+	4: [2, [8, 16]], // greyscale + alpha
+	6: [4, [8, 16]] // RGBA
+};
+/** Adam7 passes as [x start, y start, x step, y step]. */
+const ADAM7 = [
+	[0, 0, 8, 8],
+	[4, 0, 8, 8],
+	[0, 4, 4, 8],
+	[2, 0, 4, 4],
+	[0, 2, 2, 4],
+	[1, 0, 2, 2],
+	[0, 1, 1, 2]
+];
+
+/**
+ * The size of the decompressed image data the IHDR describes: per row, one filter byte plus the
+ * row's pixels; for an interlaced image, summed over the seven Adam7 passes. Null for a header
+ * with an invalid colour type, bit depth, compression, filter or interlace method.
+ */
+function scanlineBytes(view: DataView): number | null {
+	const width = view.getUint32(16);
+	const height = view.getUint32(20);
+	const depth = view.getUint8(24);
+	const colour = CHANNELS[view.getUint8(25)];
+	const interlace = view.getUint8(28);
+	if (!colour || !colour[1].includes(depth)) return null;
+	if (view.getUint8(26) !== 0 || view.getUint8(27) !== 0 || interlace > 1) return null;
+	const bits = colour[0] * depth;
+	const rows = (w: number, h: number) => (w && h ? h * (1 + Math.ceil((w * bits) / 8)) : 0);
+	if (interlace === 0) return rows(width, height);
+	return ADAM7.reduce(
+		(n, [x0, y0, dx, dy]) => n + rows(Math.ceil((width - x0) / dx), Math.ceil((height - y0) / dy)),
+		0
+	);
+}
+
 const notPng = () => new BrandingError(400, 'The icon must be a PNG file.', 'icon');
 
 /**
@@ -57,17 +98,18 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		at = end;
 	}
 	if (!ended || idat.length === 0) throw notPng();
-	// Bound the inflated size by what the header allows: per row one filter byte and at most 8
-	// bytes a pixel (16-bit RGBA), doubled for Adam7 interlacing's extra filter bytes. Without it a
-	// 32 KB upload could inflate to tens of MB, synchronously.
-	const maxRaw = 2 * view.getUint32(20) * (1 + view.getUint32(16) * 8);
+	// The image data must inflate to exactly the scanline bytes the header describes, and is
+	// inflated no further than that: a short stream is a broken image, and a 32 KB upload must not
+	// inflate to tens of MB.
+	const expected = scanlineBytes(view);
+	if (expected === null) throw notPng();
 	let raw: Buffer;
 	try {
-		raw = inflateSync(Buffer.concat(idat), { maxOutputLength: maxRaw });
+		raw = inflateSync(Buffer.concat(idat), { maxOutputLength: expected });
 	} catch {
 		throw notPng();
 	}
-	if (raw.length === 0) throw notPng();
+	if (raw.length !== expected) throw notPng();
 }
 
 /** Checks a tab icon upload: a square PNG, 32 to 512 px, at most 32 KiB. Returns its size. */
