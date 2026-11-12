@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -28,7 +32,35 @@
 				: c.expiresOn && c.expiresOn < data.today
 					? 'expired'
 					: 'active';
+
+	/** A save error that names a field sits under it; the rest go under the form. */
+	const FIELDS = [
+		'partyId',
+		'purpose',
+		'recordingId',
+		'agreementId',
+		'grantedOn',
+		'expiresOn',
+		'notes'
+	];
+	const fieldError = (field: string) =>
+		failed && form?.action === 'grant' ? errors[field] : undefined;
+	const invalid = (field: string) =>
+		fieldError(field)
+			? { 'aria-invalid': true as const, 'aria-describedby': `${field}-error` }
+			: {};
+	const formErrors = $derived(
+		failed && form?.action === 'grant'
+			? Object.entries(errors)
+					.filter(([k]) => !FIELDS.includes(k))
+					.map(([, m]) => m)
+			: []
+	);
 </script>
+
+{#snippet fieldErrorFor(field: string)}
+	{#if fieldError(field)}<Field.Error id="{field}-error">{fieldError(field)}</Field.Error>{/if}
+{/snippet}
 
 <svelte:head><title>Consents · {page.data.brand?.name ?? 'LabelKit'}</title></svelte:head>
 
@@ -87,11 +119,13 @@
 												Revoke {c.party}’s consent for {label(c.purpose).toLowerCase()}? Jobs that
 												need it are refused from now on. Recording it again makes a new consent.
 											</p>
-											<button
-												class="btn small danger"
+											<Button
+												type="submit"
+												variant="danger"
+												size="small"
 												name="removalConfirmed"
 												value="yes"
-												aria-label="Confirm: revoke {c.party}’s consent">Revoke consent</button
+												aria-label="Confirm: revoke {c.party}’s consent">Revoke consent</Button
 											>
 										</form>
 									</details>
@@ -112,50 +146,98 @@
 	{#if data.options}
 		<form method="POST" action="?/grant" class="stack" aria-labelledby="grant-h">
 			<h2 id="grant-h" class="h2">Record a consent</h2>
-			<div class="form-grid">
-				<label for="partyId">From</label>
-				<select id="partyId" name="partyId" value={values.partyId ?? ''} required>
-					<option value="">—</option>
-					{#each data.options.parties as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
-				</select>
-				<label for="purpose">For</label>
-				<select id="purpose" name="purpose" value={values.purpose ?? 'stem_separation'}>
-					{#each PURPOSES as [k, l] (k)}<option value={k}>{l}</option>{/each}
-				</select>
-				<label for="recordingId">Recording ID</label>
-				<input
-					id="recordingId"
-					name="recordingId"
-					class="mono"
-					value={values.recordingId ?? ''}
-					placeholder="Blank for all their recordings"
-				/>
-				<label for="agreementId">Agreement</label>
-				<select id="agreementId" name="agreementId" value={values.agreementId ?? ''}>
-					<option value="">—</option>
-					{#each data.agreements ?? [] as a (a.id)}<option value={a.id}>{a.title}</option>{/each}
-				</select>
-				<label for="grantedOn">Granted on</label>
-				<input
-					id="grantedOn"
-					name="grantedOn"
-					type="date"
-					value={values.grantedOn ?? data.today}
-					required
-				/>
-				<label for="expiresOn">Expires</label>
-				<input id="expiresOn" name="expiresOn" type="date" value={values.expiresOn ?? ''} />
-				<label for="notes">Notes</label>
-				<input id="notes" name="notes" value={values.notes ?? ''} />
-				<span></span>
-				<div><button class="btn primary">Record consent</button></div>
-			</div>
-			{#if failed && form?.action !== 'revoke'}
-				<div class="alert error" role="alert">
-					{Object.entries(errors)
-						.map(([k, m]) => (k === 'form' ? m : `${k}: ${m}`))
-						.join('\n')}
+			<Field.Group class="gap-2.5">
+				<Field.Field orientation="responsive">
+					<Field.Label for="partyId">From</Field.Label>
+					<NativeSelect.Root
+						id="partyId"
+						name="partyId"
+						value={values.partyId ?? ''}
+						required
+						{...invalid('partyId')}
+					>
+						<NativeSelect.Option value="">—</NativeSelect.Option>
+						{#each data.options.parties as p (p.id)}<NativeSelect.Option value={p.id}
+								>{p.name}</NativeSelect.Option
+							>{/each}
+					</NativeSelect.Root>
+					{@render fieldErrorFor('partyId')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="purpose">For</Field.Label>
+					<NativeSelect.Root
+						id="purpose"
+						name="purpose"
+						value={values.purpose ?? 'stem_separation'}
+						{...invalid('purpose')}
+					>
+						{#each PURPOSES as [k, l] (k)}<NativeSelect.Option value={k}>{l}</NativeSelect.Option
+							>{/each}
+					</NativeSelect.Root>
+					{@render fieldErrorFor('purpose')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="recordingId">Recording ID</Field.Label>
+					<Input
+						id="recordingId"
+						name="recordingId"
+						class="font-mono"
+						value={values.recordingId ?? ''}
+						placeholder="Blank for all their recordings"
+						{...invalid('recordingId')}
+					/>
+					{@render fieldErrorFor('recordingId')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="agreementId">Agreement</Field.Label>
+					<NativeSelect.Root
+						id="agreementId"
+						name="agreementId"
+						value={values.agreementId ?? ''}
+						{...invalid('agreementId')}
+					>
+						<NativeSelect.Option value="">—</NativeSelect.Option>
+						{#each data.agreements ?? [] as a (a.id)}<NativeSelect.Option value={a.id}
+								>{a.title}</NativeSelect.Option
+							>{/each}
+					</NativeSelect.Root>
+					{@render fieldErrorFor('agreementId')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="grantedOn">Granted on</Field.Label>
+					<Input
+						id="grantedOn"
+						name="grantedOn"
+						type="date"
+						value={values.grantedOn ?? data.today}
+						required
+						{...invalid('grantedOn')}
+					/>
+					{@render fieldErrorFor('grantedOn')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="expiresOn">Expires</Field.Label>
+					<Input
+						id="expiresOn"
+						name="expiresOn"
+						type="date"
+						value={values.expiresOn ?? ''}
+						{...invalid('expiresOn')}
+					/>
+					{@render fieldErrorFor('expiresOn')}
+				</Field.Field>
+				<Field.Field orientation="responsive">
+					<Field.Label for="notes">Notes</Field.Label>
+					<Input id="notes" name="notes" value={values.notes ?? ''} {...invalid('notes')} />
+					{@render fieldErrorFor('notes')}
+				</Field.Field>
+				<!-- Lines the button up with the controls: the 140 px label column plus the 20 px gap. -->
+				<div class="sm:pl-[160px]">
+					<Button type="submit" variant="primary">Record consent</Button>
 				</div>
+			</Field.Group>
+			{#if formErrors.length}
+				<div class="alert error" role="alert">{formErrors.join('\n')}</div>
 			{:else if done === 'grant'}
 				<div class="alert ok" role="status">Consent recorded.</div>
 			{:else if done === 'revoke'}

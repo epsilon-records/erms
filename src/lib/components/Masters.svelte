@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import { invalidateAll } from '$app/navigation';
 	import { wavProblem } from '#lib/masters.js';
 	import { type Progress, uploadMaster } from '#lib/upload-master.js';
@@ -171,24 +172,22 @@
 											>Delete {m.fileName}? The file and its record are removed for good.</span
 										>
 										<span class="inline-form">
-											<button class="btn small danger" type="button" onclick={() => remove(m)}
-												>Delete master</button
+											<Button variant="danger" size="small" onclick={() => remove(m)}
+												>Delete master</Button
 											>
-											<button class="btn small" type="button" onclick={() => (confirming = null)}
-												>Keep</button
-											>
+											<Button size="small" onclick={() => (confirming = null)}>Keep</Button>
 										</span>
 									</div>
 								{:else}
-									<button
-										class="btn small danger"
-										type="button"
+									<Button
+										variant="danger"
+										size="small"
 										disabled={deleting === m.id}
 										aria-label="Delete {m.fileName}"
 										onclick={() => (confirming = m.id)}
 									>
 										{deleting === m.id ? 'Deleting…' : 'Delete'}
-									</button>
+									</Button>
 								{/if}
 							</td>
 						{/if}
@@ -212,9 +211,11 @@
 				onchange={choose}
 				disabled={busy}
 			/>
-			<button class="btn small primary" disabled={!file || busy}>Upload master</button>
+			<Button type="submit" variant="primary" size="small" disabled={!file || busy}
+				>Upload master</Button
+			>
 			{#if busy}
-				<button type="button" class="btn small" onclick={() => controller?.abort()}>Cancel</button>
+				<Button size="small" onclick={() => controller?.abort()}>Cancel</Button>
 			{/if}
 		</form>
 		{#if progress}

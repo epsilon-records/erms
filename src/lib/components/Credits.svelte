@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import { confirmRemoval } from '#lib/removal-confirmation.js';
 	type Credit = {
 		id: string;
@@ -24,6 +28,9 @@
 		errors?: Record<string, string>;
 		values?: Record<string, string>;
 	} = $props();
+
+	/** The add form's errors: name and role sit under their control, anything else under the form. */
+	const formError = $derived(errors.name || errors.role ? undefined : errors.form);
 </script>
 
 <noscript
@@ -62,7 +69,7 @@
 								{#if !c.approvedAt && canApprove}
 									<form method="POST" action="?/approveCredit">
 										<input type="hidden" name="creditId" value={c.id} />
-										<button class="btn small">Approve</button>
+										<Button type="submit" size="small">Approve</Button>
 									</form>
 								{/if}
 								<form
@@ -72,8 +79,11 @@
 										`Remove the ${c.role} credit for ${c.name}? This removes the credit, while keeping the artist and catalog item.`}
 								>
 									<input type="hidden" name="creditId" value={c.id} />
-									<button class="btn small danger" aria-label="Remove {c.role} credit for {c.name}"
-										>Remove</button
+									<Button
+										type="submit"
+										variant="danger"
+										size="small"
+										aria-label="Remove {c.role} credit for {c.name}">Remove</Button
 									>
 								</form>
 							</div>
@@ -86,27 +96,43 @@
 </div>
 
 {#if canEdit && roles.length}
-	<form method="POST" action="?/addCredit" class="inline-form">
-		<label for="credit-name" class="sr-only">Artist name</label>
-		<input
-			id="credit-name"
-			name="name"
-			placeholder="Artist name"
-			value={values.name ?? ''}
-			required
-		/>
+	<form method="POST" action="?/addCredit" class="flex flex-wrap items-start gap-2">
+		<div class="flex flex-col gap-1.5">
+			<label for="credit-name" class="sr-only">Artist name</label>
+			<Input
+				id="credit-name"
+				name="name"
+				class="w-[260px]"
+				placeholder="Artist name"
+				value={values.name ?? ''}
+				required
+				aria-invalid={errors.name ? true : undefined}
+				aria-describedby={errors.name ? 'credit-name-error' : undefined}
+			/>
+			{#if errors.name}<Field.Error id="credit-name-error">{errors.name}</Field.Error>{/if}
+		</div>
 		{#if roles.length > 1}
-			<label for="credit-role" class="sr-only">Role</label>
-			<select id="credit-role" name="role">
-				{#each roles as r (r)}<option value={r} selected={values.role === r}>{r}</option>{/each}
-			</select>
+			<div class="flex flex-col gap-1.5">
+				<label for="credit-role" class="sr-only">Role</label>
+				<NativeSelect.Root
+					id="credit-role"
+					name="role"
+					value={values.role ?? roles[0]}
+					wrapperClass="w-fit"
+					aria-invalid={errors.role ? true : undefined}
+					aria-describedby={errors.role ? 'credit-role-error' : undefined}
+				>
+					{#each roles as r (r)}<NativeSelect.Option value={r}>{r}</NativeSelect.Option>{/each}
+				</NativeSelect.Root>
+				{#if errors.role}<Field.Error id="credit-role-error">{errors.role}</Field.Error>{/if}
+			</div>
 		{:else}
 			<input type="hidden" name="role" value={roles[0]} />
 		{/if}
-		<button class="btn">Add credit</button>
+		<Button type="submit">Add credit</Button>
 	</form>
 	<p class="muted" style="margin: 0; font-size: 13px">New credits stay pending until approved.</p>
 {/if}
-{#if errors.name || errors.role || errors.form}
-	<div class="alert error" role="alert">{errors.name ?? errors.role ?? errors.form}</div>
+{#if formError}
+	<div class="alert error" role="alert">{formError}</div>
 {/if}

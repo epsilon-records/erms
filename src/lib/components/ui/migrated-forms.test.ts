@@ -19,6 +19,12 @@ const { default: ReleaseEditPage } =
 	await import('../../../routes/releases/[id]/edit/+page.svelte');
 const { default: RecordingPage } = await import('../../../routes/recordings/[id]/+page.svelte');
 const { analysisEmpty } = await import('../fixtures.stories-data.js');
+const { default: Credits } = await import('../Credits.svelte');
+const { default: Ownership } = await import('../Ownership.svelte');
+const { default: CompositionsPage } = await import('../../../routes/compositions/+page.svelte');
+const { default: CompositionPage } = await import('../../../routes/compositions/[id]/+page.svelte');
+const { default: AgreementsPage } = await import('../../../routes/rights/agreements/+page.svelte');
+const { default: ConsentsPage } = await import('../../../routes/rights/consents/+page.svelte');
 
 const html = (component: unknown, props: Record<string, unknown>) =>
 	render(component as never, { props: props as never }).body;
@@ -289,5 +295,167 @@ describe('recording forms', () => {
 		expect(link).toContain('name="compositionId"');
 		expect(link).toContain('required');
 		expect(body).toMatch(/<option[^>]*value="c1"[^>]*>(<!---->)?Night Drive \(T-123\.456\.789-0\)/);
+	});
+});
+
+/** The <select> with this id, from its opening tag to its closing tag. */
+const selectWithId = (body: string, id: string) =>
+	body.match(new RegExp(`<select[^>]*id="${id}"[\\s\\S]*?</select>`))?.[0] ?? '';
+const selectedValues = (body: string, id: string) =>
+	[...selectWithId(body, id).matchAll(/<option[^>]*value="([^"]*)"[^>]*selected/g)].map(
+		(m) => m[1]
+	);
+
+describe('credits add form', () => {
+	const props = { credits: [], canEdit: true, roles: ['main', 'remixer'] };
+
+	it('posts name and role, and keeps the chosen role after a refusal', () => {
+		const body = html(Credits, { ...props, values: { name: 'Ana', role: 'remixer' } });
+		expect(tagWithId(body, 'credit-name')).toContain('name="name"');
+		expect(tagWithId(body, 'credit-name')).toContain('value="Ana"');
+		expect(tagWithId(body, 'credit-role')).toContain('name="role"');
+		expect(selectedValues(body, 'credit-role')).toEqual(['remixer']);
+		expectSubmitButtons(body);
+	});
+
+	it('puts a name error under the name input', () => {
+		const body = html(Credits, { ...props, errors: { name: 'Ana already has this credit' } });
+		const input = tagWithId(body, 'credit-name');
+		expect(input).toContain('aria-invalid="true"');
+		expect(input).toContain('aria-describedby="credit-name-error"');
+		expect(body).toMatch(
+			/role="alert"[^>]*id="credit-name-error"[^>]*>(<!--[^>]*-->)*Ana already has/
+		);
+	});
+
+	it('sends a single role as a hidden field', () => {
+		const body = html(Credits, { ...props, roles: ['main'] });
+		expect(body).toMatch(/<input type="hidden" name="role" value="main"/);
+		expect(selectWithId(body, 'credit-role')).toBe('');
+	});
+});
+
+describe('ownership form', () => {
+	const groups = [
+		{
+			territory: 'WW',
+			holders: [{ holder: 'p:a1', name: 'Ana', isLabel: false, share: '100' }]
+		}
+	];
+	const options = { labels: [{ id: 'l1', name: 'Epsilon' }], parties: [{ id: 'a1', name: 'Ana' }] };
+
+	it('posts territory and holder/share rows, with the current holder selected in its group', () => {
+		const body = html(Ownership, { groups, options, action: 'setMaster' });
+		expect(tagWithId(body, 'own-territory')).toContain('name="territory"');
+		expect(tagWithId(body, 'holder_0')).toContain('name="holder_0"');
+		expect(tagWithId(body, 'share_0')).toContain('name="share_0"');
+		expect(tagWithId(body, 'share_0')).toContain('value="100"');
+		expect(selectWithId(body, 'holder_0')).toMatch(/<optgroup[^>]*label="Our labels"/);
+		expect(selectedValues(body, 'holder_0')).toEqual(['p:a1']);
+		expect(selectedValues(body, 'holder_1')).toEqual(['']);
+		expectSubmitButtons(body);
+	});
+});
+
+describe('compositions forms', () => {
+	it('posts a new composition and ties an ISWC error to its input', () => {
+		const data = { compositions: [], canWrite: true };
+		const form = {
+			ok: false,
+			errors: { iswc: 'ISWC already used' },
+			values: { title: 'Dawn', iswc: 'x' }
+		};
+		const body = html(CompositionsPage, { data, form });
+		expect(tagWithId(body, 'title')).toContain('value="Dawn"');
+		expect(tagWithId(body, 'iswc')).toContain('aria-describedby="iswc-error"');
+		expect(body).toMatch(/role="alert"[^>]*id="iswc-error"[^>]*>(<!--[^>]*-->)*ISWC already used/);
+		expectSubmitButtons(body);
+	});
+
+	const composition = {
+		id: '00000000-0000-4000-8000-000000000003',
+		title: 'Dawn',
+		iswc: null,
+		updatedAt: new Date('2026-11-01T10:00:00Z')
+	};
+	const data = {
+		composition,
+		recordings: [],
+		recordingChoices: [{ id: 'r1', title: 'Dawn', versionTitle: null, isrc: 'NLA1G2600001' }],
+		writers: [{ partyId: 'a1', name: 'Ana', role: 'composer', share: '100' }],
+		options: { labels: [], parties: [{ id: 'a1', name: 'Ana' }] },
+		publishing: null,
+		can: { write: true }
+	};
+
+	it('keeps the detail, link and writer forms posting what their actions read', () => {
+		const body = html(CompositionPage, { data, form: null });
+		expectFields(body, ['title', 'iswc']);
+		expect(tagWithId(body, 'link-rec')).toContain('name="recordingId"');
+		expect(tagWithId(body, 'writer_0')).toContain('name="writer_0"');
+		expect(selectedValues(body, 'writer_0')).toEqual(['a1']);
+		expect(selectedValues(body, 'role_0')).toEqual(['composer']);
+		expect(tagWithId(body, 'wshare_0')).toContain('name="share_0"');
+		expectSubmitButtons(body);
+	});
+});
+
+describe('rights forms', () => {
+	const options = {
+		labels: [
+			{ id: 'l1', name: 'Epsilon' },
+			{ id: 'l2', name: 'Epsilon Deep' }
+		],
+		parties: [{ id: 'a1', name: 'Ana' }]
+	};
+	const AGREEMENT_FIELDS = [
+		'title',
+		'counterpartyId',
+		'labelId',
+		'kind',
+		'status',
+		'signedOn',
+		'startsOn',
+		'endsOn',
+		'territory',
+		'notes'
+	];
+
+	it('posts every agreement field, defaulting to the first label', () => {
+		const body = html(AgreementsPage, { data: { agreements: [], options }, form: null });
+		expectFields(body, AGREEMENT_FIELDS);
+		expect(selectedValues(body, 'labelId')).toEqual(['l1']);
+		expect(selectedValues(body, 'status')).toEqual(['draft']);
+		expect(tagWithId(body, 'territory')).toContain('value="WW"');
+		expectSubmitButtons(body);
+	});
+
+	it('puts an agreement date error under its field and other errors under the form', () => {
+		const form = {
+			ok: false,
+			errors: { endsOn: 'The end date is before the start date', form: 'Try again.' },
+			values: { title: 'Deal', labelId: 'l2', endsOn: '2026-01-01' }
+		};
+		const body = html(AgreementsPage, { data: { agreements: [], options }, form });
+		expect(tagWithId(body, 'endsOn')).toContain('aria-describedby="endsOn-error"');
+		expect(body).toMatch(/role="alert"[^>]*id="endsOn-error"[^>]*>(<!--[^>]*-->)*The end date/);
+		expect(selectedValues(body, 'labelId')).toEqual(['l2']);
+		expect(body.match(/Try again\./g)).toHaveLength(1);
+	});
+
+	it('posts every consent field', () => {
+		const data = { consents: [], agreements: [], options, today: '2026-11-12' };
+		const body = html(ConsentsPage, { data, form: null });
+		expectFields(body, [
+			'partyId',
+			'purpose',
+			'recordingId',
+			'agreementId',
+			'grantedOn',
+			'expiresOn',
+			'notes'
+		]);
+		expect(tagWithId(body, 'grantedOn')).toContain('value="2026-11-12"');
+		expectSubmitButtons(body);
 	});
 });
