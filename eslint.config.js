@@ -12,8 +12,6 @@ export default ts.config(
 			'build/',
 			'.netlify/',
 			'storybook-site/dist/',
-			'storybook-hub/dist/',
-			'storybook-hub/.svelte-kit/',
 			'node_modules/',
 			'drizzle/',
 			'coverage/',

@@ -24,5 +24,3 @@ vite.config.ts.timestamp-*
 
 storybook-static/
 /storybook-site/dist
-/storybook-hub/dist
-/storybook-hub/.svelte-kit

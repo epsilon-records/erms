@@ -5,5 +5,3 @@ pnpm-lock.yaml
 drizzle/meta
 storybook-static
 storybook-site/dist
-storybook-hub/dist
-storybook-hub/.svelte-kit
