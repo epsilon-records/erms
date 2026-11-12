@@ -62,8 +62,8 @@ export const KNOWN_API_ERROR_CODES = [
 	'unavailable',
 	'stem_allowance_exhausted',
 	'job_allowance_exhausted',
-	'insufficient_credits',
 	'no_active_plan',
+	'insufficient_credits',
 	'entitlement_unavailable'
 ] as const;
 export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});

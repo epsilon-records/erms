@@ -2,17 +2,19 @@
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import Ownership from './Ownership.svelte';
 
+	// Shaped like the server's data: territory codes (WW shows as "Worldwide") and holders as
+	// l:<label id> or p:<party id>, which is what the holder selects post.
 	const groups = [
 		{
-			territory: 'Worldwide',
+			territory: 'WW',
 			holders: [
-				{ holder: 'l1', name: 'Epsilon Records', isLabel: true, share: '70' },
-				{ holder: 'p1', name: 'Ava Lind', isLabel: false, share: '30' }
+				{ holder: 'l:l1', name: 'Epsilon Records', isLabel: true, share: '70' },
+				{ holder: 'p:p1', name: 'Ava Lind', isLabel: false, share: '30' }
 			]
 		},
 		{
 			territory: 'NL',
-			holders: [{ holder: 'l1', name: 'Epsilon Records', isLabel: true, share: '100' }]
+			holders: [{ holder: 'l:l1', name: 'Epsilon Records', isLabel: true, share: '100' }]
 		}
 	];
 	const options = {
@@ -26,16 +28,23 @@
 	const { Story } = defineMeta({ title: 'Recording/Ownership', component: Ownership });
 </script>
 
-<Story name="Read only" args={{ groups, action: '?/ownership' }} />
-<Story name="Editable" args={{ groups, options, action: '?/ownership' }} />
-<Story name="Saved" args={{ groups, options, action: '?/ownership', saved: true }} />
-<Story name="Empty" args={{ groups: [], options, action: '?/ownership' }} />
+<Story name="Read only" args={{ groups, action: 'setMaster' }} />
+<Story name="Editable" args={{ groups, options, action: 'setMaster' }} />
+<Story name="Saved" args={{ groups, options, action: 'setMaster', saved: true }} />
+<Story name="Empty" args={{ groups: [], options, action: 'setMaster' }} />
 <Story
 	name="Shares over 100%"
 	args={{
 		groups,
 		options,
-		action: '?/ownership',
-		errors: { shares: 'Shares for a territory must total 100%.' }
+		action: 'setMaster',
+		errors: { shares: 'WW total 110%, not 100%' },
+		values: {
+			territory: 'WW',
+			holder_0: 'l:l1',
+			share_0: '70',
+			holder_1: 'p:p1',
+			share_1: '40'
+		}
 	}}
 />

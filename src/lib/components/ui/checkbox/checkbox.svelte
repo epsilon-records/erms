@@ -23,6 +23,7 @@
 	<input
 		bind:this={ref}
 		type="checkbox"
+		data-slot="checkbox-input"
 		bind:checked
 		bind:indeterminate
 		class="peer col-start-1 row-start-1 m-0 size-5 cursor-pointer appearance-none rounded-none border border-input bg-surface checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive"

@@ -16,7 +16,7 @@
 <div class="container" style="max-width: 480px; padding-top: 12vh">
 	<section class="stack">
 		<div class="eyebrow"><span>{page.data.brand?.name ?? 'LabelKit'}</span></div>
-		<h1 class="display">Log in</h1>
+		<h1 class="form-title">Log in</h1>
 	</section>
 
 	{#if form && 'sent' in form}
