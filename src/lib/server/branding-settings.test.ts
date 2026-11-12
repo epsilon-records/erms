@@ -86,6 +86,20 @@ describe('checkIcon', () => {
 		refused(() => checkIcon(file), /PNG/);
 	});
 
+	it('refuses image data shorter than the header describes', () => {
+		// Valid chunks and CRCs, but the IDAT inflates to one byte instead of 32 rows.
+		const whole = png(32);
+		const head = whole.subarray(0, 33);
+		const body = deflateSync(Buffer.alloc(1));
+		const idat = Buffer.alloc(12 + body.length);
+		idat.writeUInt32BE(body.length, 0);
+		idat.write('IDAT', 4, 'latin1');
+		body.copy(idat, 8);
+		idat.writeUInt32BE(crc32(idat.subarray(4, 8 + body.length)), 8 + body.length);
+		const file = new Uint8Array(Buffer.concat([head, idat, whole.subarray(whole.length - 12)]));
+		refused(() => checkIcon(file), /PNG/);
+	});
+
 	it('names the icon field in its errors, so the page marks that input', () => {
 		try {
 			checkIcon(png(16));
