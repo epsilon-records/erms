@@ -1,11 +1,13 @@
 [build]
-  command = "pnpm build"
+  command = "pnpm build && pnpm build-storybook -o build/_storybook"
   publish = "build"
 
 [build.environment]
   NODE_VERSION = "22"
-  # R2 account IDs are public endpoint identifiers, not credentials.
-  SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID"
+  # R2 account IDs are public endpoint identifiers, not credentials. STORYBOOK_PASSWORD is the
+  # shared soft gate from shared 0047; its value is the word "storybook", which appears throughout
+  # the repo, so the scanner would fail every build on it.
+  SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID,STORYBOOK_PASSWORD"
 
 # Static assets don't pass through the SvelteKit server, so they get the same headers here.
 [[headers]]
@@ -16,3 +18,14 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+
+# Storybook (shared 0060): built into build/_storybook, gated by edge-functions/storybook.mjs.
+[[edge_functions]]
+  path = "/_storybook/*"
+  function = "storybook"
+
+[[edge_functions]]
+  path = "/*"
+  function = "storybook"
+  [edge_functions.header]
+  host = "^storybook\\.labelkit\\.co$"
