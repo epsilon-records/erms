@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Checkbox } from '#lib/components/ui/checkbox/index.js';
 	import * as Field from '#lib/components/ui/field/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
+	import type { SubmitFunction } from '$app/forms';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -19,6 +21,19 @@
 	const removeIcon = $derived(form && 'removeIcon' in form ? form.removeIcon === true : false);
 	// The icon chosen before a field error is gone (a file input cannot be refilled); say so,
 	// unless the error is about the icon itself.
+	// Saved without a page reload, so a failed save leaves the form as the owner filled it in,
+	// the chosen icon file included (a reload would empty the file input). A save redirects:
+	// clear the form, then the redirect reloads everything with the new branding. A conflict
+	// (another owner saved first) reloads the data so the form shows their version.
+	const submit: SubmitFunction =
+		() =>
+		async ({ formElement, result, update }) => {
+			if (result.type === 'redirect') formElement.reset();
+			await update({
+				reset: false,
+				refreshAll: result.type === 'failure' && result.status === 409
+			});
+		};
 	const reselectIcon = $derived(
 		!!form &&
 			'iconUploadWasSelected' in form &&
@@ -60,7 +75,7 @@
 		<div id="branding-error" class="alert error" role="alert">{error}</div>
 	{/if}
 
-	<form method="POST" enctype="multipart/form-data" class="stack">
+	<form method="POST" enctype="multipart/form-data" class="stack" use:enhance={submit}>
 		<input type="hidden" name="seenDisplayName" value={seenDisplayName} />
 		<input type="hidden" name="seenAccent" value={seenAccent} />
 		<Field.Field class="max-w-[480px]">
@@ -85,6 +100,8 @@
 					maxlength={7}
 					placeholder="#c6f432"
 					value={accent}
+					pattern={'#?[0-9a-fA-F]{6}'}
+					title="A hex colour such as #c6f432"
 					class="font-mono"
 					{...invalid('accent')}
 				/>
@@ -105,9 +122,13 @@
 			{/if}
 			<Input id="icon" name="icon" type="file" accept="image/png" {...invalid('icon')} />
 			{#if reselectIcon}
-				<p class="alert" role="status">
-					Your icon was not saved because of the error above. Select it again before saving.
-				</p>
+				<!-- Only without JavaScript: the page then reloads after a failed save and the browser
+				     empties the file input. With JavaScript the chosen file stays selected. -->
+				<noscript>
+					<p class="alert" role="status">
+						Your icon was not saved because of the error above. Select it again before saving.
+					</p>
+				</noscript>
 			{/if}
 			<Field.Description>
 				A square PNG, {data.iconMin} to {data.iconMax} px, up to 32 KB. It replaces LabelKit's icon in
