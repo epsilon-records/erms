@@ -29,3 +29,19 @@
   function = "storybook"
   [edge_functions.header]
   host = "^storybook\\.labelkit\\.co$"
+
+[[edge_functions]]
+  path = "/probe-host/*"
+  function = "host-probe"
+  [edge_functions.header]
+  host = "netlify\\.app"
+
+[[edge_functions]]
+  path = "/probe-xfh/*"
+  function = "host-probe"
+  [edge_functions.header]
+  x-forwarded-host = "netlify\\.app"
+
+[[edge_functions]]
+  path = "/probe-any/*"
+  function = "host-probe"
