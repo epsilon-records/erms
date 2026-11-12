@@ -86,4 +86,17 @@ describe('posthogFlagSource', () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it('retries registration after a rejection, but not while one is still in flight', async () => {
+		let calls = 0;
+		const identifyImmediate = vi.fn(async () => {
+			calls++;
+			if (calls === 1) throw new Error('PostHog down');
+		});
+		const source = posthogFlagSource(() => client({ identifyImmediate }))!;
+		await source.isEnabled('a', 'o1');
+		await source.isEnabled('a', 'o1');
+		await source.isEnabled('a', 'o1');
+		expect(identifyImmediate).toHaveBeenCalledTimes(2);
+	});
 });

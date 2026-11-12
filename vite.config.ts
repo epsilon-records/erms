@@ -31,6 +31,8 @@ export default defineConfig(async () => ({
 			},
 			// Netlify hosts the web UI; everything else runs on Supabase.
 			adapter: adapter(),
+			// Poll for a new deploy so open tabs know to do a full load on their next navigation (EPSILON-191).
+			version: { pollInterval: 60_000 },
 			// SvelteKit adds a per-request nonce to its own scripts. The browser only talks
 			// to this origin (Supabase is called from the server), Google Fonts, R2 for
 			// master uploads (presigned PUTs straight to the bucket, EPSILON-29), Sentry, and

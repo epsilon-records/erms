@@ -50,21 +50,22 @@ export function posthogFlagSource(
 		log('PostHog flag client failed to start; features use their defaults.', e);
 		return null;
 	}
-	const registered = new Map<string, Promise<unknown>>();
+	// In-flight or finished registrations, so concurrent checks send one record per org.
+	// A rejected one is forgotten, so the next check retries it; one that merely outlives
+	// the wait budget stays, so it isn't sent twice.
+	const registered = new Map<string, Promise<void>>();
 	const register = (orgId: string) => {
-		let done = registered.get(orgId);
-		if (!done) {
-			done = within(
-				REGISTER_BUDGET_MS,
-				client.identifyImmediate({
-					distinctId: `org_${orgId}`,
-					properties: { org_id: orgId },
-					disableGeoip: true
-				})
-			);
-			registered.set(orgId, done);
+		let sending = registered.get(orgId);
+		if (!sending) {
+			sending = client.identifyImmediate({
+				distinctId: `org_${orgId}`,
+				properties: { org_id: orgId },
+				disableGeoip: true
+			});
+			registered.set(orgId, sending);
+			sending.catch(() => registered.delete(orgId));
 		}
-		return done;
+		return within(REGISTER_BUDGET_MS, sending);
 	};
 	return {
 		async isEnabled(flag, orgId) {
