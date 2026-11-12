@@ -30,12 +30,13 @@
 		<h1 class="title">Branding</h1>
 		<p class="soft">
 			How your label looks on its own domain{data.domain.active ? `, ${data.domain.active}` : ''}:
-			the name in the header and the browser tab, the accent colour and the tab icon. Leave a field
-			empty to use LabelKit's.
+			the name in the header and the browser tab, the accent colour and the tab icon. An empty
+			display name shows the label's own name and an empty accent uses LabelKit's. Leaving the icon
+			upload empty keeps the current icon; to go back to LabelKit's, tick the box under it.
 		</p>
 	</section>
 
-	{#if form && 'saved' in form && form.saved}
+	{#if data.saved && !form}
 		<div class="alert ok" role="status">Branding saved.</div>
 	{/if}
 	{#if error}

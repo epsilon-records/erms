@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { clearBrandCache } from '#lib/server/branding.js';
 import {
 	BrandingError,
@@ -33,7 +33,7 @@ import type { Actions, PageServerLoad } from './$types';
  * Branding for the label's owners: display name, accent colour, tab icon and the label's own
  * domain. The same settings for every label (knowledge labelkit 0034, 0036).
  */
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const m = requireScope(locals, 'roles:manage');
 	const b = await locals.db((tx) => loadBranding(tx, m.orgId));
 	if (!b) error(404, 'Label not found.');
@@ -62,7 +62,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 					}
 				: null,
 			provisioning: domainProvisioner().configured
-		}
+		},
+		saved: url.searchParams.has('saved')
 	};
 };
 
@@ -91,7 +92,6 @@ export const actions: Actions = {
 			}
 			await locals.db((tx) => saveBranding(tx, m.orgId, { displayName, accent, icon }));
 			clearBrandCache();
-			return { saved: true };
 		} catch (e) {
 			if (e instanceof BrandingError) {
 				return fail(e.status, {
@@ -103,6 +103,9 @@ export const actions: Actions = {
 			}
 			throw e;
 		}
+		// A fresh request, so the hook resolves the brand again and the header, accent and tab
+		// icon show what was just saved (this request's locals.brand predates the save).
+		redirect(303, '/org/branding?saved');
 	},
 
 	/** Step 1: record the domain and issue the token for its TXT record. */

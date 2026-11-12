@@ -89,8 +89,10 @@ const notPng = () => new BrandingError(400, 'The icon must be a PNG file.', 'ico
 function checkPngBody(bytes: Uint8Array, view: DataView) {
 	const idat: Uint8Array[] = [];
 	let at = 8;
+	let index = 0;
 	let ended = false;
 	let palette = false;
+	let idatClosed = false; // an IDAT run has started and another chunk followed it
 	while (at + 12 <= bytes.length && !ended) {
 		const length = view.getUint32(at);
 		const end = at + 12 + length;
@@ -98,12 +100,28 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		const typeAndData = bytes.subarray(at + 4, at + 8 + length);
 		if (crc32(typeAndData) !== view.getUint32(at + 8 + length)) throw notPng();
 		const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
-		if (type === 'IDAT') idat.push(bytes.subarray(at + 8, at + 8 + length));
-		if (type === 'PLTE') palette = true;
+		// The structure rules for PNG's critical chunks (PNG spec, section 5.6): IHDR first and
+		// 13 bytes; at most one PLTE, of 1 to 256 three-byte entries, before the image data;
+		// IDAT chunks consecutive; IEND empty and last.
+		if ((index === 0) !== (type === 'IHDR')) throw notPng();
+		if (type === 'IHDR' && length !== 13) throw notPng();
+		if (type === 'PLTE') {
+			if (palette || idat.length > 0) throw notPng();
+			if (length < 3 || length > 768 || length % 3 !== 0) throw notPng();
+			palette = true;
+		}
+		if (type === 'IDAT') {
+			if (idatClosed) throw notPng();
+			idat.push(bytes.subarray(at + 8, at + 8 + length));
+		} else if (idat.length > 0) {
+			idatClosed = true;
+		}
+		if (type === 'IEND' && length !== 0) throw notPng();
 		ended = type === 'IEND';
 		at = end;
+		index++;
 	}
-	if (!ended || idat.length === 0) throw notPng();
+	if (!ended || at !== bytes.length || idat.length === 0) throw notPng();
 	if (view.getUint8(25) === 3 && !palette) throw notPng();
 	// The image data must inflate to exactly the scanline bytes the header describes, and is
 	// inflated no further than that: a short stream is a broken image, and a 32 KB upload must not
