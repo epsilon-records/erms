@@ -30,6 +30,14 @@
 	<Button href="/releases">All releases</Button>
 </Story>
 
+<Story name="Primary link">
+	<Button href="/releases/new" variant="primary">New release</Button>
+</Story>
+
+<Story name="Danger link">
+	<Button href="/releases" variant="danger">Delete</Button>
+</Story>
+
 <Story name="Long text">
 	<div style="max-width: 320px">
 		<Button variant="primary">Import 1,240 recordings from the Epsilon back catalogue</Button>
