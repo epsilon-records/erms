@@ -3,7 +3,12 @@ import { expect, it, vi } from 'vitest';
 // The Send Email hook path gets the labelkit_auth_email runner and nothing else: no cookies, no
 // Supabase Auth call, no owner connection, no branding lookup (EPSILON-147).
 const spies = vi.hoisted(() => ({
-	auth: vi.fn(() => ({ auth: { getUser: async () => ({ data: { user: null } }) } })),
+	auth: vi.fn(() => ({
+		auth: {
+			getSession: async () => ({ data: { session: null } }),
+			getUser: async () => ({ data: { user: null } })
+		}
+	})),
 	ownerDb: vi.fn(() => {
 		throw new Error('owner DB forbidden');
 	}),

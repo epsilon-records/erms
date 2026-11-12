@@ -148,10 +148,12 @@ export const NO_READY_MASTER = 'Upload a ready master before running analysis.';
  * master and return. It never calls AudioKit or R2: the per-minute worker submits the job
  * (decision 0013), so the request costs only database round trips.
  *
- * Production reaches the database across the Atlantic (~100 ms a round trip, and two for each
- * parameterised statement), so the work is kept to one statement that picks the master and
- * writes the job, plus the audit row, in the caller's transaction. Run it under `locals.db`:
- * RLS checks the master read and the job insert as the signed-in member.
+ * Production pays about 98 ms for each database round trip (functions in Ohio, database in
+ * Frankfurt; knowledge labelkit/decisions/0029), so it is one statement: it picks the master,
+ * writes the job and writes its audit row together. Both rows are written or neither is, so the
+ * audit rule `withAudit` enforces holds without its savepoint, which cost two more round trips.
+ * Run it under `locals.db`: RLS checks the master read, the job insert and the audit insert as
+ * the signed-in member.
  */
 export async function queueJobForLatestMaster(
 	db: Database,
@@ -163,9 +165,10 @@ export async function queueJobForLatestMaster(
 	// Any recording without a ready master answers the same, whether or not it exists.
 	if (!UUID.test(recordingId)) throw new JobError(409, NO_READY_MASTER);
 
-	return withAudit(db, ctx, async (tx, audit) => {
-		const id = uuidv7();
-		const rows = (await tx.execute(sql`
+	const id = uuidv7();
+	const after = JSON.stringify({ operation, status: 'queued' });
+	const rows = (await db.execute(sql`
+		with job as (
 			insert into audiokit_jobs (id, org_id, recording_id, master_id, operation, params, requested_by)
 			select ${id}::uuid, m.org_id, m.recording_id, m.id, ${operation}, ${
 				params === null ? null : JSON.stringify(params)
@@ -175,17 +178,16 @@ export async function queueJobForLatestMaster(
 				and m.status = 'ready'
 			order by m.created_at desc
 			limit 1
-			returning id`)) as unknown as { id: string }[];
-		if (rows.length === 0) throw new JobError(409, NO_READY_MASTER);
-
-		await audit({
-			entity: 'audiokit_job',
-			entityId: id,
-			action: 'queue',
-			after: { operation, status: 'queued' }
-		});
-		return { jobId: id, status: 'queued' as const, operation };
-	});
+			returning id
+		), audit as (
+			insert into audit_log (id, org_id, actor_id, actor_kind, entity, entity_id, action, after)
+			select ${uuidv7()}::uuid, ${ctx.orgId}::uuid, ${ctx.actor.id}, ${ctx.actor.kind}::actor_kind,
+				'audiokit_job', job.id::text, 'queue', ${after}::jsonb
+			from job
+		)
+		select id from job`)) as unknown as { id: string }[];
+	if (rows.length === 0) throw new JobError(409, NO_READY_MASTER);
+	return { jobId: id, status: 'queued' as const, operation };
 }
 
 /**

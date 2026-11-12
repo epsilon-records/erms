@@ -3,7 +3,12 @@ import { expect, it, vi } from 'vitest';
 // api.labelkit.co answers the API and nothing else: no Supabase Auth, no cookies, no pages, no
 // machine routes. labelkit.co still serves the OpenAPI document without a key.
 const spies = vi.hoisted(() => ({
-	auth: vi.fn(() => ({ auth: { getUser: async () => ({ data: { user: null } }) } })),
+	auth: vi.fn(() => ({
+		auth: {
+			getSession: async () => ({ data: { session: null } }),
+			getUser: async () => ({ data: { user: null } })
+		}
+	})),
 	ownerDb: vi.fn(() => {
 		throw new Error('owner DB forbidden');
 	})

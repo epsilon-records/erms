@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 // The hook builds a Supabase client on every request; the tests only care about the
 // unauthenticated path, so a client that reports no user is enough.
 vi.mock('@supabase/ssr', () => ({
-	createServerClient: () => ({ auth: { getUser: async () => ({ data: { user: null } }) } })
+	createServerClient: () => ({
+		auth: {
+			getSession: async () => ({ data: { session: null } }),
+			getUser: async () => ({ data: { user: null } })
+		}
+	})
 }));
 
 /** Minimal `event` for the hook: an unauthenticated browser request to `pathname`. */
