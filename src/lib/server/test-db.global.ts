@@ -69,7 +69,7 @@ const OBJECT_KEYWORD: Record<string, string> = {
  * from the stack and replayed in the template before any migration runs. Default privileges are
  * per database, so a fresh database would otherwise give `anon`/`authenticated` none of the table
  * privileges production gives them — a fixture weaker than production, which is exactly how a
- * security test passes when production would fail (knowledge erms/decisions/0017).
+ * security test passes when production would fail (knowledge labelkit/decisions/0017).
  */
 async function supabaseDefaultPrivileges(admin: postgres.Sql): Promise<string[]> {
 	const rows = await admin<
