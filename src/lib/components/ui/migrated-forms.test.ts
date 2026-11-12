@@ -108,14 +108,16 @@ describe('API key form', () => {
 		const body = html(ApiKeysPage, { data, form: null });
 		expect(tagWithId(body, 'key-name')).toContain('name="name"');
 		expect(body).toMatch(/<label[^>]*for="key-name"/);
-		// Each scope is a labelled checkbox; the checked one carries the value the action reads.
-		expect(body).toMatch(/<button[^>]*id="scope-catalog:read"[^>]*role="checkbox"/);
-		expect(body).toMatch(/<label[^>]*for="scope-analysis:write"/);
-		// Bits UI's hidden checkbox submits name=value only while checked, like a native one.
+		// Each scope is a native checkbox (works before hydration); the checked one submits its value.
 		expect(body).toMatch(
-			/<input type="checkbox" checked="" name="scopes"[^>]*value="catalog:read"/
+			/<input[^>]*type="checkbox"[^>]*id="scope-catalog:read"[^>]*name="scopes"[^>]*value="catalog:read"/
 		);
-		expect(body).toMatch(/<input type="checkbox" name="scopes"[^>]*value="analysis:write"/);
+		expect(tagWithId(body, 'scope-catalog:read')).toContain(' checked=""');
+		expect(tagWithId(body, 'scope-analysis:write')).not.toContain(' checked=""');
+		expect(body).toMatch(
+			/<input[^>]*type="checkbox"[^>]*id="scope-analysis:write"[^>]*name="scopes"/
+		);
+		expect(body).not.toMatch(/role="checkbox"/);
 		expectSubmitButtons(body);
 	});
 
