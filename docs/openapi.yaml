@@ -12,6 +12,19 @@ servers:
 security:
   - apiKey: []
 paths:
+  /v1/openapi.yaml:
+    get:
+      summary: This OpenAPI document
+      description: The public contract. No key needed.
+      operationId: getOpenapi
+      security: []
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/yaml:
+              schema:
+                type: string
   /v1/releases:
     get:
       summary: List releases
