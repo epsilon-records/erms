@@ -39,10 +39,11 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-a {
+/* Button anchors take their colour from the Button variant (Tailwind utilities layer). */
+a:not([data-slot='button']) {
 	color: var(--text);
 }
-a:hover {
+a:not([data-slot='button']):hover {
 	color: var(--text-strong);
 }
 :focus-visible {

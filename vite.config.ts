@@ -1,7 +1,44 @@
 import adapter from '@sveltejs/adapter-netlify';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { sentrySvelteKit } from '@sentry/sveltekit/vite';
-import { defineConfig } from 'vitest/config';
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+import tailwindcss from '@tailwindcss/vite';
+import { playwright } from '@vitest/browser-playwright';
+import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
+
+const projects: TestProjectConfiguration[] = [
+	{
+		extends: true,
+		test: {
+			name: 'unit',
+			include: ['src/**/*.test.ts'],
+			environment: 'node',
+			// Builds the migrated template on the local Supabase stack that database tests copy from.
+			globalSetup: ['src/lib/server/test-db.global.ts']
+		}
+	},
+	{
+		// Every story in src/lib/components/ui renders in Chromium and must pass the
+		// accessibility checks (EPSILON-166). Run with `pnpm test:storybook`.
+		extends: true,
+		plugins: [storybookTest({ configDir: '.storybook' })],
+		test: {
+			name: 'storybook',
+			browser: {
+				enabled: true,
+				headless: true,
+				// CI installs Playwright's Chromium; PLAYWRIGHT_CHROMIUM_PATH points at a local Chrome instead.
+				provider: playwright({
+					launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH
+						? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
+						: {}
+				}),
+				instances: [{ browser: 'chromium' }]
+			},
+			setupFiles: ['.storybook/vitest.setup.ts']
+		}
+	}
+];
 
 export default defineConfig(async () => ({
 	// Sentry environment and release for both hooks, fixed at build time from Netlify's
@@ -12,6 +49,7 @@ export default defineConfig(async () => ({
 		__SENTRY_RELEASE__: JSON.stringify(process.env.COMMIT_REF ?? null)
 	},
 	plugins: [
+		tailwindcss(),
 		// Always registered: besides uploads, it resolves `@sentry/sveltekit/browser-tracing-variant`
 		// to the Kit 3 (`$app/state`) tracing module. Without it the import falls back to the
 		// `$app/stores` variant, which throws app_stores_removed on Kit 3 (Sentry ERMS-1).
@@ -72,9 +110,6 @@ export default defineConfig(async () => ({
 		})
 	],
 	test: {
-		include: ['src/**/*.test.ts'],
-		environment: 'node',
-		// Builds the migrated template on the local Supabase stack that database tests copy from.
-		globalSetup: ['src/lib/server/test-db.global.ts']
+		projects
 	}
 }));

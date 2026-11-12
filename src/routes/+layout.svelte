@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import '../tailwind.css';
 	import { onMount } from 'svelte';
 	import { beforeNavigate, replaceState } from '$app/navigation';
 	import { page, updated } from '$app/state';
