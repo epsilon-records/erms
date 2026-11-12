@@ -1,21 +1,26 @@
 /** No package/browser download. Uses Node 22 WebSocket and an installed Chrome. */
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function until(fn) {
-	const end = Date.now() + 10000;
+async function until(fn, ms = 10000, what = 'fixture barrier') {
+	const end = Date.now() + ms;
 	while (Date.now() < end) {
 		const result = await fn();
 		if (result) return result;
 		await wait(50);
 	}
-	throw new Error('fixture barrier timed out');
+	throw new Error(`${what} timed out after ${ms}ms`);
 }
+// The first Chrome launch on a fresh CI runner reads its 447 MB install from a cold disk: a cold
+// read of /opt/google/chrome measured 6–44 s on ubuntu-26.04 runners and first launches 0.4–29 s,
+// while every later launch in the same job takes ~150 ms (EPSILON-148). So the DevTools wait gets
+// its own deadline, inside the hard deadline, and fails at once if Chrome exits instead.
+const CHROME_LAUNCH_MS = 90000;
 const chrome =
 	process.env.CHROME_BIN ??
 	(process.platform === 'darwin'
@@ -26,11 +31,12 @@ let browser, fixture, socket;
 const hardDeadline = setTimeout(() => {
 	browser?.kill('SIGKILL');
 	fixture?.kill('SIGKILL');
-	console.error('Browser proof exceeded 120s');
+	console.error('Browser proof exceeded 150s');
 	void rm(profile, { recursive: true, force: true }).finally(() => process.exit(1));
-}, 120000);
+}, 150000);
 hardDeadline.unref();
 let failureOutput = '';
+let chromeOutput = '';
 const ledger = [];
 const denied = [];
 const pageErrors = [];
@@ -57,6 +63,12 @@ try {
 			} catch {}
 		}
 	});
+	// Chrome's own writable HOME and XDG dirs: without them the xdg wrapper and fontconfig cannot
+	// write, and every Chrome process rescans the system fonts.
+	const home = resolve(profile, 'home');
+	await mkdir(resolve(home, '.cache'), { recursive: true });
+	await mkdir(resolve(home, '.config'), { recursive: true });
+	const launchedAt = Date.now();
 	browser = spawn(
 		chrome,
 		[
@@ -68,13 +80,31 @@ try {
 			'--no-first-run',
 			'--remote-debugging-address=127.0.0.1',
 			'--remote-debugging-port=0',
-			`--user-data-dir=${profile}`
+			`--user-data-dir=${resolve(profile, 'chrome')}`
 		],
-		{ stdio: ['ignore', 'ignore', 'pipe'] }
+		{
+			stdio: ['ignore', 'ignore', 'pipe'],
+			env: {
+				PATH: process.env.PATH,
+				HOME: home,
+				XDG_CACHE_HOME: resolve(home, '.cache'),
+				XDG_CONFIG_HOME: resolve(home, '.config')
+			}
+		}
 	);
-	let stderr = '';
-	browser.stderr.on('data', (d) => (stderr += d));
-	const ws = await until(() => stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1]);
+	browser.stderr.on('data', (d) => (chromeOutput += d));
+	const ws = await until(
+		() => {
+			if (browser.exitCode !== null || browser.signalCode !== null)
+				throw new Error(
+					`Chrome exited (${browser.exitCode ?? browser.signalCode}) before DevTools`
+				);
+			return chromeOutput.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1];
+		},
+		CHROME_LAUNCH_MS,
+		'Chrome DevTools address'
+	);
+	console.log(`Chrome DevTools ready in ${Date.now() - launchedAt}ms`);
 	socket = new WebSocket(ws);
 	await new Promise((r, j) => {
 		socket.onopen = r;
@@ -362,6 +392,7 @@ try {
 } catch (error) {
 	console.error(error);
 	if (failureOutput) console.error(failureOutput);
+	if (chromeOutput) console.error('Chrome stderr:\n' + chromeOutput.slice(-4000));
 	process.exitCode = 1;
 } finally {
 	clearTimeout(hardDeadline);
