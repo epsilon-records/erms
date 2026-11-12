@@ -60,7 +60,9 @@ try {
 			try {
 				const value = JSON.parse(line);
 				if (value.origin) return value;
-			} catch {}
+			} catch {
+				// Not a JSON line: keep reading.
+			}
 		}
 	});
 	// Chrome's own writable HOME and XDG dirs: without them the xdg wrapper and fontconfig cannot
@@ -119,7 +121,8 @@ try {
 			const p = pending.get(m.id);
 			pending.delete(m.id);
 			clearTimeout(p?.timer);
-			m.error ? p?.reject(new Error(m.error.message)) : p?.resolve(m.result);
+			if (m.error) p?.reject(new Error(m.error.message));
+			else p?.resolve(m.result);
 			return;
 		}
 		for (const handler of handlers.get(m.method) ?? []) await handler(m.params, m.sessionId);

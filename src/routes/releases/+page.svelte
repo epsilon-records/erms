@@ -3,10 +3,8 @@
 
 	let { data }: PageProps = $props();
 	// The header search lands here with ?q=; the filter then narrows as you type.
-	let q = $state('');
-	$effect.pre(() => {
-		q = data.q;
-	});
+	// Writable: it follows data.q on navigation and the input overrides it while typing.
+	let q = $derived(data.q);
 
 	const filtered = $derived(
 		data.releases.filter((r) => {

@@ -112,19 +112,16 @@ export async function queueAudioKitJob(
 
 		// Create queued job
 		const id = uuidv7();
-		const [row] = await tx
-			.insert(audiokitJobs)
-			.values({
-				id,
-				orgId: ctx.orgId,
-				recordingId,
-				masterId,
-				operation,
-				params,
-				status: 'queued',
-				requestedBy: ctx.actor.id
-			})
-			.returning();
+		await tx.insert(audiokitJobs).values({
+			id,
+			orgId: ctx.orgId,
+			recordingId,
+			masterId,
+			operation,
+			params,
+			status: 'queued',
+			requestedBy: ctx.actor.id
+		});
 
 		await audit({
 			entity: 'audiokit_job',
