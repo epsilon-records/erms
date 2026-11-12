@@ -32,7 +32,7 @@ export const actions: Actions = {
 		if (error?.status === 429 && error.code === 'over_request_rate_limit') {
 			// The per-IP request limit: the same answer for every address.
 			return fail(429, {
-				error: 'Too many login attempts from here. Wait a while, then try again.'
+				error: 'Too many login attempts right now. Wait a few minutes, then try again.'
 			});
 		}
 		if (error && isAuthRetryableFetchError(error) && !error.status) {
