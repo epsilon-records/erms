@@ -27,7 +27,9 @@ export function parseSample(text: string): Sample | null {
 		const object = JSON.parse(text);
 		if (!object || Array.isArray(object) || typeof object !== 'object') return null;
 		const keys: string[] = [];
+		// JSON forbids raw control characters in strings, so the grammar must name them.
 		const grammar =
+			// eslint-disable-next-line no-control-regex
 			/^\s*\{\s*(?:"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"\s*:\s*(?:"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*(?:,\s*|(?=\})))+\}\s*$/;
 		if (!grammar.test(text) || /,\s*\}/.test(text)) return null;
 		for (const match of text.matchAll(/("(?:[^"\\]|\\.)*")\s*:/g)) keys.push(JSON.parse(match[1]));

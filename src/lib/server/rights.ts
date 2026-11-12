@@ -288,7 +288,7 @@ export async function masterCoverage(db: Database, orgId: string) {
 
 /** ISWC as stored: T plus ten digits, separators removed. Null when blank. */
 export function normalizeIswc(raw: string): string | null {
-	const s = raw.replace(/[\s.\-]/g, '').toUpperCase();
+	const s = raw.replace(/[\s.-]/g, '').toUpperCase();
 	return s === '' ? null : s;
 }
 

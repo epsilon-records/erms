@@ -183,7 +183,7 @@
 							role="img"
 							aria-label="Waveform"
 						>
-							{#each peaks as peak, i}
+							{#each peaks as peak, i (i)}
 								<rect x={i * 2} y={50 - peak * 48} width="1.4" height={Math.max(1.5, peak * 96)} />
 							{/each}
 						</svg>

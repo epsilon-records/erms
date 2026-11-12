@@ -50,7 +50,10 @@
 		const units = ['B', 'KB', 'MB', 'GB'];
 		let n = bytes;
 		let u = 0;
-		while (n >= 1024 && u < units.length - 1) ((n /= 1024), u++);
+		while (n >= 1024 && u < units.length - 1) {
+			n /= 1024;
+			u++;
+		}
 		return `${n.toFixed(u ? 1 : 0)} ${units[u]}`;
 	}
 

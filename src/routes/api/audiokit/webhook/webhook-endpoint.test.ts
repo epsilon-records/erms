@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { sign } from '#lib/server/audio/webhook.js';
 import type { WebhookEvent } from '#lib/server/audio/contract.js';
 
