@@ -5,7 +5,10 @@
   command = "cd .. && corepack enable && pnpm install --frozen-lockfile && pnpm build-storybook -o storybook-site/dist"
   publish = "dist"
   # Each production deploy costs 15 Free-plan credits: only build when the UI or Storybook changed.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib/components/ui ../src/lib/utils.ts ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
+  # An uncached build (the site's first, or after "clear cache") has CACHED_COMMIT_REF equal to
+  # COMMIT_REF, so the diff alone is always empty and the build was always skipped: the site
+  # never published and storybook.labelkit.co served Netlify's 404. Build in that case.
+  ignore = "[ \"$CACHED_COMMIT_REF\" != \"$COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ../src/lib/components/ui ../src/lib/utils.ts ../src/app.css ../src/tailwind.css ../vite.config.ts ../.storybook ../package.json ../pnpm-lock.yaml ."
 
 [build.environment]
   NODE_VERSION = "22"
