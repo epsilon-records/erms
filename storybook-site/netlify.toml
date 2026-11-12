@@ -1,4 +1,4 @@
-# The storybook.labelkit.co Netlify site (shared 0061), public since shared 0062. Its base
+# The storybook.labelkit.co Netlify site (shared 0061), public since shared 0062, composed by the hub (0064). Its base
 # directory is storybook-site/, so Netlify reads this file instead of the app's netlify.toml.
 # Storybook is built from the repo root and published here.
 [build]
@@ -20,3 +20,5 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Robots-Tag = "noindex"
+    # The hub at storybook.epsilonrecords.com composes this Storybook (shared 0064).
+    Access-Control-Allow-Origin = "https://storybook.epsilonrecords.com"
