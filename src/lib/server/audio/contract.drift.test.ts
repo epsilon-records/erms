@@ -281,7 +281,10 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 			// The admin client API (billing service: key sync and account erasure), not part of the
 			// Jobs API ERMS calls.
 			'ClientUpsert',
-			'ClientErased'
+			'ClientErased',
+			// GET /v1/ready (AudioKit #44, EPSILON-105): a readiness probe for monitoring.
+			// LabelKit doesn't call it.
+			'Ready'
 		]);
 		const missing = Object.keys(schemas).filter((n) => !(n in PAIRS) && !ignored.has(n));
 		expect(missing, 'new components in openapi.yaml need a counterpart in contract.ts').toEqual([]);
