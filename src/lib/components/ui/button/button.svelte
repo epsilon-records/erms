@@ -13,13 +13,16 @@
 					'border-accent bg-accent font-bold text-on-accent hover:brightness-108 hover:text-on-accent',
 				danger:
 					'border-border-strong bg-transparent text-danger hover:border-danger hover:text-danger',
-				ghost: 'border-transparent bg-transparent text-foreground hover:text-strong'
+				ghost: 'border-transparent bg-transparent text-foreground hover:text-strong',
+				/** Inline text action (the old `.linkish`): no box, no touch-target padding. */
+				link: 'border-0 bg-transparent font-normal text-muted hover:text-strong'
 			},
 			size: {
 				default: 'min-h-11 px-[18px] text-[15px]',
 				small: 'min-h-8 px-2.5 text-[13px]'
 			}
 		},
+		compoundVariants: [{ variant: 'link', class: 'min-h-0 px-0 text-[length:inherit]' }],
 		defaultVariants: { variant: 'default', size: 'default' }
 	});
 

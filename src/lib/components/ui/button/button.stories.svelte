@@ -38,6 +38,10 @@
 	<Button href="/releases" variant="danger">Delete</Button>
 </Story>
 
+<Story name="Text action">
+	<p>Key ending 4f2a · <Button variant="link">Revoke</Button></p>
+</Story>
+
 <Story name="Long text">
 	<div style="max-width: 320px">
 		<Button variant="primary">Import 1,240 recordings from the Epsilon back catalogue</Button>

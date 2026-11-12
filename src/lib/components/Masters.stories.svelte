@@ -19,7 +19,7 @@
 			format: 'wav',
 			sizeBytes: 41_200_000,
 			sha256: null,
-			status: 'checking',
+			status: 'verifying',
 			createdAt: '2026-11-12T10:01:00Z',
 			completedAt: null
 		}

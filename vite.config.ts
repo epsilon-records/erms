@@ -18,10 +18,13 @@ const projects: TestProjectConfiguration[] = [
 		}
 	},
 	{
-		// Every story in src/lib/components/ui renders in Chromium and must pass the
-		// accessibility checks (EPSILON-166). Run with `pnpm test:storybook`.
+		// Every story in src/lib renders in Chromium and must pass the accessibility checks
+		// (EPSILON-166). Run with `pnpm test:storybook`.
 		extends: true,
 		plugins: [storybookTest({ configDir: '.storybook' })],
+		// Pre-bundled up front: discovered mid-run, Vite re-optimises and reloads the page, which
+		// fails every story in flight on a cold cache (CI).
+		optimizeDeps: { include: ['bits-ui', 'tailwind-variants', 'clsx', 'tailwind-merge'] },
 		test: {
 			name: 'storybook',
 			browser: {
