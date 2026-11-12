@@ -54,11 +54,11 @@ const ADAM7 = [
 ];
 
 /**
- * The size of the decompressed image data the IHDR describes: per row, one filter byte plus the
- * row's pixels; for an interlaced image, summed over the seven Adam7 passes. Null for a header
- * with an invalid colour type, bit depth, compression, filter or interlace method.
+ * The scanline layout the IHDR describes: for each pass (one, or Adam7's seven), how many rows
+ * and how many pixel bytes per row. Each row is stored as one filter byte then those bytes. Null
+ * for a header with an invalid colour type, bit depth, compression, filter or interlace method.
  */
-function scanlineBytes(view: DataView): number | null {
+function scanlineLayout(view: DataView): Array<{ rows: number; rowBytes: number }> | null {
 	const width = view.getUint32(16);
 	const height = view.getUint32(20);
 	const depth = view.getUint8(24);
@@ -67,11 +67,13 @@ function scanlineBytes(view: DataView): number | null {
 	if (!colour || !colour[1].includes(depth)) return null;
 	if (view.getUint8(26) !== 0 || view.getUint8(27) !== 0 || interlace > 1) return null;
 	const bits = colour[0] * depth;
-	const rows = (w: number, h: number) => (w && h ? h * (1 + Math.ceil((w * bits) / 8)) : 0);
-	if (interlace === 0) return rows(width, height);
-	return ADAM7.reduce(
-		(n, [x0, y0, dx, dy]) => n + rows(Math.ceil((width - x0) / dx), Math.ceil((height - y0) / dy)),
-		0
+	const pass = (w: number, h: number) => ({
+		rows: w && h ? h : 0,
+		rowBytes: Math.ceil((w * bits) / 8)
+	});
+	if (interlace === 0) return [pass(width, height)];
+	return ADAM7.map(([x0, y0, dx, dy]) =>
+		pass(Math.ceil((width - x0) / dx), Math.ceil((height - y0) / dy))
 	);
 }
 
@@ -79,13 +81,16 @@ const notPng = () => new BrandingError(400, 'The icon must be a PNG file.', 'ico
 
 /**
  * Walks the PNG's chunks: each must be complete with a correct CRC, the file must end with IEND,
- * and its IDAT data must inflate. That refuses a header with no image, or a truncated file, which
- * would otherwise be saved and then show as a broken icon.
+ * a palette image must have a PLTE, and the IDAT data must inflate to exactly the scanlines the
+ * header describes, each starting with a valid filter type (0 to 4). Past that, any pixel bytes
+ * decode, so a file that passes renders. That refuses a header with no image, a truncated file or
+ * a corrupt stream, which would otherwise be saved and then show as a broken icon.
  */
 function checkPngBody(bytes: Uint8Array, view: DataView) {
 	const idat: Uint8Array[] = [];
 	let at = 8;
 	let ended = false;
+	let palette = false;
 	while (at + 12 <= bytes.length && !ended) {
 		const length = view.getUint32(at);
 		const end = at + 12 + length;
@@ -94,15 +99,18 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		if (crc32(typeAndData) !== view.getUint32(at + 8 + length)) throw notPng();
 		const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
 		if (type === 'IDAT') idat.push(bytes.subarray(at + 8, at + 8 + length));
+		if (type === 'PLTE') palette = true;
 		ended = type === 'IEND';
 		at = end;
 	}
 	if (!ended || idat.length === 0) throw notPng();
+	if (view.getUint8(25) === 3 && !palette) throw notPng();
 	// The image data must inflate to exactly the scanline bytes the header describes, and is
 	// inflated no further than that: a short stream is a broken image, and a 32 KB upload must not
 	// inflate to tens of MB.
-	const expected = scanlineBytes(view);
-	if (expected === null) throw notPng();
+	const layout = scanlineLayout(view);
+	if (layout === null) throw notPng();
+	const expected = layout.reduce((n, p) => n + p.rows * (1 + p.rowBytes), 0);
 	let raw: Buffer;
 	try {
 		raw = inflateSync(Buffer.concat(idat), { maxOutputLength: expected });
@@ -110,6 +118,12 @@ function checkPngBody(bytes: Uint8Array, view: DataView) {
 		throw notPng();
 	}
 	if (raw.length !== expected) throw notPng();
+	let row = 0;
+	for (const { rows, rowBytes } of layout) {
+		for (let r = 0; r < rows; r++, row += 1 + rowBytes) {
+			if (raw[row] > 4) throw notPng();
+		}
+	}
 }
 
 /** Checks a tab icon upload: a square PNG, 32 to 512 px, at most 32 KiB. Returns its size. */
