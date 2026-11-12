@@ -1,15 +1,19 @@
-import { createHash } from 'node:crypto';
 import { AwsClient } from 'aws4fetch';
 
 /**
  * Master file storage on Cloudflare R2 through its S3-compatible API (decision 0011).
  *
- * The browser uploads straight to R2 with presigned URLs; the server signs URLs, makes small
- * control calls (start/complete a multipart upload, HEAD the object) and reads each finished
- * master once to check it (`inspect`). No file body is uploaded through a Netlify function.
+ * The browser uploads straight to R2 with presigned URLs; the server only signs URLs and makes
+ * small control calls (start/complete a multipart upload, HEAD the object). The background check
+ * reads each finished master once through a presigned GET (master-verify.ts). No file body passes
+ * through a synchronous Netlify function.
  */
 export interface MasterStorage {
-	/** Presigned PUT for a single-request upload. */
+	/**
+	 * Presigned PUT for a single-request upload. It is signed with `If-None-Match: *`, which the
+	 * browser must send (CREATE_ONCE_HEADERS): R2 then refuses any PUT once the object exists, so
+	 * the URL cannot replace a file after it has been checked.
+	 */
 	presignPut(key: string, expiresIn: number): Promise<string>;
 	/** Presigned GET for downloading an object. */
 	presignGet(key: string, expiresIn: number): Promise<string>;
@@ -26,11 +30,6 @@ export interface MasterStorage {
 	abortMultipart(key: string, uploadId: string): Promise<void>;
 	/** Size of the stored object, or null if there is none. */
 	head(key: string): Promise<{ size: number } | null>;
-	/**
-	 * Read the whole object once, as a stream: its SHA-256, its size in bytes and its first
-	 * `headerBytes` bytes. Null if there is no object.
-	 */
-	inspect(key: string, headerBytes: number): Promise<Inspection | null>;
 	remove(key: string): Promise<void>;
 	/** Every key under `prefix` (ListObjectsV2, all pages). */
 	list(prefix: string): Promise<string[]>;
@@ -53,27 +52,11 @@ export function parseListPage(xml: string): { keys: string[]; next: string | nul
 
 export type Part = { partNumber: number; etag: string };
 
-/** What one streamed read of a stored object found. */
-export type Inspection = { sha256: string; size: number; start: Uint8Array };
-
-/** Hash a byte stream without holding it in memory, keeping its first `headerBytes` bytes. */
-export async function inspectStream(
-	body: ReadableStream<Uint8Array>,
-	headerBytes: number
-): Promise<Inspection> {
-	const hash = createHash('sha256');
-	const start = new Uint8Array(headerBytes);
-	let size = 0;
-	const reader = body.getReader();
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		hash.update(value);
-		if (size < headerBytes) start.set(value.subarray(0, headerBytes - size), size);
-		size += value.length;
-	}
-	return { sha256: hash.digest('hex'), size, start: start.slice(0, Math.min(size, headerBytes)) };
-}
+/**
+ * Sent with, and signed into, a single-request upload: R2 evaluates it atomically and answers 412
+ * if the key already exists. Because it is a signed header, a PUT without it fails the signature.
+ */
+export const CREATE_ONCE_HEADERS = { 'If-None-Match': '*' } as const;
 
 export type R2Config = {
 	accountId: string;
@@ -101,9 +84,14 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 		return url;
 	};
 
-	async function presign(url: URL, method: 'GET' | 'PUT', expiresIn: number) {
+	async function presign(
+		url: URL,
+		method: 'GET' | 'PUT',
+		expiresIn: number,
+		headers?: Record<string, string>
+	) {
 		url.searchParams.set('X-Amz-Expires', String(expiresIn));
-		const signed = await client.sign(url.toString(), { method, aws: { signQuery: true } });
+		const signed = await client.sign(url.toString(), { method, headers, aws: { signQuery: true } });
 		return signed.url;
 	}
 
@@ -117,7 +105,7 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 	}
 
 	return {
-		presignPut: (key, expiresIn) => presign(objectUrl(key), 'PUT', expiresIn),
+		presignPut: (key, expiresIn) => presign(objectUrl(key), 'PUT', expiresIn, CREATE_ONCE_HEADERS),
 
 		presignGet: (key, expiresIn) => presign(objectUrl(key), 'GET', expiresIn),
 
@@ -164,12 +152,6 @@ export function createR2Storage(config: R2Config, fetchImpl: typeof fetch = fetc
 			const res = await call(objectUrl(key), { method: 'HEAD' }, 'head');
 			if (res.status === 404) return null;
 			return { size: Number(res.headers.get('content-length')) };
-		},
-
-		async inspect(key, headerBytes) {
-			const res = await call(objectUrl(key), { method: 'GET' }, 'read');
-			if (res.status === 404 || !res.body) return null;
-			return inspectStream(res.body, headerBytes);
 		},
 
 		async remove(key) {

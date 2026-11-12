@@ -34,7 +34,9 @@ const PUBLIC_PATHS = [
 	'/auth/confirm',
 	'/api/audiokit/',
 	// The daily purge (migration 0027); the route checks the worker bearer secret itself.
-	'/api/internal/purge-orgs'
+	'/api/internal/purge-orgs',
+	// The background check of uploaded masters (EPSILON-120); worker bearer secret too.
+	'/api/internal/verify-masters'
 ];
 
 /** Routes a signed-in user with no label can reach; everything else sends them to create one. */

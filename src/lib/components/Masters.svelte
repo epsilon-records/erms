@@ -35,6 +35,15 @@
 	let deleting = $state<string | null>(null);
 
 	const busy = $derived(progress !== null);
+
+	// A master stays `verifying` until the background check finishes, usually within a few
+	// minutes. Refresh while one is, so it turns Ready (or Rejected) without a reload.
+	const checking = $derived(masters.some((m) => m.status === 'verifying'));
+	$effect(() => {
+		if (!checking) return;
+		const timer = setInterval(() => invalidateAll(), 20_000);
+		return () => clearInterval(timer);
+	});
 	const pct = $derived(progress ? Math.floor((progress.sent / progress.total) * 100) : 0);
 
 	function size(bytes: number) {
@@ -98,8 +107,11 @@
 		try {
 			const res = await uploadMaster(recordingId, file, (p) => (progress = p), controller.signal);
 			message =
-				res.status === 'ready'
-					? { kind: 'ok', text: `Uploaded ${file.name}.` }
+				res.status === 'verifying'
+					? {
+							kind: 'ok',
+							text: `Uploaded ${file.name}. LabelKit is checking the file; it can be used once it shows Ready.`
+						}
 					: { kind: 'error', text: `Rejected: ${res.reason}` };
 			file = null;
 			(e.currentTarget as HTMLFormElement | null)?.reset();
@@ -135,6 +147,11 @@
 						>
 						<td>
 							{#if m.status === 'ready'}<span class="tag">Ready</span>
+							{:else if m.status === 'verifying'}<span
+									class="tag outline"
+									title="Uploaded. LabelKit is checking the file before it can be used."
+									>Checking</span
+								>
 							{:else}<span class="tag outline">{m.status}</span>{/if}
 						</td>
 						{#if canDelete}

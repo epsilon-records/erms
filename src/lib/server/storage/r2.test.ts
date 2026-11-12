@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { createR2Storage, inspectStream, parseListPage } from './r2';
+import { createR2Storage, parseListPage } from './r2';
 
 const config = {
 	accountId: 'acct123',
@@ -30,6 +29,19 @@ describe('R2 storage', () => {
 		expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
 		expect(url.searchParams.get('X-Amz-Credential')).toContain('/auto/s3/aws4_request');
 		expect(url.toString()).not.toContain('test-secret');
+	});
+
+	it('signs a single PUT as create-once, so it cannot replace a stored file', async () => {
+		const url = new URL(await createR2Storage(config).presignPut(key, 900));
+		// R2 answers 412 to a PUT with If-None-Match: * once the key exists. The header is signed,
+		// so a PUT that leaves it out fails the signature instead.
+		expect(url.searchParams.get('X-Amz-SignedHeaders')?.split(';')).toContain('if-none-match');
+		expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
+	});
+
+	it('does not make GET URLs conditional', async () => {
+		const url = new URL(await createR2Storage(config).presignGet(key, 900));
+		expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe('host');
 	});
 
 	it('presigns parts with the upload id and part number', async () => {
@@ -63,50 +75,17 @@ describe('R2 storage', () => {
 		).rejects.toThrow();
 	});
 
-	it('HEADs, then reads the whole object once to hash it', async () => {
-		const body = new TextEncoder().encode('RIFF\x24\x00\x00\x00WAVEfmt and the rest of the file');
-		const { calls, fetchImpl } = recorder((req) =>
-			req.method === 'HEAD'
-				? new Response(null, { headers: { 'content-length': String(body.length) } })
-				: new Response(body)
+	it('HEADs an object for its size', async () => {
+		const { calls, fetchImpl } = recorder(
+			() => new Response(null, { headers: { 'content-length': '1234' } })
 		);
-		const r2 = createR2Storage(config, fetchImpl);
-		expect(await r2.head(key)).toEqual({ size: body.length });
-		expect(await r2.inspect(key, 12)).toEqual({
-			sha256: createHash('sha256').update(body).digest('hex'),
-			size: body.length,
-			start: body.slice(0, 12)
-		});
-		expect(calls.map((c) => c.method)).toEqual(['HEAD', 'GET']);
-		expect(calls[1].headers.get('range')).toBeNull();
-	});
-
-	it('hashes a stream that arrives in small chunks', async () => {
-		const bytes = new Uint8Array(1000).map((_, i) => i % 251);
-		const stream = new ReadableStream<Uint8Array>({
-			start(c) {
-				for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7));
-				c.close();
-			}
-		});
-		expect(await inspectStream(stream, 12)).toEqual({
-			sha256: createHash('sha256').update(bytes).digest('hex'),
-			size: 1000,
-			start: bytes.slice(0, 12)
-		});
-		const tiny = new ReadableStream<Uint8Array>({
-			start(c) {
-				c.enqueue(new Uint8Array([1, 2]));
-				c.close();
-			}
-		});
-		expect((await inspectStream(tiny, 12)).start).toEqual(new Uint8Array([1, 2]));
+		expect(await createR2Storage(config, fetchImpl).head(key)).toEqual({ size: 1234 });
+		expect(calls.map((c) => c.method)).toEqual(['HEAD']);
 	});
 
 	it('returns null for a missing object', async () => {
 		const { fetchImpl } = recorder(() => new Response(null, { status: 404 }));
 		expect(await createR2Storage(config, fetchImpl).head(key)).toBeNull();
-		expect(await createR2Storage(config, fetchImpl).inspect(key, 12)).toBeNull();
 	});
 });
 

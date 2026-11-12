@@ -31,17 +31,19 @@ async function runHook(pathname: string) {
 }
 
 describe('auth hook allowlist', () => {
-	it.each(['/api/audiokit/worker', '/api/audiokit/webhook', '/api/audiokit/reconcile'])(
-		'lets the machine endpoint %s reach its handler without a Supabase user',
-		async (pathname) => {
-			const { response, resolved } = await runHook(pathname);
-			expect(resolved).toBe(true);
-			expect(response.status).toBe(200);
-			// Security headers are still applied to machine responses.
-			expect(response.headers.get('X-Frame-Options')).toBe('DENY');
-			expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
-		}
-	);
+	it.each([
+		'/api/audiokit/worker',
+		'/api/audiokit/webhook',
+		'/api/audiokit/reconcile',
+		'/api/internal/verify-masters'
+	])('lets the machine endpoint %s reach its handler without a Supabase user', async (pathname) => {
+		const { response, resolved } = await runHook(pathname);
+		expect(resolved).toBe(true);
+		expect(response.status).toBe(200);
+		// Security headers are still applied to machine responses.
+		expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+		expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+	});
 
 	it('serves the LabelKit landing page at / without a Supabase user', async () => {
 		const { resolved } = await runHook('/');

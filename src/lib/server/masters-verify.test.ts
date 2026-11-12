@@ -1,83 +1,62 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { verifyStoredMaster } from './masters';
-import type { MasterStorage } from './storage/r2';
+import { judge, VerifyResult } from './master-verify';
 
 /**
- * The server's own check of a stored master (EPSILON-120): it hashes what R2 holds instead of
- * trusting the sha256 the browser reports. Runs without Postgres; masters.test.ts covers the
- * same rule through completeMasterUpload against the database.
+ * The verdict on a background read of a master (EPSILON-120). Runs without Postgres;
+ * masters.test.ts covers leasing and recording it against the database.
  */
 
-const KEY = 'orgs/o/recordings/r/masters/m.wav';
-const FILE = new TextEncoder().encode('RIFF\x24\x00\x00\x00WAVEfmt the rest of the audio');
-const REAL = createHash('sha256').update(FILE).digest('hex');
+const WAV = new TextEncoder().encode('RIFF\x24\x00\x00\x00WAVEfmt ');
+const MP3 = new TextEncoder().encode('ID3\x04\x00\x00\x00\x00\x00\x00\x00\x00');
+const CLAIM = 'ab'.repeat(32);
+const expected = { sizeBytes: 1000, claimedSha256: CLAIM };
 
-/** Storage holding `bytes` at KEY, counting each kind of read. */
-function storageWith(bytes: Uint8Array | null, headSize = bytes?.length) {
-	const reads = { head: 0, inspect: 0 };
-	const storage = {
-		async head() {
-			reads.head++;
-			return bytes ? { size: headSize! } : null;
-		},
-		async inspect(_key: string, headerBytes: number) {
-			reads.inspect++;
-			if (!bytes) return null;
-			return {
-				sha256: createHash('sha256').update(bytes).digest('hex'),
-				size: bytes.length,
-				start: bytes.slice(0, headerBytes)
-			};
-		}
-	} as unknown as MasterStorage;
-	return { storage, reads };
-}
-
-describe('verifyStoredMaster', () => {
-	it('accepts a file whose stored bytes hash to the reported value, reading it once', async () => {
-		const { storage, reads } = storageWith(FILE);
-		expect(await verifyStoredMaster(storage, KEY, FILE.length, REAL)).toEqual({
+describe('judge', () => {
+	it('accepts a read that matches the declared size, is WAV and hashes to the claim', () => {
+		expect(judge(expected, { sha256: CLAIM, size: 1000, header: WAV })).toEqual({
 			ok: true,
-			sha256: REAL,
-			size: FILE.length
+			sha256: CLAIM
 		});
-		expect(reads).toEqual({ head: 1, inspect: 1 });
 	});
 
-	it('refuses a file whose stored bytes do not match the reported sha256', async () => {
-		const { storage } = storageWith(FILE);
-		const result = await verifyStoredMaster(storage, KEY, FILE.length, 'ab'.repeat(32));
-		expect(result).toMatchObject({ ok: false });
+	it('refuses a read whose hash differs from what the browser reported', () => {
+		expect(judge(expected, { sha256: 'cd'.repeat(32), size: 1000, header: WAV })).toMatchObject({
+			ok: false
+		});
 	});
 
-	it('refuses a file that is not WAV, whatever hash is reported for it', async () => {
-		const mp3 = new TextEncoder().encode('ID3\x04\x00\x00\x00\x00\x00\x00\x00\x00 audio');
-		const { storage } = storageWith(mp3);
-		const real = createHash('sha256').update(mp3).digest('hex');
-		expect(await verifyStoredMaster(storage, KEY, mp3.length, real)).toEqual({
+	it('refuses a read that is not WAV, whatever its hash', () => {
+		expect(judge(expected, { sha256: CLAIM, size: 1000, header: MP3 })).toEqual({
 			ok: false,
 			reason: 'The uploaded file is not a WAV file.'
 		});
 	});
 
-	it('refuses a size mismatch from the HEAD alone, without reading the file', async () => {
-		const { storage, reads } = storageWith(FILE);
-		expect(await verifyStoredMaster(storage, KEY, FILE.length + 1, REAL)).toMatchObject({
-			ok: false
-		});
-		expect(reads.inspect).toBe(0);
-	});
-
-	it('refuses when the bytes read differ in length from the HEAD', async () => {
-		const { storage } = storageWith(FILE, FILE.length + 5);
-		expect(await verifyStoredMaster(storage, KEY, FILE.length + 5, REAL)).toMatchObject({
+	it('refuses a read of a different size than was declared', () => {
+		expect(judge(expected, { sha256: CLAIM, size: 999, header: WAV })).toMatchObject({
 			ok: false
 		});
 	});
+});
 
-	it('reports a missing object as not there yet', async () => {
-		const { storage } = storageWith(null);
-		expect(await verifyStoredMaster(storage, KEY, FILE.length, REAL)).toBeNull();
+describe('VerifyResult', () => {
+	const ids = { id: '00000000-0000-7000-8000-000000000001', token: crypto.randomUUID() };
+
+	it('accepts a read and an error report', () => {
+		expect(
+			VerifyResult.safeParse({ ...ids, sha256: CLAIM, size: 1, header: '52494646' }).success
+		).toBe(true);
+		expect(VerifyResult.safeParse({ ...ids, error: 'timeout' }).success).toBe(true);
+	});
+
+	it('refuses a malformed hash, header or id', () => {
+		for (const bad of [
+			{ ...ids, sha256: 'xyz', size: 1, header: '' },
+			{ ...ids, sha256: CLAIM, size: 1, header: '5' },
+			{ ...ids, id: 'not-a-uuid', error: 'x' },
+			{ ...ids }
+		]) {
+			expect(VerifyResult.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+		}
 	});
 });

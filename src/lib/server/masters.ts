@@ -1,20 +1,18 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-	isWavHeader,
 	MAX_MASTER_BYTES,
 	MULTIPART_THRESHOLD,
 	PART_SIZE,
 	partCount,
 	WAV_CONTENT_TYPES,
-	WAV_HEADER_BYTES,
 	wavProblem
 } from '../masters';
 import { type Actor, type Database, withAudit } from './audit';
 import { type Master, masters, type Role, recordings } from './db/schema';
 import { uuidv7 } from './db/uuidv7';
 import { hasScope } from './rbac';
-import type { MasterStorage, Part } from './storage/r2';
+import { CREATE_ONCE_HEADERS, type MasterStorage, type Part } from './storage/r2';
 
 /**
  * Master uploads (EPSILON-29, decision 0011). The browser sends the file straight to R2
@@ -78,7 +76,7 @@ export const StartUpload = z.object({
 });
 
 export type StartResult =
-	| { masterId: string; mode: 'single'; url: string }
+	| { masterId: string; mode: 'single'; url: string; headers: Record<string, string> }
 	| { masterId: string; mode: 'multipart'; partSize: number; partCount: number };
 
 function parseStart(input: unknown) {
@@ -150,7 +148,9 @@ export async function startMasterUpload(
 		return {
 			masterId: id,
 			mode: 'single',
-			url: await storage.presignPut(objectKey, URL_TTL_SECONDS)
+			url: await storage.presignPut(objectKey, URL_TTL_SECONDS),
+			// Signed into the URL: the browser must send them as they are.
+			headers: { ...CREATE_ONCE_HEADERS }
 		};
 	});
 }
@@ -214,48 +214,14 @@ const Complete = z.object({
 });
 
 export type CompleteResult =
-	{ status: 'ready'; master: Master } | { status: 'rejected'; reason: string };
-
-/** Outcome of checking a stored master: the server's own hash, or why it was refused. */
-export type Verification =
-	{ ok: true; sha256: string; size: number } | { ok: false; reason: string };
+	{ status: 'verifying'; master: Master } | { status: 'rejected'; reason: string };
 
 /**
- * Check what R2 actually holds for a master against what the uploader declared: the size, a WAV
- * header, and a SHA-256 the server computes itself. `head` first, so a file of the wrong size is
- * refused without reading it; then one streamed read of the whole object for the header and hash.
- */
-export async function verifyStoredMaster(
-	storage: MasterStorage,
-	objectKey: string,
-	declaredSize: number,
-	claimedSha256: string
-): Promise<Verification | null> {
-	const head = await storage.head(objectKey);
-	if (!head) return null;
-	if (head.size !== declaredSize) {
-		return { ok: false, reason: `Stored file is ${head.size} bytes, expected ${declaredSize}.` };
-	}
-	const read = await storage.inspect(objectKey, WAV_HEADER_BYTES);
-	if (!read) return null;
-	if (read.size !== declaredSize) {
-		return { ok: false, reason: `Stored file is ${read.size} bytes, expected ${declaredSize}.` };
-	}
-	if (!isWavHeader(read.start))
-		return { ok: false, reason: 'The uploaded file is not a WAV file.' };
-	if (read.sha256 !== claimedSha256) {
-		return {
-			ok: false,
-			reason: 'The stored file does not match the checksum the upload reported. Upload it again.'
-		};
-	}
-	return { ok: true, sha256: read.sha256, size: read.size };
-}
-
-/**
- * Finish an upload: complete the multipart upload, then check what R2 actually holds (see
- * verifyStoredMaster) before recording the master. The sha256 recorded is the one the server
- * computed. An object that fails is deleted and the row marked rejected.
+ * Finish an upload. Completes the multipart upload, then does only the cheap check here: R2 has
+ * an object of the declared size. A wrong size is rejected without reading the file. Otherwise the
+ * master becomes `verifying`, with the SHA-256 the browser reported kept as `claimedSha256`, and a
+ * background step (master-verify.ts) reads the object, checks the WAV header and its own SHA-256,
+ * and sets it to `ready` or rejects it (EPSILON-120). Until then nothing uses the master.
  */
 export async function completeMasterUpload(
 	db: Database,
@@ -278,14 +244,21 @@ export async function completeMasterUpload(
 			if (sorted.length !== total || sorted.some((p, i) => p.partNumber !== i + 1)) {
 				throw new MasterError(400, `Send all ${total} parts, numbered 1 to ${total}.`);
 			}
-			await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
+			try {
+				await storage.completeMultipart(row.objectKey, row.uploadId, sorted);
+			} catch (e) {
+				// A retry after R2 already completed the upload: the upload id is gone, but the object is
+				// there. Carry on if it has the declared size; the background check reads it either way.
+				const there = await storage.head(row.objectKey);
+				if (there?.size !== row.sizeBytes) throw e;
+			}
 		}
 
-		const verified = await verifyStoredMaster(storage, row.objectKey, row.sizeBytes, claimed);
-		if (!verified) throw new MasterError(409, 'The file has not arrived in storage yet.');
+		const head = await storage.head(row.objectKey);
+		if (!head) throw new MasterError(409, 'The file has not arrived in storage yet.');
 
-		if (!verified.ok) {
-			const { reason } = verified;
+		if (head.size !== row.sizeBytes) {
+			const reason = `Stored file is ${head.size} bytes, expected ${row.sizeBytes}.`;
 			await storage.remove(row.objectKey);
 			await tx
 				.update(masters)
@@ -301,11 +274,9 @@ export async function completeMasterUpload(
 			return { status: 'rejected' as const, reason };
 		}
 
-		const { sha256, size } = verified;
-		const completedAt = new Date();
 		const [updated] = await tx
 			.update(masters)
-			.set({ status: 'ready', sha256, completedAt, uploadId: null })
+			.set({ status: 'verifying', claimedSha256: claimed, uploadId: null })
 			.where(eq(masters.id, row.id))
 			.returning();
 		await audit({
@@ -313,9 +284,9 @@ export async function completeMasterUpload(
 			entityId: row.id,
 			action: 'upload_complete',
 			before: { status: 'pending' },
-			after: { status: 'ready', sha256, sizeBytes: size, completedAt }
+			after: { status: 'verifying', claimedSha256: claimed, sizeBytes: head.size }
 		});
-		return { status: 'ready' as const, master: updated };
+		return { status: 'verifying' as const, master: updated };
 	});
 }
 
@@ -329,8 +300,10 @@ export async function abortMasterUpload(
 	assertCanUpload(ctx);
 	return withAudit(db, ctx, async (tx, audit) => {
 		const row = await pendingMaster(tx, ctx, masterId, true);
+		// A multipart upload R2 already completed has no upload id left to abort, so the object is
+		// removed as well. Removing a key that is not there is harmless.
 		if (row.uploadId) await storage.abortMultipart(row.objectKey, row.uploadId);
-		else await storage.remove(row.objectKey);
+		await storage.remove(row.objectKey);
 		await tx
 			.update(masters)
 			.set({ status: 'aborted', uploadId: null })
@@ -370,11 +343,12 @@ export async function deleteMaster(
 		// Defence in depth: the database check already ties the key to the org.
 		if (!keyInOrg(row.objectKey, ctx.orgId)) throw new MasterError(403, 'Master not in this org');
 
+		// Abort an unfinished multipart upload, and remove the object either way: R2 may already
+		// have completed the upload.
 		if (row.status === 'pending' && row.uploadId) {
 			await storage.abortMultipart(row.objectKey, row.uploadId);
-		} else {
-			await storage.remove(row.objectKey);
 		}
+		await storage.remove(row.objectKey);
 
 		await tx.delete(masters).where(eq(masters.id, row.id));
 		await audit({
