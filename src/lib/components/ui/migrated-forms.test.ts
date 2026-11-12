@@ -25,6 +25,9 @@ const { default: CompositionsPage } = await import('../../../routes/compositions
 const { default: CompositionPage } = await import('../../../routes/compositions/[id]/+page.svelte');
 const { default: AgreementsPage } = await import('../../../routes/rights/agreements/+page.svelte');
 const { default: ConsentsPage } = await import('../../../routes/rights/consents/+page.svelte');
+const { default: ArtistPage } = await import('../../../routes/artists/[id]/+page.svelte');
+const { default: ClosePage } = await import('../../../routes/org/close/+page.svelte');
+const { default: ClosedPage } = await import('../../../routes/org/closed/+page.svelte');
 
 const html = (component: unknown, props: Record<string, unknown>) =>
 	render(component as never, { props: props as never }).body;
@@ -513,5 +516,47 @@ describe('rights forms', () => {
 		expect(body).toMatch(
 			/<button[^>]*name="removalConfirmed"[^>]*value="yes"[^>]*type="submit"|<button[^>]*type="submit"[^>]*name="removalConfirmed"[^>]*value="yes"/
 		);
+	});
+});
+
+describe('artist, close and closed forms', () => {
+	const artist = { party: { displayName: 'Ana' }, releases: [], credits: [] };
+
+	it('ties a rename error to the name input', () => {
+		const form = { ok: false, errors: { displayName: 'Name is required' } };
+		const body = html(ArtistPage, { data: { artist, can: { edit: true } }, form });
+		const input = tagWithId(body, 'displayName');
+		expect(input).toContain('name="displayName"');
+		expect(input).toContain('aria-describedby="displayName-error"');
+		expect(body).toMatch(
+			/role="alert"[^>]*id="displayName-error"[^>]*>(<!--[^>]*-->)*Name is required/
+		);
+		expectSubmitButtons(body);
+	});
+
+	it('posts the close confirmation, and disables closing while the plan renews', () => {
+		const body = html(ClosePage, { data: { orgName: 'Test Label', renewing: true }, form: null });
+		expect(body).toMatch(
+			/<label>[\s\S]*Type <strong>Test Label<\/strong>[\s\S]*<input[^>]*name="confirm"[^>]*required/
+		);
+		const close = buttons(body).find((b) => b.includes('data-slot="button"')) ?? '';
+		expect(close).toContain('type="submit"');
+		expect(close).toContain('disabled');
+	});
+
+	it('posts the label to switch to', () => {
+		const data = {
+			orgName: 'Test Label',
+			isOwner: false,
+			purgeAfter: '2026-12-12',
+			others: [
+				{ orgId: 'o1', orgName: 'One' },
+				{ orgId: 'o2', orgName: 'Two' }
+			]
+		};
+		const body = html(ClosedPage, { data, form: null });
+		expect(body).toMatch(/<label>[\s\S]*Switch to another label[\s\S]*<select[^>]*name="orgId"/);
+		expect(body).toMatch(/<option[^>]*value="o2"[^>]*>(<!---->)?Two/);
+		expectSubmitButtons(body);
 	});
 });

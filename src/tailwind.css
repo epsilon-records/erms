@@ -12,7 +12,7 @@
 @source './lib/components/ui';
 /* Utilities the migrated pages (login, members, API keys, release edit, recording) use in their own markup. Listed instead of
    scanning those routes, so their legacy class names can't pick up Tailwind rules. */
-@source inline('flex flex-col flex-wrap items-center items-start gap-1.5 gap-2 gap-2.5 gap-4 font-mono w-20 w-auto w-fit w-[110px] w-[170px] w-[260px] max-w-[480px] sm:pl-[160px]');
+@source inline('flex flex-1 flex-col flex-wrap items-center items-start gap-1.5 gap-2 gap-2.5 gap-4 mt-1.5 font-mono w-20 w-auto w-fit w-[110px] w-[170px] w-[260px] min-w-[220px] max-w-[480px] max-w-[560px] sm:pl-[160px]');
 
 @theme inline {
 	--color-background: var(--bg);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -27,7 +28,7 @@
 			<div class="inline-form" style="max-width: 640px">
 				<label for="file" class="sr-only">CSV file</label>
 				<input id="file" type="file" name="file" accept=".csv,text/csv" required />
-				<button class="btn primary">Dry run</button>
+				<Button type="submit" variant="primary">Dry run</Button>
 			</div>
 			<p class="muted" style="margin: 0">
 				A dry run changes nothing. It shows what the import would create or update.
@@ -100,7 +101,7 @@
 				<input type="hidden" name="csv" value={form.csv} />
 				<input type="hidden" name="fileName" value={form.fileName} />
 				<input type="hidden" name="sha256" value={form.sha256} />
-				<button class="btn primary">Import now</button>
+				<Button type="submit" variant="primary">Import now</Button>
 				<a href="/import" class="btn">Cancel</a>
 			</form>
 		{:else if stage === 'imported'}

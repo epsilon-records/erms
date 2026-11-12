@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -25,12 +28,21 @@
 		</div>
 		<h1 class="display">{a.party.displayName}</h1>
 		{#if data.can.edit}
-			<form method="POST" action="?/rename" class="inline-form" style="max-width: 560px">
-				<label for="displayName" class="sr-only">Artist name</label>
-				<input id="displayName" name="displayName" value={a.party.displayName} required />
-				<button class="btn">Rename</button>
+			<form method="POST" action="?/rename" class="flex max-w-[560px] flex-wrap items-start gap-2">
+				<div class="flex min-w-[220px] flex-1 flex-col gap-1.5">
+					<label for="displayName" class="sr-only">Artist name</label>
+					<Input
+						id="displayName"
+						name="displayName"
+						value={a.party.displayName}
+						required
+						aria-invalid={renameError ? true : undefined}
+						aria-describedby={renameError ? 'displayName-error' : undefined}
+					/>
+					{#if renameError}<Field.Error id="displayName-error">{renameError}</Field.Error>{/if}
+				</div>
+				<Button type="submit">Rename</Button>
 			</form>
-			{#if renameError}<div class="alert error" role="alert">{renameError}</div>{/if}
 			{#if renamed}<div class="alert ok" role="status">Saved.</div>{/if}
 		{/if}
 	</section>
