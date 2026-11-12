@@ -7,7 +7,7 @@ import { SUPABASE_SECRET_KEY } from '$app/env/private';
  * invites (EPSILON-87). It is deliberately narrow.
  *
  * - Auth only. This client never queries tables: every database read and write still goes
- *   through `locals.db` as `erms_app` under RLS. The key bypasses RLS, so it must not grow into a
+ *   through `locals.db` as `labelkit_app` under RLS. The key bypasses RLS, so it must not grow into a
  *   second database path.
  * - Three calls: invite an address, find the account behind an address, and read the email and
  *   last sign-in of an org's members for the members page.

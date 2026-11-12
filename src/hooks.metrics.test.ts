@@ -52,7 +52,7 @@ it('exact anonymous endpoint initializes only restricted execution and bypasses 
 	const e = event('/api/app-metrics');
 	const resolve = vi.fn(async () => new Response(null, { status: 204 }));
 	expect((await handle({ event: e, resolve } as never)).status).toBe(204);
-	expect(spies.runner).toHaveBeenCalledWith('erms_metrics_ingest');
+	expect(spies.runner).toHaveBeenCalledWith('labelkit_metrics_ingest');
 	expect(spies.auth).not.toHaveBeenCalled();
 	expect(spies.sentry).not.toHaveBeenCalled();
 	expect((e as { locals: object }).locals).not.toHaveProperty('user');
@@ -81,7 +81,7 @@ it('maintenance requires existing machine secret before runner initialization', 
 			} as never)
 		).status
 	).toBe(204);
-	expect(spies.runner).toHaveBeenCalledWith('erms_metrics_prune');
+	expect(spies.runner).toHaveBeenCalledWith('labelkit_metrics_prune');
 	vi.unstubAllEnvs();
 });
 it('catches resolve failures without request/error logging or Sentry forwarding', async () => {

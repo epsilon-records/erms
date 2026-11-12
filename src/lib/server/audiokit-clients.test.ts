@@ -488,8 +488,8 @@ describe('per-label AudioKit clients', () => {
 				actor: { id: ownerA, kind: 'user' }
 			});
 			// 42501: insufficient_privilege, for an owner of the label as much as anyone.
-			expect(await probe('erms_app', ownerA)).toBe('42501');
-			expect(await probe('erms_app', viewerA)).toBe('42501');
+			expect(await probe('labelkit_app', ownerA)).toBe('42501');
+			expect(await probe('labelkit_app', viewerA)).toBe('42501');
 			expect(await probe('authenticated', ownerA)).toBe('42501');
 			expect(await probe('anon', null)).toBe('42501');
 			expect(

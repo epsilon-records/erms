@@ -347,7 +347,7 @@ describe('tenant isolation', () => {
 		const who = sql`select current_user as u, nullif(current_setting('request.jwt.claim.sub', true), '') as sub`;
 		// postgres-js returns the rows as an array, as in production.
 		const inside = await asUser(db, ownerA, async (tx) => (await tx.execute(who)) as unknown);
-		expect((inside as Row[])[0]).toEqual({ u: 'erms_app', sub: ownerA });
+		expect((inside as Row[])[0]).toEqual({ u: 'labelkit_app', sub: ownerA });
 		const after = (await db.execute(who)) as unknown as Row[];
 		expect(after[0]).toEqual({ u: 'postgres', sub: null });
 	});

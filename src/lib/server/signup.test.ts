@@ -108,7 +108,7 @@ describe('self-serve label creation (EPSILON-130)', () => {
 	it('refuses a caller with no user id', async () => {
 		const err = await db
 			.transaction(async (tx) => {
-				await tx.execute(sql`select set_config('role', 'erms_app', true)`);
+				await tx.execute(sql`select set_config('role', 'labelkit_app', true)`);
 				await tx.execute(sql`select app.create_org(gen_random_uuid(), 'Nobody', 'nobody')`);
 			})
 			.then(
