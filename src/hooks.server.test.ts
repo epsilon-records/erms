@@ -31,34 +31,61 @@ async function runHook(pathname: string) {
 }
 
 describe('auth hook allowlist', () => {
-	it.each(['/api/audiokit/worker', '/api/audiokit/webhook', '/api/audiokit/reconcile'])(
-		'lets the machine endpoint %s reach its handler without a Supabase user',
-		async (pathname) => {
-			const { response, resolved } = await runHook(pathname);
-			expect(resolved).toBe(true);
-			expect(response.status).toBe(200);
-			// Security headers are still applied to machine responses.
-			expect(response.headers.get('X-Frame-Options')).toBe('DENY');
-			expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
-		}
-	);
+	it.each([
+		'/api/audiokit/worker',
+		'/api/audiokit/webhook',
+		'/api/audiokit/reconcile',
+		'/api/audiokit/webhook/client-123',
+		'/api/internal/purge-orgs'
+	])('lets the machine endpoint %s reach its handler without a Supabase user', async (pathname) => {
+		const { response, resolved } = await runHook(pathname);
+		expect(resolved).toBe(true);
+		expect(response.status).toBe(200);
+		// Security headers are still applied to machine responses.
+		expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+		expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+	});
 
 	it('serves the LabelKit landing page at / without a Supabase user', async () => {
 		const { resolved } = await runHook('/');
 		expect(resolved).toBe(true);
 	});
 
-	it.each(['/privacy', '/terms'])('serves %s without a Supabase user', async (pathname) => {
+	it.each([
+		'/login',
+		'/signup',
+		'/signup/label',
+		'/privacy',
+		'/terms',
+		'/auth/callback',
+		'/auth/confirm'
+	])('serves %s without a Supabase user', async (pathname) => {
 		const { resolved } = await runHook(pathname);
 		expect(resolved).toBe(true);
 	});
 
-	it.each(['/dashboard', '/api/recordings', '/api/audiokit'])(
-		'still redirects the unauthenticated app path %s to /login',
-		async (pathname) => {
-			await expect(runHook(pathname)).rejects.toMatchObject({ status: 303, location: '/login' });
-		}
-	);
+	it.each([
+		'/dashboard',
+		'/api/recordings',
+		'/api/audiokit',
+		'/api/audiokit/',
+		'/api/audiokit/anything',
+		'/api/audiokit/workerx',
+		'/api/audiokit/worker/extra',
+		'/api/audiokit/webhook/',
+		'/api/audiokit/webhook/client-123/extra',
+		'/api/internal/purge-orgsx',
+		'/api/internal/purge-orgs/extra',
+		'/loginx',
+		'/login/extra',
+		'/signupx',
+		'/privacy-old',
+		'/terms/old',
+		'/auth/callbackx',
+		'/auth/confirm/extra'
+	])('still redirects the unauthenticated app path %s to /login', async (pathname) => {
+		await expect(runHook(pathname)).rejects.toMatchObject({ status: 303, location: '/login' });
+	});
 });
 
 describe('/v1 API auth', () => {
