@@ -358,7 +358,7 @@
 		display: block;
 		width: 100%;
 		height: 72px;
-		fill: var(--accent);
+		fill: var(--accent-ink, var(--accent));
 	}
 	audio {
 		width: 100%;
