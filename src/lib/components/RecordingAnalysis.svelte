@@ -310,7 +310,7 @@
 	.tag.danger {
 		background: var(--danger);
 		border-color: var(--danger);
-		color: var(--on-accent);
+		color: var(--on-danger);
 	}
 	.reason {
 		font-size: 13px;
@@ -358,7 +358,7 @@
 		display: block;
 		width: 100%;
 		height: 72px;
-		fill: var(--accent);
+		fill: var(--accent-ink, var(--accent));
 	}
 	audio {
 		width: 100%;
