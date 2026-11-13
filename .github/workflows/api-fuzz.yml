@@ -1,0 +1,141 @@
+name: API property tests
+
+# Schemathesis generates requests from docs/openapi.yaml, including malformed ones and edge cases,
+# and fails on a server error, a response that doesn't match its schema, an undocumented status
+# code or an undocumented content type (EPSILON-195).
+#
+# It runs against LabelKit built and started here on the runner, on a throwaway Supabase stack,
+# never against a deployed site. Nothing reaches a paid or live service:
+# - The app gets a placeholder Supabase URL and no other secret: no Stripe, no AudioKit, no
+#   Resend, no Sentry, no R2. The /v1 routes only read the database.
+# - The only key is one generated per run, stored hashed in the throwaway database.
+# - Every /v1 operation today is a read, so none is stubbed or excluded for side effects. The
+#   "Only reads are fuzzed" step fails the job when a write operation appears, so that whoever adds
+#   one has to stub or exclude it (with a reason) in schemathesis.toml first.
+#
+# Netlify: this file and .github/schemathesis/** don't redeploy the site, because netlify.toml's
+# ignore rule excludes .github (shared 0048: Free plan credits).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - docs/openapi.yaml
+      - 'drizzle/**'
+      - package.json
+      - pnpm-lock.yaml
+      - vite.config.ts
+      - supabase/config.toml
+      - .github/workflows/api-fuzz.yml
+      - '.github/schemathesis/**'
+  pull_request:
+    paths:
+      - 'src/**'
+      - docs/openapi.yaml
+      - 'drizzle/**'
+      - package.json
+      - pnpm-lock.yaml
+      - vite.config.ts
+      - supabase/config.toml
+      - .github/workflows/api-fuzz.yml
+      - '.github/schemathesis/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schemathesis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Same pin as ci.yml (see the comment there).
+      SUPABASE_CLI_VERSION: 3.1.0-beta.26
+      # A placeholder, so build-time env validation passes. Nothing calls it.
+      PUBLIC_SUPABASE_URL: https://example.supabase.co
+      PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install Schemathesis (pinned, hash-checked)
+        run: python -m pip install --quiet --require-hashes -r .github/schemathesis/requirements.txt
+
+      - name: Only reads are fuzzed
+        run: |
+          if grep -nE '^    (post|put|patch|delete):' docs/openapi.yaml; then
+            echo "::error::docs/openapi.yaml has a write operation. Stub it or exclude it in .github/schemathesis/schemathesis.toml with a reason, then update this check."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: Start the Supabase stack
+        run: supabase start
+      - name: Migrate and seed the database
+        run: |
+          db=$(supabase status --output json | jq -r .DB_URL)
+          echo "DATABASE_URL=$db" >> "$GITHUB_ENV"
+          DATABASE_URL="$db" pnpm db:migrate
+
+          # A per-run key: 43 characters after the prefix, as src/lib/server/api-keys.ts expects.
+          # Only its hash reaches the database.
+          api_key="lk_fuzzci00_$(openssl rand -hex 22 | cut -c1-43)"
+          echo "::add-mask::$api_key"
+          echo "LABELKIT_FUZZ_API_KEY=$api_key" >> "$GITHUB_ENV"
+          key_hash=$(printf %s "$api_key" | sha256sum | cut -d' ' -f1)
+          psql "$db" --quiet -v key_hash="$key_hash" -f .github/schemathesis/seed.sql
+
+      - name: Build and start LabelKit
+        run: |
+          pnpm build
+          pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort > app.log 2>&1 &
+          for _ in $(seq 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:4173/v1/openapi.yaml && exit 0
+            sleep 1
+          done
+          echo "::error::LabelKit did not come up"
+          cat app.log
+          exit 1
+
+      # Local requests count as the API host (src/lib/server/api-host.ts), so /v1 is served here.
+      - name: Schemathesis
+        timeout-minutes: 5
+        run: |
+          schemathesis --config-file .github/schemathesis/schemathesis.toml run docs/openapi.yaml \
+            --url http://127.0.0.1:4173 \
+            --max-time 180 \
+            --report junit --report-dir schemathesis-report
+
+      - name: Errors in the app log
+        if: ${{ !cancelled() }}
+        run: grep -iE "error|unhandled" app.log || echo "none"
+      - uses: actions/upload-artifact@v6
+        if: ${{ failure() }}
+        with:
+          name: schemathesis-report
+          path: |
+            schemathesis-report
+            app.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Stop the stack
+        if: always()
+        run: supabase stop
