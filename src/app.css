@@ -17,6 +17,7 @@
 	--on-accent: #0e0f11;
 	--warn: #ffd166;
 	--danger: #ff8a80;
+	--on-danger: #0e0f11;
 	/* Control borders, 3.5:1 on bg (shared 0054); placeholder ink; the empty part of a meter. */
 	--line-control: #646a73;
 	--placeholder: #8a9099;
@@ -52,6 +53,7 @@
 		--accent-border: #17181a;
 		--warn: #8a5a00;
 		--danger: #b3261e;
+	--on-danger: #ffffff;
 	}
 }
 :root[data-theme='light'] {
@@ -73,6 +75,7 @@
 	--accent-border: #17181a;
 	--warn: #8a5a00;
 	--danger: #b3261e;
+	--on-danger: #ffffff;
 }
 /* The public landing page is drawn for dark and stays dark in every theme. */
 :root:has(.landing) {
@@ -94,6 +97,7 @@
 	--accent-border: initial;
 	--warn: #ffd166;
 	--danger: #ff8a80;
+	--on-danger: #0e0f11;
 }
 
 *,

@@ -310,7 +310,7 @@
 	.tag.danger {
 		background: var(--danger);
 		border-color: var(--danger);
-		color: var(--on-accent);
+		color: var(--on-danger);
 	}
 	.reason {
 		font-size: 13px;
