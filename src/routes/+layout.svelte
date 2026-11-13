@@ -255,7 +255,11 @@
 	.switch select {
 		min-height: 44px;
 	}
-	main:focus {
+	/* Full-width skip target: draw the keyboard ring inside it so it stays on screen. */
+	main:focus-visible {
+		outline-offset: -3px;
+	}
+	main:focus:not(:focus-visible) {
 		outline: none;
 	}
 	.tray {
