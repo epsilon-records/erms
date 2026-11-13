@@ -53,7 +53,7 @@
 		--accent-border: #17181a;
 		--warn: #8a5a00;
 		--danger: #b3261e;
-	--on-danger: #ffffff;
+		--on-danger: #ffffff;
 	}
 }
 :root[data-theme='light'] {
