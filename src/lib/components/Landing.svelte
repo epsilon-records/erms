@@ -296,6 +296,13 @@
 </div>
 
 <style>
+	/* Skip target: land below the sticky header (77 px on a phone) with the ring drawn inside. */
+	.landing-body {
+		scroll-margin-top: 80px;
+	}
+	.landing-body:focus-visible {
+		outline-offset: -3px;
+	}
 	.landing-body:focus:not(:focus-visible) {
 		outline: none;
 	}
