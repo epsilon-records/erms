@@ -7,6 +7,7 @@
 	import { browser } from '$app/env';
 	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
 	import AppMetrics from '#lib/AppMetrics.svelte';
+	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
 	import { createCollector, documentLifetime } from '#lib/app-metrics-client.js';
 	import { isMetricsOrigin } from '#lib/app-metrics-contract.js';
 	import favicon from '#lib/assets/favicon.svg';
@@ -122,6 +123,7 @@
 					/>
 				</form>
 			{/if}
+			<ThemeSwitch />
 			<div class="who">
 				{#if data.memberships && data.memberships.length > 1}
 					<form method="POST" action="/org" class="switch">
@@ -187,7 +189,7 @@
 		color: var(--text-strong);
 	}
 	.slash {
-		color: var(--accent);
+		color: var(--accent-ink, var(--accent));
 	}
 	nav {
 		display: flex;
@@ -203,7 +205,7 @@
 	nav a[aria-current='page'] {
 		color: var(--text-strong);
 		font-weight: 600;
-		box-shadow: inset 0 -3px 0 var(--accent);
+		box-shadow: inset 0 -3px 0 var(--accent-ink, var(--accent));
 	}
 	.grow {
 		flex-grow: 1;

@@ -20,22 +20,24 @@
 	--color-surface: var(--surface);
 	--color-surface-2: var(--surface-2);
 	--color-border: var(--line);
-	--color-border-strong: #3a3f46;
+	--color-border-strong: var(--line-control);
 	--color-strong: var(--text-strong);
 	--color-soft: var(--soft);
 	--color-muted: var(--muted);
 	--color-accent: var(--accent);
 	--color-on-accent: var(--on-accent);
+	--color-accent-border: var(--accent-border, var(--accent));
+	--color-accent-ink: var(--accent-ink, var(--accent));
 	--color-warn: var(--warn);
 	--color-danger: var(--danger);
 	/* shadcn-svelte's names, so the copied-in form controls need few edits. */
 	--color-muted-foreground: var(--muted);
-	--color-input: #3a3f46;
-	--color-placeholder: #8a9099;
+	--color-input: var(--line-control);
+	--color-placeholder: var(--placeholder);
 	--color-primary: var(--accent);
 	--color-primary-foreground: var(--on-accent);
 	--color-destructive: var(--danger);
-	--color-ring: var(--accent);
+	--color-ring: var(--accent-ink, var(--accent));
 	--font-sans: var(--sans);
 	--font-mono: var(--mono);
 	/* The B+C look is square-cornered (LabelKit 0009). */

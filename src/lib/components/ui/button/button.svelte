@@ -10,7 +10,7 @@
 				default:
 					'border-border-strong bg-transparent text-foreground hover:border-foreground hover:text-strong',
 				primary:
-					'border-accent bg-accent font-bold text-on-accent hover:brightness-108 hover:text-on-accent',
+					'border-accent-border bg-accent font-bold text-on-accent hover:brightness-108 hover:text-on-accent',
 				danger:
 					'border-border-strong bg-transparent text-danger hover:border-danger hover:text-danger',
 				ghost: 'border-transparent bg-transparent text-foreground hover:text-strong',
