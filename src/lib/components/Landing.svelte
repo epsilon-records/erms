@@ -158,7 +158,7 @@
 		</div>
 	</header>
 
-	<div class="landing-body" id="content">
+	<div class="landing-body" id="content" tabindex="-1">
 		<section class="wrap hero">
 			<div class="copy">
 				<p class="kicker">Label software for independent labels</p>
@@ -296,6 +296,9 @@
 </div>
 
 <style>
+	.landing-body:focus {
+		outline: none;
+	}
 	.landing {
 		--lime: #c6f432;
 		--bg: #0e0f11;
