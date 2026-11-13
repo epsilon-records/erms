@@ -255,7 +255,7 @@
 	.switch select {
 		min-height: 44px;
 	}
-	main:focus {
+	main:focus:not(:focus-visible) {
 		outline: none;
 	}
 	.tray {

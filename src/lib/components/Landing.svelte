@@ -296,7 +296,7 @@
 </div>
 
 <style>
-	.landing-body:focus {
+	.landing-body:focus:not(:focus-visible) {
 		outline: none;
 	}
 	.landing {
