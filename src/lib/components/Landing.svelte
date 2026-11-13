@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	// LabelKit's public homepage at / on LabelKit's own hosts (see #lib/server/landing.ts).
 	// Copy only claims what ships today; store delivery, statements, payouts, the white-label
 	// portal and the public API are marked "Soon" until they exist (gap analysis, EPSILON-128).
@@ -6,6 +7,9 @@
 
 	// Phone nav (audit F-16): under 760 px the links fold behind a Menu button, like epsilonrecords.com.
 	let menuOpen = $state(false);
+	// The links fold behind Menu only once this code runs, so they stay usable if it never loads.
+	let ready = $state(false);
+	onMount(() => (ready = true));
 
 	const today = [
 		'Releases, recordings & compositions',
@@ -117,8 +121,8 @@
 	{@html jsonLd}
 </svelte:head>
 
-<div class="landing">
-	<header>
+<div class="landing" class:ready>
+	<header class:menu-open={menuOpen}>
 		<div class="wrap masthead">
 			<a href="/" class="logo">
 				<svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
@@ -154,7 +158,7 @@
 		</div>
 	</header>
 
-	<div class="landing-body">
+	<div class="landing-body" id="content">
 		<section class="wrap hero">
 			<div class="copy">
 				<p class="kicker">Label software for independent labels</p>
@@ -379,8 +383,8 @@
 	.menu-toggle {
 		display: none;
 	}
-	@media (max-width: 760px) and (scripting: enabled) {
-		.menu-toggle {
+	@media (max-width: 760px) {
+		.ready .menu-toggle {
 			display: inline-flex;
 			align-items: center;
 			min-height: 44px;
@@ -392,28 +396,33 @@
 			font-weight: 600;
 			cursor: pointer;
 		}
-		nav {
+		.ready nav {
 			display: none;
 			flex-basis: 100%;
 			flex-direction: column;
 			align-items: stretch;
 			gap: 0;
 		}
-		nav.open {
+		.ready nav.open {
 			display: flex;
 		}
-		nav a {
+		/* On a short screen the open menu scrolls inside the sticky header. */
+		.ready header.menu-open {
+			max-height: 100dvh;
+			overflow-y: auto;
+		}
+		.ready nav a {
 			border-top: 1px solid var(--line);
 		}
-		nav a.cta {
+		.ready nav a.cta {
 			justify-content: center;
 			margin-top: 12px;
 			border-top: 0;
 		}
 	}
-	@media (max-width: 480px) and (scripting: enabled) {
+	@media (max-width: 480px) {
 		/* Logo, tagline and Menu don't fit on one row on a phone. */
-		.by {
+		.ready .by {
 			display: none;
 		}
 	}

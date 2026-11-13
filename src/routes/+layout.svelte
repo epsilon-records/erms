@@ -145,7 +145,8 @@
 		</header>
 	{/if}
 
-	<main id="content">{@render children()}</main>
+	<!-- The landing page puts #content after its own header and nav, so the skip link skips them. -->
+	<main id={page.data.landing ? undefined : 'content'}>{@render children()}</main>
 </div>
 
 <style>
