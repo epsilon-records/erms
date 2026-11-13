@@ -78,10 +78,24 @@ jobs:
 
       - name: Only reads are fuzzed
         run: |
-          if grep -nE '^    (post|put|patch|delete):' docs/openapi.yaml; then
-            echo "::error::docs/openapi.yaml has a write operation. Stub it or exclude it in .github/schemathesis/schemathesis.toml with a reason, then update this check."
-            exit 1
-          fi
+          python - <<'PY'
+          import sys
+          import yaml
+
+          spec = yaml.safe_load(open("docs/openapi.yaml"))
+          reads = {"get", "head", "options"}
+          methods = reads | {"put", "post", "patch", "delete", "trace", "query"}
+          writes = [
+              f"{method.upper()} {path}"
+              for path, item in (spec.get("paths") or {}).items()
+              for method in item
+              if method.lower() in methods - reads
+          ]
+          if writes:
+              print(f"::error::docs/openapi.yaml has write operations: {', '.join(writes)}. Stub or exclude each in .github/schemathesis/schemathesis.toml with a reason, then update this check.")
+              sys.exit(1)
+          print("All operations are reads.")
+          PY
 
       - uses: supabase/setup-cli@v1
         with:
