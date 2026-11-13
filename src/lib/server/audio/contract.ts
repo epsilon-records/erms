@@ -60,13 +60,19 @@ export const KNOWN_API_ERROR_CODES = [
 	'client_bootstrap',
 	'rate_limited',
 	'unavailable',
-	'stem_allowance_exhausted',
-	'job_allowance_exhausted',
 	'no_active_plan',
 	'insufficient_credits',
 	'entitlement_unavailable'
 ] as const;
-export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});
+/** Codes AudioKit's contract marks deprecated: no longer returned, still recognised. */
+export const DEPRECATED_API_ERROR_CODES = [
+	'stem_allowance_exhausted',
+	'job_allowance_exhausted'
+] as const;
+export type ApiErrorCode =
+	| (typeof KNOWN_API_ERROR_CODES)[number]
+	| (typeof DEPRECATED_API_ERROR_CODES)[number]
+	| (string & {});
 
 export const KNOWN_JOB_ERROR_CODES = [
 	'input_url_rejected',

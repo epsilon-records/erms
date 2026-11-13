@@ -322,6 +322,10 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 		expect([...contract.KNOWN_API_ERROR_CODES].sort()).toEqual(
 			[...schemas.ApiErrorCode.anyOf[0].enum].sort()
 		);
+		const deprecated = (schemas.ApiErrorCode.anyOf as Schema[])
+			.filter((s) => s.deprecated && s.enum)
+			.flatMap((s) => s.enum as string[]);
+		expect([...contract.DEPRECATED_API_ERROR_CODES].sort()).toEqual(deprecated.sort());
 		expect([...contract.KNOWN_JOB_ERROR_CODES].sort()).toEqual(
 			[...schemas.JobErrorCode.anyOf[0].enum].sort()
 		);
