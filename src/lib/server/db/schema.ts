@@ -49,6 +49,29 @@ export const orgs = pgTable(
 		accentColor: text('accent_color'),
 		/** A host the label is served on, e.g. erms.epsilonrecords.com; lowercase, no port. */
 		customDomain: text('custom_domain'),
+		/**
+		 * The label's own browser-tab icon: a square PNG, base64, set by an owner on /org/branding
+		 * (migration 0031). Null keeps the product's icon.
+		 */
+		faviconPng: text('favicon_png'),
+		/**
+		 * Self-serve custom domain (migration 0032, knowledge labelkit 0036). An owner requests a
+		 * domain; it becomes customDomain once its TXT record proves control and it is provisioned.
+		 */
+		domainRequested: text('domain_requested'),
+		/** The value the TXT record at _labelkit-verify.<domain> must hold. */
+		domainToken: text('domain_token'),
+		/** awaiting_dns | active | failed; null when the label has no domain. */
+		domainStatus: text('domain_status'),
+		/** Why the last verification or provisioning failed, for the settings page. */
+		domainError: text('domain_error'),
+		/** Domains the label stopped using that are still to come off Netlify and Supabase Auth. */
+		domainRetired: text('domain_retired')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		/** The pending domain's TXT record was verified and LabelKit may have provisioned it. */
+		domainProvisioning: boolean('domain_provisioning').notNull().default(false),
 		/** Set when an owner closes the label; its data is purged after purgeAfter (migration 0027). */
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		purgeAfter: timestamp('purge_after', { withTimezone: true })
@@ -64,6 +87,18 @@ export const orgs = pgTable(
 		check(
 			'orgs_accent_color_format',
 			sql`${t.accentColor} IS NULL OR ${t.accentColor} ~ '^#[0-9a-f]{6}$'`
+		),
+		check(
+			'orgs_favicon_png_format',
+			sql`${t.faviconPng} IS NULL OR (${t.faviconPng} LIKE 'iVBORw0KGgo%' AND length(${t.faviconPng}) <= 44000)`
+		),
+		check(
+			'orgs_domain_requested_format',
+			sql`${t.domainRequested} IS NULL OR ${t.domainRequested} ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$'`
+		),
+		check(
+			'orgs_domain_status_value',
+			sql`${t.domainStatus} IS NULL OR ${t.domainStatus} IN ('awaiting_dns', 'active', 'failed')`
 		),
 		check(
 			'orgs_custom_domain_format',

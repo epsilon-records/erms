@@ -81,6 +81,27 @@ export const variables = defineEnvVars({
 		description:
 			"Epsilon's org id; its members (and invites to it) get mail from auth.epsilonrecords.com. Not a secret"
 	},
+	// Self-serve custom domains (knowledge labelkit 0036): once a label's owner proves control of a
+	// domain, the app adds it to this Netlify site (alias and TLS) and to Supabase Auth's redirect
+	// allowlist. Unset tokens leave verified domains waiting with a clear error; nothing breaks.
+	NETLIFY_API_TOKEN: {
+		schema: (value) => value || undefined,
+		description:
+			'Netlify personal access token, used only to add and remove tenant domain aliases on this site'
+	},
+	NETLIFY_SITE_ID: {
+		schema: (value) => value || undefined,
+		description: "This Netlify site's id (Site configuration -> Site details). Not a secret"
+	},
+	SUPABASE_ACCESS_TOKEN: {
+		schema: (value) => value || undefined,
+		description:
+			"Supabase Management API token, used only to add and remove tenant domains in Auth's redirect allowlist"
+	},
+	SUPABASE_PROJECT_REF: {
+		schema: (value) => value || undefined,
+		description: 'The Supabase project ref (the subdomain of its API URL). Not a secret'
+	},
 	AUDIO_PROVIDER: {
 		schema: z.enum(['stub', 'audiokit']).default('stub'),
 		description: 'Which AudioProvider implementation the processing worker uses'

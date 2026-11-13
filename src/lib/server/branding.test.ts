@@ -37,7 +37,8 @@ describe('per-customer branding (EPSILON-132)', () => {
 		expect(await brandForHost(db, 'ERMS.example.test:443')).toEqual({
 			name: 'ERMS',
 			accent: '#c6f432',
-			orgId: ermsId
+			orgId: ermsId,
+			favicon: null
 		});
 	});
 

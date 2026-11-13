@@ -78,7 +78,8 @@
 		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : []),
 		...(canManageMembers && data.plansEnabled ? [{ href: '/org/billing', label: 'Billing' }] : []),
 		...(canManageMembers ? [{ href: '/org/export', label: 'Export' }] : []),
-		...(canManageMembers ? [{ href: '/org/api-keys', label: 'API' }] : [])
+		...(canManageMembers ? [{ href: '/org/api-keys', label: 'API' }] : []),
+		...(canManageMembers ? [{ href: '/org/branding', label: 'Branding' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 	// Per-customer branding (EPSILON-132): ERMS on erms.epsilonrecords.com, LabelKit elsewhere.
@@ -89,7 +90,7 @@
 {#if collector}<AppMetrics {collector} />{/if}
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href={data.brand?.favicon ? `/brand-icon?v=${data.brand.favicon}` : favicon} />
 	<title>{brandName}</title>
 </svelte:head>
 

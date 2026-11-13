@@ -87,8 +87,9 @@ export default defineConfig(async () => ({
 					'script-src': ['self', 'https://static.cloudflareinsights.com'],
 					// Inline style attributes are used for layout; with 'unsafe-inline' present
 					// SvelteKit skips style nonces so the browser honours it.
-					'style-src': ['self', 'unsafe-inline', 'https://fonts.googleapis.com'],
-					'font-src': ['self', 'https://fonts.gstatic.com'],
+					'style-src': ['self', 'unsafe-inline'],
+					// IBM Plex is self-hosted from /fonts (audit F-08).
+					'font-src': ['self'],
 					'img-src': ['self', 'data:'],
 					// R2's S3 endpoint for the Epsilon Records account.
 					'connect-src': [

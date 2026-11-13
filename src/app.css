@@ -34,9 +34,27 @@ body {
 	background: var(--bg);
 	color: var(--text);
 	font-family: var(--sans);
-	font-size: 15px;
+	/* 16 px body floor (audit F-09); also restores Tailwind's 16 px rem. */
+	font-size: 16px;
 	line-height: 1.5;
 	-webkit-font-smoothing: antialiased;
+}
+
+/* Skip link (audit F-10): off-screen until focused, then the first thing on the page. */
+.skip-link {
+	position: absolute;
+	top: 8px;
+	left: 8px;
+	z-index: 100;
+	padding: 10px 16px;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+	text-decoration: none;
+	transform: translateY(-200%);
+}
+.skip-link:focus-visible {
+	transform: none;
 }
 
 /* Button anchors take their colour from the Button variant (Tailwind utilities layer). */
@@ -120,6 +138,13 @@ h3 {
 	font-weight: 700;
 	letter-spacing: -0.04em;
 	overflow-wrap: anywhere;
+}
+.form-title {
+	/* Heading for single-form pages (log in, sign up): 28-32px, not the 44-96px display size. */
+	font-size: clamp(28px, 1.5rem + 1vw, 32px);
+	line-height: 1.1;
+	font-weight: 700;
+	letter-spacing: -0.02em;
 }
 .title {
 	font-size: clamp(36px, 5vw, 56px);
