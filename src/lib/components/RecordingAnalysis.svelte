@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import { enhance } from '$app/forms';
 	import type { Analysis, AnalysisCardKey } from '#lib/analysis.js';
 	import {
@@ -266,12 +267,13 @@
 					use:enhance={runSubmit(tracker, card.key)}
 				>
 					<input type="hidden" name="operation" value={card.key} />
-					<button
-						class="btn small"
+					<Button
+						type="submit"
+						size="small"
 						disabled={isStarting || (card.status === 'pending' && card.jobId !== null)}
 					>
 						{isStarting ? STARTING_LABEL : card.jobId === null ? 'Run' : 'Re-run'}
-					</button>
+					</Button>
 				</form>
 			{/if}
 		</article>

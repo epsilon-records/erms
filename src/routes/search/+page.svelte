@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Input } from '#lib/components/ui/input/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -22,7 +23,7 @@
 		</div>
 		<form method="GET" action="/search" role="search" style="width: 360px; max-width: 100%">
 			<label for="search-page-q" class="sr-only">Search the catalog</label>
-			<input
+			<Input
 				id="search-page-q"
 				name="q"
 				type="search"
