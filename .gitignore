@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 
 storybook-static/
 /storybook-site/dist
+
+# Schemathesis cache (.github/workflows/api-fuzz.yml)
+.schemathesis/
