@@ -22,7 +22,9 @@ describe('analysis run form without JavaScript', () => {
 		const buttons = body.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? [];
 		expect(buttons).toHaveLength(7);
 		for (const button of buttons) {
-			expect(button).not.toContain('disabled');
+			// The disabled attribute, not the `disabled:` style variants in the class list.
+			const attributes = (button.match(/<button\b[^>]*>/)?.[0] ?? '').replace(/class="[^"]*"/, '');
+			expect(attributes).not.toMatch(/\bdisabled\b/);
 			expect(button).toContain('Run');
 			expect(button).not.toContain('Starting');
 		}

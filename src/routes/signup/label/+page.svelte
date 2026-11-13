@@ -19,7 +19,7 @@
 <div class="container" style="max-width: 480px; padding-top: 12vh">
 	<section class="stack">
 		<div class="eyebrow"><span>{page.data.brand?.name ?? 'LabelKit'}</span></div>
-		<h1 class="display">Name your label</h1>
+		<h1 class="form-title">Name your label</h1>
 	</section>
 
 	{#if !data.open}

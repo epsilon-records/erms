@@ -1,0 +1,47 @@
+/*
+ * Tailwind v4 for the shared components in src/lib/components/ui (EPSILON-166, shared 0046).
+ * Theme and utilities only: Preflight stays off until the old page CSS is gone, so pages that
+ * haven't been migrated keep their look. The design tokens in app.css stay the source of truth;
+ * `@theme inline` points Tailwind's names at them instead of copying values.
+ */
+@import 'tailwindcss/theme' layer(theme);
+/* source(none): only the @source below is scanned, so class names already used by pages (flex, hidden, …) don't pick up Tailwind rules. */
+@import 'tailwindcss/utilities' layer(utilities) source(none);
+@import 'tw-animate-css';
+
+@source './lib/components/ui';
+/* Utilities the migrated pages (login, members, API keys, release edit, recording) use in their own markup. Listed instead of
+   scanning those routes, so their legacy class names can't pick up Tailwind rules. */
+@source inline('flex flex-1 flex-col flex-wrap items-center items-start gap-1.5 gap-2 gap-2.5 gap-4 mt-1.5 font-mono w-20 w-auto w-fit w-[110px] w-[170px] w-[260px] min-w-[220px] max-w-[480px] max-w-[560px] sm:pl-[160px]');
+
+@theme inline {
+	--color-background: var(--bg);
+	--color-foreground: var(--text);
+	--color-surface: var(--surface);
+	--color-surface-2: var(--surface-2);
+	--color-border: var(--line);
+	--color-border-strong: var(--line-control);
+	--color-strong: var(--text-strong);
+	--color-soft: var(--soft);
+	--color-muted: var(--muted);
+	--color-accent: var(--accent);
+	--color-on-accent: var(--on-accent);
+	--color-accent-border: var(--accent-border, var(--accent));
+	--color-accent-ink: var(--accent-ink, var(--accent));
+	--color-warn: var(--warn);
+	--color-danger: var(--danger);
+	/* shadcn-svelte's names, so the copied-in form controls need few edits. */
+	--color-muted-foreground: var(--muted);
+	--color-input: var(--line-control);
+	--color-placeholder: var(--placeholder);
+	--color-primary: var(--accent);
+	--color-primary-foreground: var(--on-accent);
+	--color-destructive: var(--danger);
+	--color-ring: var(--accent-ink, var(--accent));
+	--font-sans: var(--sans);
+	--font-mono: var(--mono);
+	/* The B+C look is square-cornered (LabelKit 0009). */
+	--radius-sm: 0;
+	--radius-md: 0;
+	--radius-lg: 0;
+}

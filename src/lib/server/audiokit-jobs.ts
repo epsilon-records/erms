@@ -211,14 +211,18 @@ export function dueQueuedJobs(db: Database, now: Date, retryDelayMs: number, lim
  * AudioKit's plan refusals (`402` from `POST /v1/jobs`), with the reason a label member sees on
  * the failed job. Nothing was queued, and the same request gets the same answer until the plan
  * changes, so the job fails at once instead of being retried. (`503 entitlement_unavailable`
- * is not here: the plan couldn't be checked, and a later try can succeed.)
+ * is not here: the plan couldn't be checked, and a later try can succeed.) The two allowance
+ * codes are deprecated in AudioKit's contract and no longer returned; they stay mapped so an
+ * older AudioKit deploy still fails the job cleanly.
  */
 export const PLAN_REFUSALS: Partial<Record<ApiErrorCode, string>> = {
 	job_allowance_exhausted:
 		'AudioKit refused the job: the plan’s job allowance for this billing period is used up.',
 	stem_allowance_exhausted:
 		'AudioKit refused the job: the plan’s stem allowance for this billing period is used up.',
-	no_active_plan: 'AudioKit refused the job: the AudioKit client has no active plan.'
+	no_active_plan: 'AudioKit refused the job: the AudioKit client has no active plan.',
+	insufficient_credits:
+		'AudioKit refused the job: the AudioKit account’s prepaid credits don’t cover it.'
 };
 
 export type SubmitOutcome = { status: 'submitted' } | { status: 'failed'; code: ApiErrorCode };

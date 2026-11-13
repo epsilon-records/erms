@@ -17,9 +17,87 @@
 	--on-accent: #0e0f11;
 	--warn: #ffd166;
 	--danger: #ff8a80;
+	--on-danger: #0e0f11;
+	/* Control borders, 3.5:1 on bg (shared 0054); placeholder ink; the empty part of a meter. */
+	--line-control: #646a73;
+	--placeholder: #8a9099;
+	--track: #23262b;
+	/* --accent-ink (links, focus, marks) and --accent-border (around a lime fill) are set only by
+	   the light theme; use them as var(--accent-ink, var(--accent)) so a label's own accent still
+	   applies in dark (labelkit 0038). */
 	--sans: 'IBM Plex Sans', system-ui, sans-serif;
 	--mono: 'IBM Plex Mono', ui-monospace, monospace;
 	color-scheme: dark;
+}
+
+/* Light theme, "lime highlighter" (labelkit 0038): paper ground; lime stays the fill under black
+   ink; olive (--accent-ink) for links, focus and marks, because lime is 1.3:1 as text on white.
+   System follows prefers-color-scheme; the top bar's switch sets data-theme (theme-init.js). */
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme='dark']) {
+		color-scheme: light;
+		--bg: #f4f4f2;
+		--surface: #ffffff;
+		--surface-2: #ededeb;
+		--line: #d6d7d3;
+		--line-strong: #17181a;
+		--line-control: #7d8087;
+		--text: #17181a;
+		--text-strong: #000000;
+		--soft: #3c3e42;
+		--muted: #5c5f66;
+		--placeholder: #6b6e75;
+		--track: #ededeb;
+		--on-accent: #17181a;
+		--accent-ink: #4d6b00;
+		--accent-border: #17181a;
+		--warn: #8a5a00;
+		--danger: #b3261e;
+		--on-danger: #ffffff;
+	}
+}
+:root[data-theme='light'] {
+	color-scheme: light;
+	--bg: #f4f4f2;
+	--surface: #ffffff;
+	--surface-2: #ededeb;
+	--line: #d6d7d3;
+	--line-strong: #17181a;
+	--line-control: #7d8087;
+	--text: #17181a;
+	--text-strong: #000000;
+	--soft: #3c3e42;
+	--muted: #5c5f66;
+	--placeholder: #6b6e75;
+	--track: #ededeb;
+	--on-accent: #17181a;
+	--accent-ink: #4d6b00;
+	--accent-border: #17181a;
+	--warn: #8a5a00;
+	--danger: #b3261e;
+	--on-danger: #ffffff;
+}
+/* The public landing page is drawn for dark and stays dark in every theme. */
+:root:has(.landing) {
+	color-scheme: dark;
+	--bg: #0e0f11;
+	--surface: #16181c;
+	--surface-2: #131519;
+	--line: #2c3036;
+	--line-strong: #e8eaed;
+	--line-control: #646a73;
+	--text: #e8eaed;
+	--text-strong: #ffffff;
+	--soft: #c5c9cf;
+	--muted: #a6abb3;
+	--placeholder: #8a9099;
+	--track: #23262b;
+	--on-accent: #0e0f11;
+	--accent-ink: initial;
+	--accent-border: initial;
+	--warn: #ffd166;
+	--danger: #ff8a80;
+	--on-danger: #0e0f11;
 }
 
 *,
@@ -34,19 +112,38 @@ body {
 	background: var(--bg);
 	color: var(--text);
 	font-family: var(--sans);
-	font-size: 15px;
+	/* 16 px body floor (audit F-09); also restores Tailwind's 16 px rem. */
+	font-size: 16px;
 	line-height: 1.5;
 	-webkit-font-smoothing: antialiased;
 }
 
-a {
+/* Skip link (audit F-10): off-screen until focused, then the first thing on the page. */
+.skip-link {
+	position: absolute;
+	top: 8px;
+	left: 8px;
+	z-index: 100;
+	padding: 10px 16px;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+	text-decoration: none;
+	transform: translateY(-200%);
+}
+.skip-link:focus-visible {
+	transform: none;
+}
+
+/* Button anchors take their colour from the Button variant (Tailwind utilities layer). */
+a:not([data-slot='button']) {
 	color: var(--text);
 }
-a:hover {
+a:not([data-slot='button']):hover {
 	color: var(--text-strong);
 }
 :focus-visible {
-	outline: 2px solid var(--accent);
+	outline: 2px solid var(--accent-ink, var(--accent));
 	outline-offset: 2px;
 }
 
@@ -120,6 +217,13 @@ h3 {
 	letter-spacing: -0.04em;
 	overflow-wrap: anywhere;
 }
+.form-title {
+	/* Heading for single-form pages (log in, sign up): 28-32px, not the 44-96px display size. */
+	font-size: clamp(28px, 1.5rem + 1vw, 32px);
+	line-height: 1.1;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
 .title {
 	font-size: clamp(36px, 5vw, 56px);
 	line-height: 1;
@@ -137,7 +241,7 @@ h3 {
 }
 .byline a {
 	color: var(--text-strong);
-	text-decoration-color: var(--accent);
+	text-decoration-color: var(--accent-ink, var(--accent));
 	text-decoration-thickness: 2px;
 	text-underline-offset: 4px;
 }
@@ -199,7 +303,7 @@ h3 {
 	justify-content: center;
 	min-height: 44px;
 	padding: 0 18px;
-	border: 1px solid #3a3f46;
+	border: 1px solid var(--line-control);
 	border-radius: 0;
 	background: transparent;
 	color: var(--text);
@@ -215,7 +319,7 @@ h3 {
 }
 .btn.primary {
 	background: var(--accent);
-	border-color: var(--accent);
+	border-color: var(--accent-border, var(--accent));
 	color: var(--on-accent);
 	font-weight: 700;
 }
@@ -249,20 +353,21 @@ h3 {
 	color: var(--text-strong);
 }
 
-/* Forms */
-input,
-select {
+/* Forms. Legacy controls only: the shared components (anything with data-slot) style themselves
+   with Tailwind utilities, which sit in a cascade layer and would lose to these unlayered rules. */
+input:not([data-slot]),
+select:not([data-slot]) {
 	min-height: 44px;
 	padding: 0 12px;
-	border: 1px solid #3a3f46;
+	border: 1px solid var(--line-control);
 	border-radius: 0;
 	background: var(--surface);
 	color: var(--text);
 	font: inherit;
 	width: 100%;
 }
-input::placeholder {
-	color: #8a9099;
+input:not([data-slot])::placeholder {
+	color: var(--placeholder);
 }
 input[type='file'] {
 	padding: 9px 12px;
@@ -289,11 +394,11 @@ input[type='file'] {
 	gap: 8px;
 	align-items: center;
 }
-.inline-form input {
+.inline-form input:not([data-slot]) {
 	width: auto;
 	flex: 1 1 220px;
 }
-.inline-form select {
+.inline-form select:not([data-slot]) {
 	width: auto;
 }
 
@@ -340,7 +445,7 @@ table.data.roomy td {
 .bar {
 	display: block;
 	height: 4px;
-	background: #23262b;
+	background: var(--track);
 	margin-top: 10px;
 }
 .bar > span {
@@ -422,8 +527,8 @@ dl.facts dt {
 	color: var(--danger);
 }
 .alert.ok {
-	border-color: var(--accent);
-	color: var(--accent);
+	border-color: var(--accent-ink, var(--accent));
+	color: var(--accent-ink, var(--accent));
 }
 .issues {
 	margin: 0;

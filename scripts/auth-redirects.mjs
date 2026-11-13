@@ -5,8 +5,12 @@ import { pathToFileURL } from 'node:url';
 // its own exact callback allowed, or Supabase silently falls back to the Site URL and sign-in breaks
 // (docs/magic-link-redirects.md, EPSILON-134).
 export const AUTH_SITE_URL = 'https://labelkit.co';
-/** Production hosts: LabelKit itself, then customer domains (Epsilon's branded ERMS). */
-export const AUTH_HOSTS = [AUTH_SITE_URL, 'https://erms.epsilonrecords.com'];
+/**
+ * The hosts this check requires: LabelKit itself. A label's own domain gets its callback when its
+ * owner sets the domain up on /org/branding (src/lib/server/custom-domain.ts, knowledge labelkit
+ * 0036); this patch only ever adds, so those entries are kept.
+ */
+export const AUTH_HOSTS = [AUTH_SITE_URL];
 export const AUTH_CALLBACK_URLS = AUTH_HOSTS.map((host) => `${host}/auth/callback`);
 
 /**

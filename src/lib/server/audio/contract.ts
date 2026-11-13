@@ -60,12 +60,19 @@ export const KNOWN_API_ERROR_CODES = [
 	'client_bootstrap',
 	'rate_limited',
 	'unavailable',
-	'stem_allowance_exhausted',
-	'job_allowance_exhausted',
 	'no_active_plan',
+	'insufficient_credits',
 	'entitlement_unavailable'
 ] as const;
-export type ApiErrorCode = (typeof KNOWN_API_ERROR_CODES)[number] | (string & {});
+/** Codes AudioKit's contract marks deprecated: no longer returned, still recognised. */
+export const DEPRECATED_API_ERROR_CODES = [
+	'stem_allowance_exhausted',
+	'job_allowance_exhausted'
+] as const;
+export type ApiErrorCode =
+	| (typeof KNOWN_API_ERROR_CODES)[number]
+	| (typeof DEPRECATED_API_ERROR_CODES)[number]
+	| (string & {});
 
 export const KNOWN_JOB_ERROR_CODES = [
 	'input_url_rejected',
@@ -119,7 +126,7 @@ export const InputFile = z.object({
 	url: HttpsUrl,
 	sha256: Sha256,
 	/** Original filename, used only as a format hint. */
-	filename: z.string().optional()
+	filename: z.string().nullable().optional()
 });
 export type InputFile = z.infer<typeof InputFile>;
 
@@ -136,7 +143,7 @@ export type WebhookTarget = z.infer<typeof WebhookTarget>;
 /** Points to an ERMS authorization decision. No consent documents leave ERMS. */
 export const AuthorizationRef = z.object({
 	decision_id: z.string(),
-	purpose: z.string().optional()
+	purpose: z.string().nullable().optional()
 });
 export type AuthorizationRef = z.infer<typeof AuthorizationRef>;
 

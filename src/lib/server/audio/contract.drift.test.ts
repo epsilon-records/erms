@@ -281,7 +281,10 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 			// The admin client API (billing service: key sync and account erasure), not part of the
 			// Jobs API ERMS calls.
 			'ClientUpsert',
-			'ClientErased'
+			'ClientErased',
+			// GET /v1/ready (AudioKit #44, EPSILON-105): a readiness probe for monitoring.
+			// LabelKit doesn't call it.
+			'Ready'
 		]);
 		const missing = Object.keys(schemas).filter((n) => !(n in PAIRS) && !ignored.has(n));
 		expect(missing, 'new components in openapi.yaml need a counterpart in contract.ts').toEqual([]);
@@ -319,6 +322,10 @@ describe.skipIf(!spec)('contract.ts matches AudioKit’s openapi.yaml', () => {
 		expect([...contract.KNOWN_API_ERROR_CODES].sort()).toEqual(
 			[...schemas.ApiErrorCode.anyOf[0].enum].sort()
 		);
+		const deprecated = (schemas.ApiErrorCode.anyOf as Schema[])
+			.filter((s) => s.deprecated && s.enum)
+			.flatMap((s) => s.enum as string[]);
+		expect([...contract.DEPRECATED_API_ERROR_CODES].sort()).toEqual(deprecated.sort());
 		expect([...contract.KNOWN_JOB_ERROR_CODES].sort()).toEqual(
 			[...schemas.JobErrorCode.anyOf[0].enum].sort()
 		);

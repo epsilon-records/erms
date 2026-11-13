@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -84,22 +85,22 @@
 				<div class="actions">
 					<form method="POST" action="?/upgrade">
 						<input type="hidden" name="interval" value="month" />
-						<button class="btn primary">€12 a month</button>
+						<Button type="submit" variant="primary">€12 a month</Button>
 					</form>
 					<form method="POST" action="?/upgrade">
 						<input type="hidden" name="interval" value="year" />
-						<button class="btn">€120 a year</button>
+						<Button type="submit">€120 a year</Button>
 					</form>
 				</div>
 			</section>
 		{:else}
 			<form method="POST" action="?/manage">
-				<button class="btn">Manage billing</button>
+				<Button type="submit">Manage billing</Button>
 			</form>
 		{/if}
 		{#if data.plan.plan === 'free' && data.plan.status}
 			<form method="POST" action="?/manage">
-				<button class="linkish">Invoices and payment details</button>
+				<Button type="submit" variant="link">Invoices and payment details</Button>
 			</form>
 		{/if}
 	{/if}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -31,7 +33,7 @@
 		<section class="stack">
 			<p><a class="btn" href="/org/export">Export the catalogue and masters</a></p>
 			<form method="POST" action="?/reopen">
-				<button class="btn primary">Reopen the label</button>
+				<Button type="submit" variant="primary">Reopen the label</Button>
 			</form>
 		</section>
 	{/if}
@@ -40,11 +42,13 @@
 		<form method="POST" action="/org" class="stack">
 			<label>
 				Switch to another label
-				<select name="orgId">
-					{#each data.others as o (o.orgId)}<option value={o.orgId}>{o.orgName}</option>{/each}
-				</select>
+				<NativeSelect.Root name="orgId" wrapperClass="mt-1.5 max-w-[480px]">
+					{#each data.others as o (o.orgId)}<NativeSelect.Option value={o.orgId}
+							>{o.orgName}</NativeSelect.Option
+						>{/each}
+				</NativeSelect.Root>
 			</label>
-			<div><button class="btn">Switch</button></div>
+			<div><Button type="submit">Switch</Button></div>
 		</form>
 	{/if}
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
 	import { enhance } from '$app/forms';
 	import type { Analysis, AnalysisCardKey } from '#lib/analysis.js';
 	import {
@@ -266,12 +267,13 @@
 					use:enhance={runSubmit(tracker, card.key)}
 				>
 					<input type="hidden" name="operation" value={card.key} />
-					<button
-						class="btn small"
+					<Button
+						type="submit"
+						size="small"
 						disabled={isStarting || (card.status === 'pending' && card.jobId !== null)}
 					>
 						{isStarting ? STARTING_LABEL : card.jobId === null ? 'Run' : 'Re-run'}
-					</button>
+					</Button>
 				</form>
 			{/if}
 		</article>
@@ -308,7 +310,7 @@
 	.tag.danger {
 		background: var(--danger);
 		border-color: var(--danger);
-		color: var(--on-accent);
+		color: var(--on-danger);
 	}
 	.reason {
 		font-size: 13px;
@@ -356,7 +358,7 @@
 		display: block;
 		width: 100%;
 		height: 72px;
-		fill: var(--accent);
+		fill: var(--accent-ink, var(--accent));
 	}
 	audio {
 		width: 100%;

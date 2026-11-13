@@ -1,8 +1,15 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	// LabelKit's public homepage at / on LabelKit's own hosts (see #lib/server/landing.ts).
 	// Copy only claims what ships today; store delivery, statements, payouts, the white-label
 	// portal and the public API are marked "Soon" until they exist (gap analysis, EPSILON-128).
 	let { signupOpen }: { signupOpen: boolean } = $props();
+
+	// Phone nav (audit F-16): under 760 px the links fold behind a Menu button, like epsilonrecords.com.
+	let menuOpen = $state(false);
+	// The links fold behind Menu only once this code runs, so they stay usable if it never loads.
+	let ready = $state(false);
+	onMount(() => (ready = true));
 
 	const today = [
 		'Releases, recordings & compositions',
@@ -40,6 +47,45 @@
 			a: 'No. Nothing in your catalogue is used for AI without a consent you recorded, per artist and per track.'
 		}
 	];
+
+	// schema.org data for search engines and AI models, from the same facts the page shows.
+	// A JSON-LD data block is never executed, so the CSP's script-src does not apply to it.
+	const structuredData = {
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		'@id': 'https://labelkit.co/#app',
+		name: 'LabelKit',
+		url: 'https://labelkit.co/',
+		applicationCategory: 'BusinessApplication',
+		operatingSystem: 'Web',
+		description:
+			'Label software for independent labels: releases, recordings, compositions, credits and splits, agreements, artist consents and WAV masters in one place.',
+		image: 'https://labelkit.co/og.png',
+		featureList: today,
+		offers: [
+			{ '@type': 'Offer', name: 'Free', price: '0', priceCurrency: 'EUR' },
+			{
+				'@type': 'Offer',
+				name: 'Label',
+				price: '12',
+				priceCurrency: 'EUR',
+				priceSpecification: {
+					'@type': 'UnitPriceSpecification',
+					price: '12',
+					priceCurrency: 'EUR',
+					unitCode: 'MON'
+				}
+			}
+		],
+		publisher: {
+			'@type': 'Organization',
+			name: 'Epsilon Records',
+			url: 'https://epsilonrecords.com/'
+		}
+	};
+	const jsonLd =
+		`<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</` +
+		'script>';
 </script>
 
 <svelte:head>
@@ -48,11 +94,36 @@
 		name="description"
 		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
 	/>
+	<link rel="canonical" href="https://labelkit.co/" />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="LabelKit" />
+	<meta property="og:title" content="LabelKit: label software for independent labels" />
+	<meta
+		property="og:description"
+		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
+	/>
+	<meta property="og:url" content="https://labelkit.co/" />
+	<meta property="og:image" content="https://labelkit.co/og.png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta
+		property="og:image:alt"
+		content="LabelKit: run your label's catalogue, rights and masters in one place."
+	/>
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="LabelKit: label software for independent labels" />
+	<meta
+		name="twitter:description"
+		content="Catalogue, rights, splits, agreements, consents and masters for independent labels."
+	/>
+	<meta name="twitter:image" content="https://labelkit.co/og.png" />
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- static JSON-LD built from constants below -->
+	{@html jsonLd}
 </svelte:head>
 
-<div class="landing">
-	<header>
-		<div class="wrap bar">
+<div class="landing" class:ready>
+	<header class:menu-open={menuOpen}>
+		<div class="wrap masthead">
 			<a href="/" class="logo">
 				<svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
 					<rect x="8" y="8" width="16" height="3.4" fill="currentColor" />
@@ -61,7 +132,23 @@
 				</svg>
 				<span>LabelKit</span><span class="by">by Epsilon Records</span>
 			</a>
-			<nav aria-label="Main">
+			<button
+				type="button"
+				class="menu-toggle"
+				aria-expanded={menuOpen}
+				aria-controls="landing-nav"
+				onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Close' : 'Menu'}</button
+			>
+			<!-- Closes the menu after a link is followed; the links themselves handle keys. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+			<nav
+				id="landing-nav"
+				aria-label="Main"
+				class:open={menuOpen}
+				onclick={(e) => {
+					if ((e.target as HTMLElement).closest('a')) menuOpen = false;
+				}}
+			>
 				<a href="#features">Features</a>
 				<a href="#pricing">Pricing</a>
 				<a href="#faq">FAQ</a>
@@ -71,7 +158,7 @@
 		</div>
 	</header>
 
-	<main>
+	<div class="landing-body" id="content">
 		<section class="wrap hero">
 			<div class="copy">
 				<p class="kicker">Label software for independent labels</p>
@@ -91,11 +178,11 @@
 				</p>
 			</div>
 			<figure class="sample" aria-label="Example release in LabelKit">
-				<div class="sample-head"><span>Releases / EPS-042</span><span>Sample</span></div>
+				<div class="sample-head"><span>Releases / SMPL-001</span><span>Sample</span></div>
 				<div class="sample-body">
-					<p class="mono dim">EPS-042</p>
-					<p class="title">Release title</p>
-					<p class="dim">Artist · EP · 4 recordings</p>
+					<p class="mono dim">SMPL-001</p>
+					<p class="title">Lower Canal</p>
+					<p class="dim">Night Index · EP · 4 recordings</p>
 					<p class="ok">● Rights complete · Consents recorded</p>
 					<dl>
 						<div>
@@ -196,7 +283,7 @@
 				<a href="/signup" class="dark">Start free</a>
 			</div>
 		</section>
-	</main>
+	</div>
 
 	<footer class="wrap">
 		<span>© 2015–2026 Epsilon Records · Amsterdam</span>
@@ -242,7 +329,8 @@
 		z-index: 5;
 		background: var(--bg);
 	}
-	.bar {
+	/* Not .bar: app.css uses that name for 4 px progress bars, which collapsed this row. */
+	.masthead {
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: space-between;
@@ -283,8 +371,60 @@
 		font-size: 15px;
 		color: #c5c9cf;
 	}
+	nav a {
+		/* 44 px touch floor (audit F-11). */
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+	}
 	nav a:hover {
 		color: #fff;
+	}
+	.menu-toggle {
+		display: none;
+	}
+	@media (max-width: 760px) {
+		.ready .menu-toggle {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+			padding: 0 16px;
+			border: 1px solid var(--line-control, #646a73);
+			background: transparent;
+			color: var(--text);
+			font: inherit;
+			font-weight: 600;
+			cursor: pointer;
+		}
+		.ready nav {
+			display: none;
+			flex-basis: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0;
+		}
+		.ready nav.open {
+			display: flex;
+		}
+		/* On a short screen the open menu scrolls inside the sticky header. */
+		.ready header.menu-open {
+			max-height: 100dvh;
+			overflow-y: auto;
+		}
+		.ready nav a {
+			border-top: 1px solid var(--line);
+		}
+		.ready nav a.cta {
+			justify-content: center;
+			margin-top: 12px;
+			border-top: 0;
+		}
+	}
+	@media (max-width: 480px) {
+		/* Logo, tagline and Menu don't fit on one row on a phone. */
+		.ready .by {
+			display: none;
+		}
 	}
 	.cta,
 	.ghost,
@@ -555,6 +695,11 @@
 	.links {
 		display: flex;
 		gap: 20px;
+	}
+	.links a {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
 	}
 	footer {
 		display: flex;

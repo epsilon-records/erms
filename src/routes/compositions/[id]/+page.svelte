@@ -6,6 +6,10 @@
 		submittedIdentities
 	} from '#lib/removal-confirmation.js';
 	import Ownership from '#lib/components/Ownership.svelte';
+	import { Button } from '#lib/components/ui/button/index.js';
+	import * as Field from '#lib/components/ui/field/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
+	import * as NativeSelect from '#lib/components/ui/native-select/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -22,6 +26,18 @@
 		Object.entries(e)
 			.map(([k, m]) => (['form', 'shares', 'writers'].includes(k) ? m : `${k}: ${m}`))
 			.join('\n');
+
+	/** A details-save error that names a field sits under it; the rest go under the form. */
+	const saveError = (field: string) => (failed('save') ? errors[field] : undefined);
+	const invalid = (field: string) =>
+		saveError(field) ? { 'aria-invalid': true as const, 'aria-describedby': `${field}-error` } : {};
+	const saveFormErrors = $derived(
+		failed('save')
+			? Object.entries(errors)
+					.filter(([k]) => k !== 'title' && k !== 'iswc')
+					.map(([, m]) => m)
+			: []
+	);
 
 	const ROLES = [
 		['composer_lyricist', 'Composer & lyricist'],
@@ -82,7 +98,7 @@
 									style="display: inline"
 								>
 									<input type="hidden" name="recordingId" value={r.id} />
-									<button class="linkish" aria-label="Unlink {r.title}">Unlink</button>
+									<Button type="submit" variant="link" aria-label="Unlink {r.title}">Unlink</Button>
 								</form>
 							{/if}
 						</dd>
@@ -92,15 +108,15 @@
 			{#if data.recordingChoices}
 				<form method="POST" action="?/link" class="stack" style="gap: 8px">
 					<label for="link-rec">Link a recording</label>
-					<select id="link-rec" name="recordingId" required>
-						<option value="">—</option>
+					<NativeSelect.Root id="link-rec" name="recordingId" required>
+						<NativeSelect.Option value="">—</NativeSelect.Option>
 						{#each data.recordingChoices.filter((r) => !linked.has(r.id)) as r (r.id)}
-							<option value={r.id}
-								>{r.title}{r.versionTitle ? ` · ${r.versionTitle}` : ''} ({r.isrc})</option
+							<NativeSelect.Option value={r.id}
+								>{r.title}{r.versionTitle ? ` · ${r.versionTitle}` : ''} ({r.isrc})</NativeSelect.Option
 							>
 						{/each}
-					</select>
-					<div><button class="btn small">Link</button></div>
+					</NativeSelect.Root>
+					<div><Button type="submit" size="small">Link</Button></div>
 					{#if failed('link') || failed('unlink')}
 						<div class="alert error" role="alert">{errorText(errors)}</div>
 					{/if}
@@ -113,27 +129,40 @@
 				<form method="POST" action="?/save" class="stack" aria-labelledby="details-h">
 					<h2 id="details-h" class="h2">Details</h2>
 					<input type="hidden" name="updatedAt" value={comp.updatedAt.toISOString()} />
-					<div class="form-grid">
-						<label for="title">Title</label>
-						<input
-							id="title"
-							name="title"
-							value={failed('save') ? values.title : comp.title}
-							required
-						/>
-						<label for="iswc">ISWC</label>
-						<input
-							id="iswc"
-							name="iswc"
-							class="mono"
-							value={failed('save') ? values.iswc : (comp.iswc ?? '')}
-							placeholder="T-123.456.789-0"
-						/>
-						<span></span>
-						<div><button class="btn primary">Save</button></div>
-					</div>
-					{#if failed('save')}
-						<div class="alert error" role="alert">{errorText(errors)}</div>
+					<Field.Group class="gap-2.5">
+						<Field.Field orientation="responsive">
+							<Field.Label for="title">Title</Field.Label>
+							<Input
+								id="title"
+								name="title"
+								value={failed('save') ? values.title : comp.title}
+								required
+								{...invalid('title')}
+							/>
+							{#if saveError('title')}<Field.Error id="title-error"
+									>{saveError('title')}</Field.Error
+								>{/if}
+						</Field.Field>
+						<Field.Field orientation="responsive">
+							<Field.Label for="iswc">ISWC</Field.Label>
+							<Input
+								id="iswc"
+								name="iswc"
+								class="font-mono"
+								value={failed('save') ? values.iswc : (comp.iswc ?? '')}
+								placeholder="T-123.456.789-0"
+								{...invalid('iswc')}
+							/>
+							{#if saveError('iswc')}<Field.Error id="iswc-error">{saveError('iswc')}</Field.Error
+								>{/if}
+						</Field.Field>
+						<!-- Lines the button up with the controls: the 140 px label column plus the 20 px gap. -->
+						<div class="sm:pl-[160px]">
+							<Button type="submit" variant="primary">Save</Button>
+						</div>
+					</Field.Group>
+					{#if saveFormErrors.length}
+						<div class="alert error" role="alert">{saveFormErrors.join('\n')}</div>
 					{:else if ok('save')}
 						<div class="alert ok" role="status">Saved.</div>
 					{/if}
@@ -183,32 +212,44 @@
 					>
 						<div class="stack" style="gap: 8px">
 							{#each Array.from({ length: WRITER_ROWS }, (_, i) => i) as i (i)}
-								<div class="inline-form">
+								<div class="flex flex-wrap items-center gap-2">
 									<label for="writer_{i}" class="sr-only">Writer {i + 1}</label>
-									<select id="writer_{i}" name="writer_{i}" value={writerValue(i, 'writer')}>
-										<option value="">—</option>
-										{#each data.options.parties as p (p.id)}<option value={p.id}>{p.name}</option
+									<NativeSelect.Root
+										id="writer_{i}"
+										name="writer_{i}"
+										value={writerValue(i, 'writer')}
+										wrapperClass="w-[260px]"
+									>
+										<NativeSelect.Option value="">—</NativeSelect.Option>
+										{#each data.options.parties as p (p.id)}<NativeSelect.Option value={p.id}
+												>{p.name}</NativeSelect.Option
 											>{/each}
-									</select>
+									</NativeSelect.Root>
 									<label for="role_{i}" class="sr-only">Role {i + 1}</label>
-									<select id="role_{i}" name="role_{i}" value={writerValue(i, 'role')}>
-										{#each ROLES as [k, l] (k)}<option value={k}>{l}</option>{/each}
-									</select>
+									<NativeSelect.Root
+										id="role_{i}"
+										name="role_{i}"
+										value={writerValue(i, 'role')}
+										wrapperClass="w-fit"
+									>
+										{#each ROLES as [k, l] (k)}<NativeSelect.Option value={k}
+												>{l}</NativeSelect.Option
+											>{/each}
+									</NativeSelect.Root>
 									<label for="wshare_{i}" class="sr-only">Split {i + 1} (%)</label>
-									<input
+									<Input
 										id="wshare_{i}"
 										name="share_{i}"
-										class="mono"
+										class="w-[110px] font-mono"
 										inputmode="decimal"
 										placeholder="%"
 										value={writerValue(i, 'share')}
-										style="width: 110px"
 									/>
 								</div>
 							{/each}
 						</div>
 						<p class="soft">Splits replace the current ones and must total 100%.</p>
-						<div><button class="btn primary">Save writers</button></div>
+						<div><Button type="submit" variant="primary">Save writers</Button></div>
 						{#if failed('writers')}
 							<div class="alert error" role="alert">{errorText(errors)}</div>
 						{:else if ok('writers')}

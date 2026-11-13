@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button } from '#lib/components/ui/button/index.js';
+	import { Input } from '#lib/components/ui/input/index.js';
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
@@ -33,8 +35,8 @@
 	<form method="POST" class="stack">
 		<label>
 			Type <strong>{data.orgName}</strong> to confirm
-			<input name="confirm" autocomplete="off" required />
+			<Input name="confirm" autocomplete="off" required class="mt-1.5 max-w-[480px]" />
 		</label>
-		<div><button class="btn danger" disabled={data.renewing}>Close label</button></div>
+		<div><Button type="submit" variant="danger" disabled={data.renewing}>Close label</Button></div>
 	</form>
 </div>

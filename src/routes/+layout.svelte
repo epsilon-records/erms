@@ -1,11 +1,13 @@
 <script lang="ts">
 	import '../app.css';
+	import '../tailwind.css';
 	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
-	import { page } from '$app/state';
+	import { beforeNavigate, replaceState } from '$app/navigation';
+	import { navigating, page, updated } from '$app/state';
 	import { browser } from '$app/env';
 	import { PUBLIC_APP_METRICS_ENABLED } from '$app/env/public';
 	import AppMetrics from '#lib/AppMetrics.svelte';
+	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
 	import { createCollector, documentLifetime } from '#lib/app-metrics-client.js';
 	import { isMetricsOrigin } from '#lib/app-metrics-contract.js';
 	import favicon from '#lib/assets/favicon.svg';
@@ -40,6 +42,27 @@
 		}
 	});
 
+	// After a deploy, an open tab still points at JS chunks the new build no longer serves
+	// (Sentry LABELKIT-8, EPSILON-191). Once SvelteKit sees a new version, or a chunk has failed to
+	// load, the next in-app navigation becomes a full page load. A chunk that fails during a
+	// navigation sends the browser to that page with a full load. A chunk that fails while a link is
+	// only being preloaded on hover never reloads the current page, so unsaved form state survives.
+	let staleChunks = false;
+	beforeNavigate(({ willUnload, to }) => {
+		if ((updated.current || staleChunks) && !willUnload && to?.url) location.href = to.url.href;
+	});
+	onMount(() => {
+		const onPreloadError = (event: Event) => {
+			staleChunks = true;
+			const target = navigating.to?.url;
+			if (!target) return;
+			event.preventDefault();
+			location.href = target.href;
+		};
+		window.addEventListener('vite:preloadError', onPreloadError);
+		return () => window.removeEventListener('vite:preloadError', onPreloadError);
+	});
+
 	const canImport = $derived(
 		data.membership?.role === 'owner' || data.membership?.role === 'catalog_manager'
 	);
@@ -56,7 +79,8 @@
 		...(canManageMembers ? [{ href: '/members', label: 'Members' }] : []),
 		...(canManageMembers && data.plansEnabled ? [{ href: '/org/billing', label: 'Billing' }] : []),
 		...(canManageMembers ? [{ href: '/org/export', label: 'Export' }] : []),
-		...(canManageMembers ? [{ href: '/org/api-keys', label: 'API' }] : [])
+		...(canManageMembers ? [{ href: '/org/api-keys', label: 'API' }] : []),
+		...(canManageMembers ? [{ href: '/org/branding', label: 'Branding' }] : [])
 	]);
 	const isCurrent = (href: string) => page.url.pathname.startsWith(href);
 	// Per-customer branding (EPSILON-132): ERMS on erms.epsilonrecords.com, LabelKit elsewhere.
@@ -67,7 +91,7 @@
 {#if collector}<AppMetrics {collector} />{/if}
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href={data.brand?.favicon ? `/brand-icon?v=${data.brand.favicon}` : favicon} />
 	<title>{brandName}</title>
 </svelte:head>
 
@@ -99,6 +123,7 @@
 					/>
 				</form>
 			{/if}
+			<ThemeSwitch />
 			<div class="who">
 				{#if data.memberships && data.memberships.length > 1}
 					<form method="POST" action="/org" class="switch">
@@ -122,7 +147,8 @@
 		</header>
 	{/if}
 
-	<main id="content">{@render children()}</main>
+	<!-- The landing page puts #content after its own header and nav, so the skip link skips them. -->
+	<main id={page.data.landing ? undefined : 'content'}>{@render children()}</main>
 </div>
 
 <style>
@@ -163,7 +189,7 @@
 		color: var(--text-strong);
 	}
 	.slash {
-		color: var(--accent);
+		color: var(--accent-ink, var(--accent));
 	}
 	nav {
 		display: flex;
@@ -179,7 +205,7 @@
 	nav a[aria-current='page'] {
 		color: var(--text-strong);
 		font-weight: 600;
-		box-shadow: inset 0 -3px 0 var(--accent);
+		box-shadow: inset 0 -3px 0 var(--accent-ink, var(--accent));
 	}
 	.grow {
 		flex-grow: 1;
