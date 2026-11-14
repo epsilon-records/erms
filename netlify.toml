@@ -11,6 +11,11 @@
   # R2 account IDs are public endpoint identifiers, not credentials.
   SECRETS_SCAN_OMIT_KEYS = "R2_ACCOUNT_ID"
 
+# Warms the server function right after a production deploy goes live, so the first visitor
+# doesn't wait for a cold start (EPSILON-192). Runs on Netlify's onSuccess, never fails a deploy.
+[[plugins]]
+  package = "./netlify/plugins/warm-after-deploy"
+
 # Static assets don't pass through the SvelteKit server, so they get the same headers here.
 [[headers]]
   for = "/*"
