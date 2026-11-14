@@ -5,7 +5,7 @@ import {
 	hit,
 	target,
 	warm
-} from '../../../netlify/plugins/warm-after-deploy/index.mjs';
+} from '../../../netlify/plugins/warm-after-deploy/warm.mjs';
 
 const response = (status: number) =>
 	({ status, arrayBuffer: async () => new ArrayBuffer(0) }) as unknown as Response;
