@@ -41,6 +41,8 @@ paths:
       parameters: [{ $ref: '#/components/parameters/id' }]
       responses:
         '200': { description: '`{ "release": { … } }`' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
   /v1/recordings:
     get:
@@ -58,6 +60,8 @@ paths:
       parameters: [{ $ref: '#/components/parameters/id' }]
       responses:
         '200': { description: '`{ "recording": { … } }`' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
