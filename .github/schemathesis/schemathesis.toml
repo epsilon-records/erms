@@ -25,19 +25,3 @@ unexpected-methods = ["get", "put", "post", "delete", "options", "patch", "query
 [[operations]]
 include-operation-id = "getOpenapi"
 checks.response_schema_conformance.enabled = false
-
-# Known failures. Each is its own Linear issue, and the exception goes when the issue is fixed.
-# The detail operations answer 401 (and 403) like the list ones, but the spec documents only 200
-# and 404. Server errors and the other checks still run on them.
-
-# EPSILON-228
-[[operations]]
-include-path = "/v1/releases/{id}"
-include-method = "GET"
-checks.status_code_conformance.enabled = false
-
-# EPSILON-229
-[[operations]]
-include-path = "/v1/recordings/{id}"
-include-method = "GET"
-checks.status_code_conformance.enabled = false
