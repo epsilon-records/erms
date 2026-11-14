@@ -24,6 +24,13 @@
  *
  * Netlify runs scheduled functions on published deploys only, never on deploy previews, so
  * "production" is the only environment this can report from.
+ *
+ * Heartbeat: nothing else notices when this function stops running (shared 0010 says so). When
+ * UPTIME_PROBE_MONITOR_SLUG names a Sentry cron monitor, every run that gets as far as reporting
+ * also sends that monitor one `ok` check-in, so a prober that stops (no deploy, a broken schedule,
+ * a crash before probing) shows up in Sentry as a missed check-in. The check-in carries no
+ * monitor_config, so it never creates or changes a monitor: the monitor is set up in Sentry by
+ * hand, and until it exists and the variable is set, nothing is sent.
  */
 
 /** Pause before the one retry of a failed probe. */
@@ -64,6 +71,22 @@ export function extraEndpoints(env) {
 		return u.href;
 	});
 	return [...new Set(extras)].filter((url) => !ENDPOINTS.includes(url));
+}
+
+/**
+ * The Sentry cron monitor to check in to, from UPTIME_PROBE_MONITOR_SLUG, or null when unset.
+ * A slug is lowercase letters, digits, `-` and `_`; anything else throws so a typo shows in the
+ * Netlify log instead of sending check-ins nobody receives.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string | null}
+ */
+export function monitorSlug(env) {
+	const slug = (env.UPTIME_PROBE_MONITOR_SLUG ?? '').trim();
+	if (!slug) return null;
+	if (!/^[a-z0-9_-]{1,50}$/.test(slug)) {
+		throw new Error('UPTIME_PROBE_MONITOR_SLUG is not a Sentry monitor slug');
+	}
+	return slug;
 }
 
 export const TIMEOUT_MS = 10_000;
@@ -198,13 +221,63 @@ export function failureEvent(outcome, now = new Date()) {
  * @param {{ fetchImpl?: typeof fetch }} [options]
  */
 export async function sendEvent(event, dsn, { fetchImpl = fetch } = {}) {
+	await postEnvelope(
+		{ event_id: event.event_id, dsn, sent_at: new Date().toISOString() },
+		{ type: 'event' },
+		event,
+		dsn,
+		fetchImpl,
+		'event'
+	);
+	return event.event_id;
+}
+
+/**
+ * One heartbeat check-in for the prober's own cron monitor: "this run happened". No
+ * monitor_config, so Sentry never creates or reconfigures a monitor from it.
+ * @param {string} slug
+ * @param {number} durationMs how long the probes took
+ */
+export function checkIn(slug, durationMs) {
+	return {
+		check_in_id: crypto.randomUUID().replaceAll('-', ''),
+		monitor_slug: slug,
+		status: 'ok',
+		environment: ENVIRONMENT,
+		duration: durationMs / 1000
+	};
+}
+
+/**
+ * POST one check-in to Sentry as an envelope. Throws if Sentry does not accept it.
+ * @param {ReturnType<typeof checkIn>} item
+ * @param {string} dsn
+ * @param {{ fetchImpl?: typeof fetch }} [options]
+ */
+export async function sendCheckIn(item, dsn, { fetchImpl = fetch } = {}) {
+	await postEnvelope(
+		{ dsn, sent_at: new Date().toISOString() },
+		{ type: 'check_in' },
+		item,
+		dsn,
+		fetchImpl,
+		'check-in'
+	);
+	return item.check_in_id;
+}
+
+/**
+ * @param {object} header envelope header
+ * @param {{ type: string }} itemHeader
+ * @param {object} payload
+ * @param {string} dsn
+ * @param {typeof fetch} fetchImpl
+ * @param {string} what for the error message
+ */
+async function postEnvelope(header, itemHeader, payload, dsn, fetchImpl, what) {
 	const { envelopeUrl, publicKey } = parseDsn(dsn);
 	const body =
-		[
-			JSON.stringify({ event_id: event.event_id, dsn, sent_at: new Date().toISOString() }),
-			JSON.stringify({ type: 'event' }),
-			JSON.stringify(event)
-		].join('\n') + '\n';
+		[JSON.stringify(header), JSON.stringify(itemHeader), JSON.stringify(payload)].join('\n') + '\n';
 	const res = await fetchImpl(envelopeUrl, {
 		method: 'POST',
 		headers: {
@@ -214,8 +287,7 @@ export async function sendEvent(event, dsn, { fetchImpl = fetch } = {}) {
 		body,
 		signal: AbortSignal.timeout(SEND_TIMEOUT_MS)
 	});
-	if (!res.ok) throw new Error(`Sentry refused the event: HTTP ${res.status}`);
-	return event.event_id;
+	if (!res.ok) throw new Error(`Sentry refused the ${what}: HTTP ${res.status}`);
 }
 
 /**
@@ -249,19 +321,38 @@ export async function run({
 	const dsn = env.SENTRY_DSN || env.PUBLIC_SENTRY_DSN;
 	if (!dsn) throw new Error('SENTRY_DSN is required to report probe failures');
 	parseDsn(dsn);
+	const slug = monitorSlug(env);
 
 	const endpoints = [...ENDPOINTS, ...extraEndpoints(env)];
+	const started = Date.now();
 	const outcomes = await Promise.all(
 		endpoints.map((url) => probeWithRetry(url, { timeoutMs, fetchImpl, retryDelayMs }))
 	);
+	const probedMs = Date.now() - started;
 	/** @type {string[]} */
 	const reported = [];
 	/** @type {string[]} */
 	const unreported = [];
+	/** @type {string | null} */
+	let heartbeat = null;
+	// The heartbeat goes out alongside the events, not after them, so it adds nothing to the
+	// worst case. A failed check-in is logged and does not fail the run: the monitor then sees a
+	// missed check-in, which is the right signal for a prober that cannot reach Sentry.
+	const sendHeartbeat = async () => {
+		if (!slug) return;
+		try {
+			heartbeat = await sendCheckIn(checkIn(slug, probedMs), dsn, { fetchImpl });
+		} catch (e) {
+			console.error(
+				JSON.stringify({ level: 'error', msg: 'uptime probe heartbeat', sentry: String(e) })
+			);
+		}
+	};
 	// Events go out concurrently with a short timeout, so that after two probe timeouts and the
 	// pause there is still time to send and log them inside Netlify's 30 s limit.
-	await Promise.all(
-		outcomes.map(async (o) => {
+	await Promise.all([
+		sendHeartbeat(),
+		...outcomes.map(async (o) => {
 			const line = { msg: 'uptime probe', endpoint: endpointName(o.url), up: o.up, ms: o.ms };
 			if (o.up) {
 				console.log(JSON.stringify({ level: 'info', ...line, status: o.status }));
@@ -286,14 +377,14 @@ export async function run({
 				);
 			}
 		})
-	);
+	]);
 	// Promise.all keeps completion order, not endpoint order: report in endpoint order.
 	const order = (/** @type {string} */ url) => endpoints.indexOf(url);
 	reported.sort((a, b) => order(a) - order(b));
 	unreported.sort((a, b) => order(a) - order(b));
 	// A failure Sentry never heard about must not pass quietly: fail the run so Netlify logs it.
 	if (unreported.length) throw new Error(`Could not report to Sentry: ${unreported.join(', ')}`);
-	return { outcomes, reported };
+	return { outcomes, reported, heartbeat };
 }
 
 export default async () => {
