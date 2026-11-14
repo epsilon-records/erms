@@ -179,6 +179,14 @@ four above, so the failure path can be tested live with no code deploy: set it t
 answers 404, wait one run, check Sentry and the email, then delete the variable and resolve the
 test issue. Unset in normal operation.
 
+`UPTIME_PROBE_MONITOR_SLUG` (optional) is the heartbeat that watches the prober itself. Set it
+to the slug of a Sentry cron monitor in the same project, and every run sends that monitor one
+`ok` check-in alongside its events; a prober that stops running then shows as a missed check-in.
+The check-in carries no monitor configuration, so it never creates a monitor: create the monitor
+in Sentry first (schedule `*/5 * * * *`, UTC, environment `production`), then set the variable
+(scope: Functions). Unset, nothing is sent. A refused check-in is logged and does not fail the
+run.
+
 It reads `SENTRY_DSN` (or, failing that, `PUBLIC_SENTRY_DSN`) at runtime, so the variable must be
 scoped to **Functions**. Without one the run fails, and if Sentry refuses an event the run fails
 too. Either way the failure shows in the function's Netlify log, as does one JSON line per endpoint
